@@ -33,6 +33,7 @@ function churnRow(days: number, patch: Record<string, unknown> = {}) {
     },
     involuntary: 0,
     byProduct: [],
+    byReason: [],
     basis: "",
     approximate: true,
     ...patch,
@@ -224,4 +225,43 @@ test("one trial converting of one reads singular in the subtitle", () => {
   ))!;
   assert.match(p.sub!, /1 of 1 trials converted/);
   assert.match(p.sub!, /1 trial still running/);
+});
+
+/* ------------------------------- churn by reason (Baremetrics Cancellation
+   Insights, ChartMogul churn-by-reason): why the churned money left. */
+
+test("churn-by-reason card exists and stays empty without reasons", () => {
+  assert.ok(WIDGETS["stripe.churnReasons"], "catalog entry");
+  assert.equal(build("stripe.churnReasons", stripe(churnRow(30))), null);
+  assert.equal(build("stripe.churnReasons", stripe(null)), null);
+});
+
+test("reasons print human, money-first, with the involuntary tail", () => {
+  const p = build("stripe.churnReasons", {
+    window: 30,
+    ...stripe(
+      churnRow(30, {
+        churnedMrr: 70,
+        byReason: [
+          { reason: "price_increase", mrr: 50, subscriptions: 1 },
+          { reason: "payment_failed", mrr: 20, subscriptions: 2 },
+        ],
+      }),
+    ),
+  })!;
+  assert.deepEqual(p.rows, [
+    ["Price increase", "US$50/mo · 1 sub"],
+    ["Payment failed", "US$20/mo · 2 subs"],
+  ]);
+  assert.match(p.caption!, /2 reasons over US\$70 churned · 30d/);
+  assert.match(p.caption!, /2 involuntary — recoverable/);
+});
+
+test("an unstated reason is shown, never dropped", () => {
+  const p = build("stripe.churnReasons", {
+    window: 30,
+    ...stripe(churnRow(30, { churnedMrr: 40, byReason: [{ reason: "not_stated", mrr: 40, subscriptions: 1 }] })),
+  })!;
+  assert.deepEqual(p.rows, [["Reason not stated", "US$40/mo · 1 sub"]]);
+  assert.doesNotMatch(p.caption!, /involuntary/);
 });

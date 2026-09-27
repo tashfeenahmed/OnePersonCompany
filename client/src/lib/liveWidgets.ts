@@ -3159,6 +3159,49 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
+  "stripe.churnReasons": ({ stripe: S, window: W }: LiveInputs) => {
+    /*
+      WHY THE MONEY LEFT. Baremetrics sells this as Cancellation Insights and
+      ChartMogul ships churn-by-reason charts: a churn figure without a reason
+      has no action in it, and Stripe already stamps a reason on most
+      cancellations. The split comes off the churn rows the route computes, so
+      the denominators and the never-billed exclusions are already decided;
+      this card only reads them. `not_stated` stays visible — a silent drop
+      would make the rows stop summing to churned MRR without saying so.
+    */
+    const days = churnDays(W);
+    const c = churnRow(S, days);
+    if (!c || !c.byReason.length) return null;
+    const human = (reason: string) =>
+      ({
+        customer_request: "Customer asked to cancel",
+        payment_failed: "Payment failed",
+        price_increase: "Price increase",
+        unsatisfied: "Unsatisfied",
+        product_not_used: "Product not used",
+        sales_issue: "Sales issue",
+        fraud: "Fraud",
+        temporary: "Temporary",
+        other: "Other",
+        not_stated: "Reason not stated",
+      })[reason] ?? reason.replace(/_/g, " ");
+    const involuntary = c.byReason
+      .filter((r) => r.reason === "payment_failed")
+      .reduce((n, r) => n + r.subscriptions, 0);
+    return {
+      rows: c.byReason
+        .slice(0, 8)
+        .map((r): [string, string] => [
+          human(r.reason),
+          `${inCurrency(r.mrr, c.currency, 0)}/mo · ${count(r.subscriptions)} sub${r.subscriptions === 1 ? "" : "s"}`,
+        ]),
+      caption: also(
+        `${c.byReason.length} reason${c.byReason.length === 1 ? "" : "s"} over ${inCurrency(c.churnedMrr, c.currency, 0)} churned · ${isAll(W) ? "90d" : `${days}d`}`,
+        involuntary ? `${count(involuntary)} involuntary — recoverable` : "",
+      ),
+    };
+  },
+
   "stripe.atRisk": ({ stripe: S }: LiveInputs) => {
     const a = S?.atRisk;
     if (!a) return null;

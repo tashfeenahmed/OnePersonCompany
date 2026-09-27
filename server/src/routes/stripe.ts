@@ -311,6 +311,25 @@ function churnSection(subs: StripeSubscriptionRecord[], nowMs: number) {
 
       const trials = neverBilled.filter((s) => s.trial_start);
       const expired = neverBilled.filter((s) => !s.trial_start);
+      /*
+        CHURN BY REASON — what Stripe was TOLD the customer left for. Stripe
+        stamps a cancellation_details.reason on the subscription when it has
+        one (customer_request, payment_failed, price_increase, ...), and this
+        is the only place this box can see WHY money left, not just how much.
+        Baremetrics built Cancellation Insights on exactly this split, because
+        "we lost $400 this month" has no action in it and "we lost $400, all
+        of it to price_increase" has one. A null reason is its own bucket,
+        named: old cancellations predate the field and a silent drop would
+        make the rows below stop summing to churnedMrr without saying so.
+      */
+      const byReason = new Map<string, { subs: number; mrr: number }>();
+      for (const s of real) {
+        const key = s.reason ?? "not_stated";
+        const r = byReason.get(key) ?? { subs: 0, mrr: 0 };
+        r.subs += 1;
+        r.mrr += s.monthly_usd;
+        byReason.set(key, r);
+      }
       const byProduct = new Map<string, { mrr: number; subs: number }>();
       for (const s of real) {
         const p = byProduct.get(s.product ?? "Other") ?? { mrr: 0, subs: 0 };
@@ -391,6 +410,12 @@ function churnSection(subs: StripeSubscriptionRecord[], nowMs: number) {
         ).length,
         byProduct: [...byProduct.entries()]
           .map(([product, v]) => ({ product, mrr: money(v.mrr), subscriptions: v.subs }))
+          .sort((a, b) => b.mrr - a.mrr),
+        /** Why the churned subscriptions say they left, biggest first. Raw
+         *  Stripe reason strings plus `not_stated`; the sums of subs and MRR
+         *  across these rows equal `churnedSubs`/`churnedMrr` by construction. */
+        byReason: [...byReason.entries()]
+          .map(([reason, v]) => ({ reason, mrr: money(v.mrr), subscriptions: v.subs }))
           .sort((a, b) => b.mrr - a.mrr),
         basis:
           "MRR the window opened with that has since churned, over that starting book — " +

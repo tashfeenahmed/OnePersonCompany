@@ -1028,6 +1028,10 @@ export type StripeReport = {
     >;
     involuntary: number;
     byProduct: { product: string; mrr: number; subscriptions: number }[];
+    /** Why the churned subscriptions say they left (Stripe's
+     *  cancellation_details.reason, raw strings; `not_stated` when Stripe was
+     *  never told). Biggest first; sums to `churnedSubs`/`churnedMrr`. */
+    byReason: { reason: string; mrr: number; subscriptions: number }[];
     basis: string;
     approximate: boolean;
   }[];
