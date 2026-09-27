@@ -186,11 +186,9 @@ function VentureRail({ output }: { output: OutputDef }) {
       onClick={(e) => (key === ALL || key === NONE ? pick.clear() : pick.click(e, key))}
       onKeyDown={(e) => {
         if (key === ALL || key === NONE) return;
-        pick.noScroll(e);
         pick.key(e, key);
       }}
       aria-describedby={key === ALL || key === NONE ? undefined : pickHintId(output.slug)}
-      aria-pressed={key === ALL || key === NONE ? undefined : pick.has(key)}
       className={cn(
         "flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors select-none",
         pick.has(key) ? pickedRow : active ? "bg-accent text-foreground font-medium" : "hover:bg-accent hover:text-foreground",
@@ -198,6 +196,7 @@ function VentureRail({ output }: { output: OutputDef }) {
       )}
     >
       {body}
+      {key !== ALL && key !== NONE && pick.has(key) && <PickedText />}
       {count !== null && count > 0 && (
         <span className="ml-auto shrink-0 text-[12px] tabular-nums opacity-80">{count}</span>
       )}
@@ -283,6 +282,10 @@ export const pickHintId = (scope: string) => `rail-pick-hint-${scope}`;
 export const pickHintText =
   "Press Space to add or remove this from a batch run. Enter opens it as usual.";
 
+/** A picked row says so in words, inside the link, for a screen reader —
+ *  `aria-pressed` is only valid on buttons and these rows are links. */
+const PickedText = () => <span className="sr-only"> (picked)</span>;
+
 type Pick = ReturnType<typeof usePick>;
 
 /**
@@ -326,13 +329,11 @@ function usePick(scope: string) {
       e.preventDefault();
       setKeys((k) => toggle(k, key));
     },
-    /* Shift-mousedown would otherwise select the text between two rows, and
-       Space would scroll the rail out from under the focused row. */
+    /* Shift-mousedown would otherwise select the text between two rows.
+       (A picking Space is kept from scrolling by `key` above; Shift+Space is
+       not a pick and still scrolls up.) */
     noTextSelect: (e: MouseEvent) => {
       if (e.shiftKey) e.preventDefault();
-    },
-    noScroll: (e: KeyboardEvent) => {
-      if (e.key === " ") e.preventDefault();
     },
   };
 }
@@ -364,7 +365,7 @@ function RunPicked({ pick, run }: { pick: Pick; run: () => Promise<string[]> }) 
       {/* Announce the batch as it grows. Without this, toggling picks with
           the keyboard changes only colors; a screen-reader user pressing
           Space gets no confirmation anything happened. Polite so it waits
-          behind the row's own pressed-state announcement. */}
+          behind the row's own "(picked)" text. */}
       <p role="status" className="sr-only">
         {n === 0 ? "Batch cleared" : `${n} ${n === 1 ? "row" : "rows"} picked`}
       </p>
@@ -468,11 +469,9 @@ function PeopleRail() {
         onClick={(e) => (opts.pickable && key ? pick.click(e, key) : pick.clear())}
         onKeyDown={(e) => {
           if (!opts.pickable || !key) return;
-          pick.noScroll(e);
           pick.key(e, key);
         }}
         aria-describedby={opts.pickable && key ? pickHintId("dossier") : undefined}
-        aria-pressed={opts.pickable && key ? picked : undefined}
         className={cn(
           "flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors select-none",
           picked ? pickedRow : active ? "bg-accent text-foreground font-medium" : "hover:bg-accent hover:text-foreground",
@@ -480,6 +479,7 @@ function PeopleRail() {
         )}
       >
         {body}
+        {picked && <PickedText />}
         {count !== null && count > 0 && (
           <span className="ml-auto shrink-0 text-[12px] tabular-nums opacity-80">{count}</span>
         )}

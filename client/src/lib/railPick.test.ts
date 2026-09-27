@@ -48,3 +48,9 @@ test("toggle adds, removes, and keeps the order rows were picked in", () => {
   keys = toggle(keys, "b");
   assert.deepEqual(keys, []);
 });
+
+test("Shift+Space is not a pick, so the browser keeps it for scrolling up", () => {
+  /* The row handler only calls preventDefault on a "pick", so this is the
+     whole guarantee that Shift+Space is not swallowed on a focused row. */
+  assert.equal(keyAction({ key: " ", shiftKey: true }), "navigate");
+});
