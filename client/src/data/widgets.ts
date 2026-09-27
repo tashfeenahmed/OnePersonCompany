@@ -5097,20 +5097,23 @@ for (const widget of Object.values(WIDGETS)) Object.assign(widget, widgetExample
 const brief = (base: string, name: string, presentation: Widget["presentation"], span: Widget["span"], extra: Partial<Widget> = {}): Widget => ({
   ...WIDGETS[base]!, name, presentation, span, ...extra,
 });
+/** A money card on the overview also reads the finance report, for the display
+ *  currency chosen on Settings → General and the rates into it. */
+const inDisplay = (base: string): Partial<Widget> => ({ live: { ...WIDGETS[base]!.live, finance: true } });
 Object.assign(WIDGETS, {
   "brief.arr": brief("revenue.combined", "Combined ARR", "arr", 4),
-  "brief.net": brief("stripe.net30", "Net collected", "summary", 4, { kind: "proportion" }),
+  "brief.net": brief("stripe.net30", "Net collected", "summary", 4, { kind: "proportion", ...inDisplay("stripe.net30") }),
   "brief.views": brief("umami.pageviews", "Views", "summary", 4, { kind: "proportion", window: undefined }),
-  "brief.mrrInsight": brief("payments.movement", "Subscription momentum", "insight", 4),
-  "brief.paceInsight": brief("payments.daily", "Collection pace", "insight", 4),
+  "brief.mrrInsight": brief("payments.movement", "Subscription momentum", "insight", 4, inDisplay("payments.movement")),
+  "brief.paceInsight": brief("payments.daily", "Collection pace", "insight", 4, inDisplay("payments.daily")),
   "brief.trafficInsight": brief("umami.pageviews", "Traffic concentration", "insight", 4, { window: undefined }),
   "brief.figures": brief("stripe.subs", "More figures", "figures", 12, { kind: "profile", live: { stripe: true, gsc: true, users: true } }),
-  "brief.collections": brief("payments.daily", "Daily gross charges, Stripe", "workdash", 12, { section: "Revenue" }),
+  "brief.collections": brief("payments.daily", "Daily gross charges, Stripe", "workdash", 12, { section: "Revenue", ...inDisplay("payments.daily") }),
   "brief.movement": brief("payments.movement", "MRR movement", "workdash", 5),
   "brief.expenses": brief("finance.groups", "Where the money goes", "workdash", 7),
   "brief.traffic": brief("umami.sites", "Traffic · visitors and views", "workdash", 12, { kind: "dumbbell", section: "Audience" }),
   "brief.fleet": brief("fleet.disk", "Fleet health", "workdash", 7, { section: "Operations" }),
-  "brief.play": brief("play.apps", "Google Play · payout by app", "workdash", 5, { kind: "ranked" }),
+  "brief.play": brief("play.apps", "Google Play · payout by app", "workdash", 5, { kind: "ranked", ...inDisplay("play.apps") }),
   "brief.attention": brief("overview.attention", "Needs attention", "workdash", 12),
   "brief.projects": brief("overview.shots", "Projects", "workdash", 12, { section: "Portfolio", live: { capture: true, profit: true, umami: true } }),
   "brief.margin": brief("overview.margin", "Portfolio margin", "workdash", 12),
