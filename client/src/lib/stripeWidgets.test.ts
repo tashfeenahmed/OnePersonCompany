@@ -153,3 +153,58 @@ test("several currencies are counted apart, not blended", () => {
   }))!;
   assert.match(p.sub!, /2 currencies counted apart/);
 });
+
+/* ---- stripe.trialConversion: did the product survive the free look? ---- */
+
+const trialConversionDoc = (row: Record<string, unknown> | null, inFlight = 0) => ({
+  stripe: {
+    trialConversion: {
+      inFlight,
+      windows: row ? [row] : [],
+      basis: "",
+    },
+  },
+});
+
+test("trial-conversion card exists and needs the document", () => {
+  assert.ok(WIDGETS["stripe.trialConversion"], "catalog entry");
+  assert.equal(build("stripe.trialConversion", { stripe: null }), null);
+});
+
+test("a converting window reads as a rate with its cohort under it", () => {
+  const p = build("stripe.trialConversion", trialConversionDoc(
+    { days: 30, currency: "USD", cohort: 10, converted: 6, neverPaid: 4, ratePct: 60, convertedMrr: 120 },
+    3,
+  ))!;
+  assert.equal(p.value, "60%");
+  assert.equal(p.tone, "ok");
+  assert.match(p.sub!, /6 of 10 trials converted/);
+  assert.match(p.sub!, /3 trials still running/);
+});
+
+test("a weak conversion rate turns red; a middling one warns", () => {
+  const weak = build("stripe.trialConversion", trialConversionDoc(
+    { days: 30, currency: "USD", cohort: 10, converted: 1, neverPaid: 9, ratePct: 10, convertedMrr: 20 },
+  ))!;
+  assert.equal(weak.tone, "bad");
+  const mid = build("stripe.trialConversion", trialConversionDoc(
+    { days: 30, currency: "USD", cohort: 10, converted: 3, neverPaid: 7, ratePct: 30, convertedMrr: 60 },
+  ))!;
+  assert.equal(mid.tone, "warn");
+});
+
+test("no trial ended in the window: an em dash, and the running trials are said", () => {
+  const p = build("stripe.trialConversion", trialConversionDoc(null, 4))!;
+  assert.equal(p.value, "—");
+  assert.match(p.sub!, /no trials ended in the window/);
+  assert.match(p.sub!, /4 still running/);
+});
+
+test("one trial converting of one reads singular in the subtitle", () => {
+  const p = build("stripe.trialConversion", trialConversionDoc(
+    { days: 30, currency: "USD", cohort: 1, converted: 1, neverPaid: 0, ratePct: 100, convertedMrr: 20 },
+    1,
+  ))!;
+  assert.match(p.sub!, /1 of 1 trials converted/);
+  assert.match(p.sub!, /1 trial still running/);
+});

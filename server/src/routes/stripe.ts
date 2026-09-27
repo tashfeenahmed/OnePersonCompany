@@ -188,6 +188,72 @@ function mrrSection(subs: StripeSubscriptionRecord[]) {
  * invoice list must never quietly reclassify a real loss as a trial and
  * flatter the retention story.
  */
+/**
+ * TRIAL → PAID CONVERSION, per window and currency.
+ *
+ * ChartMogul and Baremetrics both publish trial conversion as a first-class
+ * figure, because it is the clearest read on whether the product is worth
+ * paying for once the free look is over — the number that tells you whether
+ * acquisition spend is buying customers or tourists.
+ *
+ * THE COHORT is trials whose trial period ENDED inside the window (trial_end
+ * is set and falls in the window; a trial still running belongs to no window
+ * yet). Each cohort member is judged by the same rule churnSection uses:
+ * `paid_cents === 0` is a CONFIRMED zero — the only thing that says "never
+ * paid" — while `null` means "not asked yet" and counts as paid, exactly as
+ * it does for churn, so the two sections can never disagree about the same
+ * subscription.
+ *
+ * Conversions are attributed to the window in which the TRIAL ENDED, not to
+ * when payment happened: a trial that ended 28 days ago and only got a card
+ * this week is this window's answer about the product, and counting it
+ * elsewhere would move the number with billing dates rather than decisions.
+ */
+function trialConversionSection(subs: StripeSubscriptionRecord[], nowMs: number) {
+  const trialing = subs.filter((s) => s.trial_start && s.trial_end);
+  const currencies = [...new Set(trialing.map((s) => currencyCode(s.currency)))].sort();
+  const rows = [];
+  for (const days of WINDOWS) {
+    const from = nowMs - days * 86_400_000;
+    for (const currency of currencies) {
+      const cohort = trialing.filter(
+        (s) =>
+          currencyCode(s.currency) === currency &&
+          Date.parse(s.trial_end!) <= nowMs &&
+          Date.parse(s.trial_end!) > from,
+      );
+      if (!cohort.length) continue;
+      const never = cohort.filter((s) => s.paid_cents === 0);
+      const converted = cohort.length - never.length;
+      rows.push({
+        days,
+        currency,
+        cohort: cohort.length,
+        converted,
+        neverPaid: never.length,
+        /** Percentage of trials that ended in the window and turned into a
+         *  paying subscription. null would mean an empty cohort, and empty
+         *  cohorts are skipped above, so this is always a real rate. */
+        ratePct: Number(((converted / cohort.length) * 100).toFixed(1)),
+        /** Monthly value of the converted side: what the window's trials are
+         *  adding to MRR, per the same normalisation MRR itself uses. */
+        convertedMrr: money(cohort.reduce((n, s) => (s.paid_cents === 0 ? n : n + s.monthly_usd), 0)),
+      });
+    }
+  }
+  return {
+    /** Trials running right now: in no cohort yet. Their verdict lands in a
+     *  later window, which is why the newest window reads small most weeks. */
+    inFlight: subs.filter((s) => s.status === "trialing").length,
+    windows: rows,
+    basis:
+      "Trials whose trial period ENDED inside the window, judged by the same " +
+      "confirmed-zero rule as churn: a cancellation that never collected a " +
+      "payment is a non-conversion; everything else counts as converted. " +
+      "Attributed to the trial, not to the charge date.",
+  };
+}
+
 function churnSection(subs: StripeSubscriptionRecord[], nowMs: number) {
   const billing = subs.filter((s) => isBilling(s.status));
   const currencies = [
@@ -642,6 +708,7 @@ stripeRoutes.get("/", (c) => {
           "recovery email is fighting for.",
       };
     })(),
+    trialConversion: trialConversionSection(subs, nowMs),
     churn: churnSection(subs, nowMs),
     ...ventureSection(days),
     revenue: revenueSection(days, nowMs),

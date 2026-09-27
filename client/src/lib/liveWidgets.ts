@@ -3209,6 +3209,41 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
+  "stripe.trialConversion": ({ stripe: S, window: W }: LiveInputs) => {
+    const tc = S?.trialConversion;
+    if (!tc) return null;
+    /*
+      WHETHER THE PRODUCT SURVIVES THE FREE LOOK. ChartMogul and Baremetrics
+      publish trial conversion as its own tile: acquisition spend buys either
+      customers or tourists, and this is the number that says which. The
+      cohort is trials that ENDED inside the selected window — a trial still
+      running has no verdict yet and is counted in the subtitle instead, so
+      the rate never moves with billing dates.
+    */
+    const row = tc.windows.find(
+      (r) => r.days === (W === "all" ? 90 : W ?? 30),
+    ) ?? tc.windows.find((r) => r.days === 30) ?? null;
+    if (!row)
+      return {
+        value: "—",
+        tone: undefined,
+        sub: also(
+          tc.inFlight
+            ? `no trials ended in the window · ${count(tc.inFlight)} still running`
+            : "no trials ended in the window",
+          tc.inFlight ? "" : "or running",
+        ),
+      };
+    return {
+      value: `${row.ratePct.toFixed(0)}%`,
+      tone: row.ratePct >= 40 ? ("ok" as StatusTone) : row.ratePct >= 20 ? ("warn" as StatusTone) : ("bad" as StatusTone),
+      sub: also(
+        `${count(row.converted)} of ${count(row.cohort)} trials converted`,
+        tc.inFlight ? `${count(tc.inFlight)} trial${tc.inFlight === 1 ? "" : "s"} still running` : "",
+      ),
+    };
+  },
+
   "stripe.declines": ({ stripe: S, window: W }: LiveInputs) => {
     const c = firstCurrency(S?.charges);
     if (!c) return null;
