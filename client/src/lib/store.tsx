@@ -719,6 +719,12 @@ const SEED: StoreState = {
         { id: "py16", type: "payments.disputes", w: 2 },
         { id: "py17", type: "stripe.payouts", w: 1 },
         { id: "py18", type: "stripe.pending", w: 1 },
+        /* AT-RISK MRR beside the cancellations still billing: the two ways a
+           subscription on the book is not money yet — one the customer's
+           decision, the other a card that bounced. Starter layout
+           only: saved boards are the owner's (see `migrateWorkspace`), so an
+           existing Payments board gets it from the widget picker. */
+        { id: "py27", type: "stripe.atRisk", w: 1 },
         { id: "py8", type: "stripe.churn", w: 1 },
         { id: "py10", type: "stripe.fees", w: 2 },
         { id: "py15", type: "stripe.declines", w: 2 },

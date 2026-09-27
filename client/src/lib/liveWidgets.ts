@@ -3085,7 +3085,7 @@ Object.assign(LIVE_BUILDERS, {
     const a = S?.atRisk;
     if (!a) return null;
     /*
-      THE PREVENTABLE HALF OF FUTURE CHARTS. `stripe.pending` is somebody's
+      THE PREVENTABLE HALF OF FUTURE CHURN. `stripe.pending` is somebody's
       DECISION and the play there is a save offer at most; this is a card that
       was billed and bounced — the contract exists, the money is contracted,
       and a recovery email or a fixed card saves it outright. ChartMogul,
