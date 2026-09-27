@@ -87,10 +87,9 @@ export const manifest: IntegrationManifest = {
         display_currency: {
           label: "Display currency",
           hint:
-            "Optional, and empty is the honest default. Every total in this area is reported PER CURRENCY and " +
-            "nothing adds them; set a three-letter code here and one extra, clearly approximate, converted " +
-            "figure becomes available beside them — using only the rates you type below. Leave it empty and " +
-            "there is no combined figure anywhere, which is the safer state.",
+            "The currency every combined figure is drawn in — Combined ARR, revenue by source, costs and margin. " +
+            "Empty means USD. Also set on Settings → General. Other currencies are converted at the rates below, " +
+            "or the day's reference rate, and every converted figure wears ≈.",
           ph: "USD",
           check(value) {
             const v = value.trim();
