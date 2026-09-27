@@ -15,7 +15,7 @@
 export type InboxCounts = {
   /** Rows the server reported, before the page's own search and filter. */
   total: number;
-  /** Rows the page has resolved or snoozed since the last load. */
+  /** Rows out of `total` the page has resolved or snoozed since the last load. */
   handled: number;
   /** Whether a search string or a source filter is narrowing the list. */
   filtered: boolean;
@@ -38,5 +38,12 @@ export type InboxEmpty =
 export function inboxEmpty(visible: number, counts: InboxCounts): InboxEmpty {
   if (visible > 0) return { kind: "list" };
   if (counts.total === 0 && counts.handled === 0) return { kind: "clear" };
-  return { kind: "view-empty", hidden: Math.max(0, counts.total - visible) };
+  /* WHAT "HIDDEN" COUNTS DEPENDS ON WHY THE VIEW IS EMPTY. Under a search or
+     filter the sentence is "N are hidden by your filters", so rows already
+     handled from this screen are not in N — clearing the filter would not
+     bring them back. With no filter, nothing is hiding anything and N is the
+     rows the owner handled. */
+  const outOfView = counts.total - visible;
+  const hidden = counts.filtered ? outOfView - counts.handled : outOfView;
+  return { kind: "view-empty", hidden: Math.max(0, hidden) };
 }

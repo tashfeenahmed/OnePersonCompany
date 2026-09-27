@@ -26,3 +26,11 @@ test("clearing the inbox from this screen still knows rows existed", () => {
 test("hidden never goes negative even if the page's handled set races the load", () => {
   assert.deepEqual(inboxEmpty(0, { total: 1, handled: 3, filtered: false }), { kind: "view-empty", hidden: 1 });
 });
+
+test("a filter's hidden count leaves out rows already handled from this screen", () => {
+  /* 7 rows came in, 2 were resolved or snoozed here, and the filter hides the
+     other 5. Clearing the filter brings back 5, so the sentence says 5. */
+  assert.deepEqual(inboxEmpty(0, { total: 7, handled: 2, filtered: true }), { kind: "view-empty", hidden: 5 });
+  /* Every row handled and a filter still typed: the filter hides nothing. */
+  assert.deepEqual(inboxEmpty(0, { total: 4, handled: 4, filtered: true }), { kind: "view-empty", hidden: 0 });
+});

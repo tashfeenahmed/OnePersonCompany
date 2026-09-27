@@ -29,7 +29,7 @@ export function ActionInbox() {
   /* Which empty the page is in, decided by the tested helper: "every source
      is clear" and "your own view hides everything" read the same and are not
      the same fact. */
-  const empty = inboxEmpty(items.length, { total: data?.items.length ?? 0, handled: undo.handled.size, filtered: !!query || !!source });
+  const empty = inboxEmpty(items.length, { total: data?.items.length ?? 0, handled: data?.items.filter(i => undo.handled.has(i.id)).length ?? 0, filtered: !!query || !!source });
   return <><TopBar label="Action inbox" /><PageShell title="Action inbox" sub="Alerts, replies, commitments, failed jobs and payment issues, ordered by urgency.">
     <div className="flex flex-wrap gap-2 mb-4"><input aria-label="Search action inbox" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search actions…" className="border rounded p-2" /><SelectField aria-label="Filter by source" value={source} onValueChange={(value) => setSource(value)} className="border rounded p-2"><SelectOption value="">All sources</SelectOption>{["Alert", "Email", "Commitment", "Failed job", "Revenue"].map(s => <SelectOption key={s} value={s}>{s}</SelectOption>)}</SelectField><button className="rounded-lg px-3.5 bg-muted hover:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_6%)] transition-colors disabled:opacity-50" disabled={loading} onClick={reload}>Refresh</button></div>
     {(error || note) && <p role="status" className="mb-3 text-sm">{error || note}</p>}
