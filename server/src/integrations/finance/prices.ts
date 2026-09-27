@@ -32,6 +32,13 @@ const FRESH_MS = 20 * 60 * 60 * 1000;
 const ECB_URL = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml";
 const ECB_TIMEOUT_MS = 20_000;
 const ECB_BASE = "EUR";
+/* THE ECB PUBLISHES ~30 CURRENCIES AND THE APP STORES PAY IN MANY MORE.
+   Rubles (dropped by the ECB in 2022), rupees' neighbours, dirhams and pesos
+   all arrive in Apple's sales report, and a currency with no rate is left out
+   of every converted total. This free, keyless feed (same EUR base) fills in
+   ONLY the currencies the ECB file lacks — the ECB stays the answer for every
+   pair it publishes. */
+const FALLBACK_URL = "https://open.er-api.com/v6/latest/EUR";
 
 /* ------------------------------------------------------------ registrar */
 
@@ -219,10 +226,37 @@ export function crossRate(ref: ReferenceRates | null, from: string, to: string):
   return b / a;
 }
 
-/** Fetch the ECB file if the cached one is a day old. Never throws. */
+/**
+ * Rates per euro from the fallback feed, or {} on any failure — the ECB file
+ * alone is still a good answer, so a fallback outage is never an error.
+ */
+export function parseFallback(body: unknown): Record<string, number> {
+  const rates = (body as { base_code?: string; rates?: Record<string, unknown> } | null)?.rates;
+  if ((body as { base_code?: string })?.base_code !== ECB_BASE || !rates) return {};
+  const out: Record<string, number> = {};
+  for (const [code, rate] of Object.entries(rates))
+    if (/^[A-Z]{3}$/.test(code) && typeof rate === "number" && Number.isFinite(rate) && rate > 0) out[code] = rate;
+  return out;
+}
+
+async function fallbackRates(): Promise<Record<string, number>> {
+  try {
+    const res = await fetch(FALLBACK_URL, {
+      headers: { Accept: "application/json", "User-Agent": "onepersoncompany-finance" },
+      signal: AbortSignal.timeout(ECB_TIMEOUT_MS),
+    });
+    return res.ok ? parseFallback(await res.json()) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Fetch the ECB file if the cached one is a day old. Never throws.
+ *  A cache written before the fallback existed (no RUB in it) is refetched
+ *  once, so the currencies the ECB lacks appear without waiting a day. */
 export async function refreshReferenceRates(): Promise<RefreshOutcome> {
   const have = referenceRates();
-  if (have && freshEnough(have.fetchedAt))
+  if (have && freshEnough(have.fetchedAt) && "RUB" in have.rates)
     return { skipped: true, rows: Object.keys(have.rates).length, error: null };
   try {
     const res = await fetch(ECB_URL, {
@@ -231,6 +265,8 @@ export async function refreshReferenceRates(): Promise<RefreshOutcome> {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const parsed = parseEcb(await res.text());
+    for (const [code, rate] of Object.entries(await fallbackRates()))
+      if (code !== ECB_BASE && !(code in parsed.rates)) parsed.rates[code] = rate;
     return { skipped: false, rows: storeReferenceRates(parsed), error: null };
   } catch (err) {
     return {
