@@ -27,7 +27,7 @@ import { db } from "../db.ts";
 import { runThreadPage } from "../integrations/subagents/store.ts";
 
 export type FindHit = {
-  group: "chat" | "card" | "report" | "venture";
+  group: "chat" | "card" | "report" | "venture" | "person";
   /** Stable within a group, so the page can key a row on it. */
   id: string;
   title: string;
@@ -188,6 +188,29 @@ function findVentures(words: string[]): FindHit[] {
   }));
 }
 
+/** A watched person — the watchlist ⌘K could not reach. A dossier is filed
+ *  per person, so a hit lands on that person's dossiers, exactly where the
+ *  people rail in pages/Outputs.tsx navigates. Matches on what the owner
+ *  typed about them: the identity lines and the note, not what a dossier
+ *  collected about them (a report match already surfaces that). */
+function findPeople(words: string[]): FindHit[] {
+  const where = allWords(["name", "company", "role", "email", "note"], words);
+  const rows = db.prepare(
+    `SELECT id, name, company, role, note, updated_at FROM people_watch WHERE ${where.sql} ORDER BY updated_at DESC LIMIT ${PER_GROUP}`,
+  ).all(...where.params) as unknown as { id: string; name: string; company: string; role: string; note: string; updated_at: string }[];
+  return titleFirst(rows.map((row) => ({ ...row, title: row.name })), words).map((row) => ({
+    group: "person" as const,
+    id: row.id,
+    title: row.name,
+    snippet: has(row.name, words)
+      ? null
+      : snippetAround([row.company, row.role, row.note].filter(Boolean).join(" · "), words),
+    to: `/outputs/dossier?person=${encodeURIComponent(row.id)}`,
+    ventureId: null,
+    at: row.updated_at,
+  }));
+}
+
 /** A match in the name outranks a match in the text; the order within each
  *  half is the query's own, which is newest first. */
 function titleFirst<T extends { title: string }>(rows: T[], words: string[]): T[] {
@@ -202,6 +225,6 @@ findRoutes.get("/", (c) => {
   if (!words.length || q.length < 2) return c.json({ q, hits: [] });
   return c.json({
     q,
-    hits: [...findVentures(words), ...findChats(words), ...findCards(words), ...findReports(words)],
+    hits: [...findVentures(words), ...findPeople(words), ...findChats(words), ...findCards(words), ...findReports(words)],
   });
 });
