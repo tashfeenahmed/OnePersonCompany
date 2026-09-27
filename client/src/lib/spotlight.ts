@@ -12,7 +12,7 @@
  */
 import type { FindHit } from "@/lib/api/find";
 
-export type SpotlightGroup = "Actions" | "Pages" | "Ventures" | "Dashboards" | "Chats" | "Cards" | "Reports";
+export type SpotlightGroup = "Actions" | "Pages" | "Ventures" | "Dashboards" | "Chats" | "Cards" | "Reports" | "People";
 
 export type SpotlightItem = {
   key: string;
@@ -35,7 +35,7 @@ export type SpotlightSources = {
   sessions: { id: string; title: string; ventureId?: string | null; children?: { runId?: string; id: string; title: string; to?: string }[] }[];
 };
 
-export const GROUP_ORDER: SpotlightGroup[] = ["Actions", "Pages", "Ventures", "Dashboards", "Chats", "Cards", "Reports"];
+export const GROUP_ORDER: SpotlightGroup[] = ["Actions", "Pages", "Ventures", "Dashboards", "Chats", "Cards", "Reports", "People"];
 const PER_GROUP = 6;
 const RECENT_CHATS = 5;
 
@@ -119,8 +119,8 @@ export function localItems(query: string, sources: SpotlightSources): SpotlightI
  */
 export function mergeItems(local: SpotlightItem[], hits: FindHit[], sources: SpotlightSources): SpotlightItem[] {
   const ventureName = (id?: string | null) => sources.ventures.find(v => v.id === id)?.name;
-  const group: Record<FindHit["group"], SpotlightGroup> = { chat: "Chats", card: "Cards", report: "Reports", venture: "Ventures" };
-  const icon: Record<FindHit["group"], string | undefined> = { chat: "/chat", card: "/board", report: "/outputs", venture: undefined };
+  const group: Record<FindHit["group"], SpotlightGroup> = { chat: "Chats", card: "Cards", report: "Reports", venture: "Ventures", person: "People" };
+  const icon: Record<FindHit["group"], string | undefined> = { chat: "/chat", card: "/board", report: "/outputs", venture: undefined, person: "/outputs" };
   const items = [...local];
   for (const hit of hits) {
     const key = `${hit.group}:${hit.id}`;
