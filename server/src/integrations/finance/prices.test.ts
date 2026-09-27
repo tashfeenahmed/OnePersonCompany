@@ -6,7 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { db, insertAccount, replaceDomains, upsertPlugin } from "../../db.ts";
 import { parsePriceList } from "../../providers/dynadot.ts";
-import { crossRate, parseEcb, referenceRates, storeReferenceRates, storeTldPrices, tldCandidates, tldPrice } from "./prices.ts";
+import { crossRate, parseEcb, parseFallback, referenceRates, storeReferenceRates, storeTldPrices, tldCandidates, tldPrice } from "./prices.ts";
 import { seedDomains, type ExpenseRow } from "./expenses.ts";
 import { convert, emptyTotals, addTo } from "./money.ts";
 
@@ -107,4 +107,10 @@ test("a converted total says which rate it used", () => {
   const typed = convert(totals, "USD", [{ from: "EUR", to: "USD", rate: 1.1, asOf: null, source: "typed" }]);
   assert.ok(typed && "note" in typed);
   assert.match(typed.note, /typed on the Finance integration's page, not a rate fetched/);
+});
+
+test("the fallback feed is read only when it is euro-based, and junk rates are dropped", () => {
+  assert.deepEqual(parseFallback({ base_code: "EUR", rates: { RUB: 96.2, PKR: 331, bad: 1, NEG: -1, NAN: "x" } }), { RUB: 96.2, PKR: 331 });
+  assert.deepEqual(parseFallback({ base_code: "USD", rates: { RUB: 90 } }), {});
+  assert.deepEqual(parseFallback(null), {});
 });

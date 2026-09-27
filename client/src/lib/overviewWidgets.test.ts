@@ -42,7 +42,33 @@ test("unlike Play payout currencies never share a ranked bar scale",()=>{
   const p=build("brief.play",{mobile:{play:{connected:true,packages:[{package:"com.one.app",payout:[{amount:20,currency:"USD"},{amount:30,currency:"EUR"}]}]}}})!;
   assert.deepEqual(p.ranked,[]);
   assert.equal(p.rows?.length,2);
-  assert.match(p.caption!,/original currencies/);
+  assert.match(p.caption!,/EUR could not be priced in USD/);
+});
+
+/* THE OVERVIEW SPEAKS THE CURRENCY CHOSEN ON SETTINGS → GENERAL. */
+const fx={summary:{fx:{displayCurrency:"USD",rates:[],errors:[],reference:{base:"EUR",asOf:"2026-09-25",fetchedAt:"",rates:{USD:1.1,RUB:100,INR:95}}}}};
+const appleInRubles={connected:true,payout:{months:[]},estimated:{months:[{month:"2026-08",currencies:[{currency:"RUB",amount:2054.1},{currency:"USD",amount:126}]}]}};
+test("combined ARR is in the display currency, not whichever currency has the biggest number",()=>{
+  const p=build("brief.arr",{mobile:{appstore:appleInRubles,play:{connected:false}},finance:fx})!;
+  assert.match(p.value!,/^≈(US)?\$/);
+  assert.doesNotMatch(p.value!,/RUB/);
+  const monthly=2054.1*1.1/100+126;
+  assert.ok(Math.abs(p.parts![0]!.value-monthly)<1e-9);
+});
+test("combined ARR defaults to USD before finance has loaded",()=>{
+  const p=build("brief.arr",{mobile:{appstore:appleInRubles,play:{connected:false}}})!;
+  assert.match(p.value!,/\$/);
+  assert.match(p.caption!,/RUB could be priced by neither/);
+});
+test("combined ARR follows a chosen display currency",()=>{
+  const p=build("brief.arr",{mobile:{appstore:appleInRubles,play:{connected:false}},finance:{summary:{fx:{...fx.summary.fx,displayCurrency:"EUR"}}}})!;
+  assert.match(p.value!,/^≈€/);
+});
+test("Play payouts convert into the display currency and share one scale",()=>{
+  const p=build("brief.play",{finance:fx,mobile:{play:{connected:true,packages:[{package:"com.one.app",payout:[{amount:20,currency:"USD"},{amount:30,currency:"EUR"}]}]}}})!;
+  assert.equal(p.ranked?.length,2);
+  assert.ok(Math.abs(p.ranked![0]!.value-33)<1e-9);
+  assert.match(p.caption!,/Converted into USD/);
 });
 test("a resized third-width card persists through the shared workspace contract",()=>{
   const def=WIDGETS["brief.arr"]!;

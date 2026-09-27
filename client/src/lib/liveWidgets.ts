@@ -3081,6 +3081,32 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
+  "stripe.atRisk": ({ stripe: S }: LiveInputs) => {
+    const a = S?.atRisk;
+    if (!a) return null;
+    /*
+      THE PREVENTABLE HALF OF FUTURE CHURN. `stripe.pending` is somebody's
+      DECISION and the play there is a save offer at most; this is a card that
+      was billed and bounced — the contract exists, the money is contracted,
+      and a recovery email or a fixed card saves it outright. ChartMogul,
+      ProfitWell and Baremetrics all give this its own tile for that reason.
+      Zero is not silence-worthy noise either: on a book of any size, nothing
+      past due is the good news, so the card stays on the board at zero with
+      tone ok.
+    */
+    const mrr = firstCurrency(a.mrr);
+    return {
+      value: mrr ? inCurrency(mrr.amount, mrr.currency, 0) : "—",
+      tone: a.subscriptions > 0 ? ("bad" as StatusTone) : ("ok" as StatusTone),
+      sub: also(
+        a.subscriptions
+          ? `${count(a.subscriptions)} subscription${a.subscriptions === 1 ? "" : "s"} failed to collect`
+          : "nothing past due right now",
+        mrr ? `not in MRR until it collects${a.mrr.length > 1 ? ` · ${a.mrr.length} currencies counted apart` : ""}` : "",
+      ),
+    };
+  },
+
   "stripe.pending": ({ stripe: S }: LiveInputs) => {
     const p = S?.subscriptions.pendingCancellation;
     if (!p) return null;
@@ -7092,7 +7118,13 @@ function sourceWord(e: Expense): string {
  * its own currency with no share rather than guessing.
  */
 function ringCurrency(finance: FinanceReport): string | null {
-  return finance.summary.fx.displayCurrency ?? leadCurrency(finance)?.currency ?? null;
+  return displayCurrency(finance);
+}
+
+/** The currency chosen on Settings → General. The server answers USD when
+ *  nothing is set; USD here too for the moment before finance has loaded. */
+function displayCurrency(finance: FinanceReport | null | undefined): string {
+  return (finance?.summary.fx.displayCurrency ?? "USD").toUpperCase();
 }
 function converter(finance: FinanceReport, to: string) {
   const { rates, reference } = finance.summary.fx;
@@ -12156,18 +12188,15 @@ function revenueStreams(
   return [stripe, play, app, ads];
 }
 
-/** The currency the roll-up is drawn in: the one the owner set on the Finance
- *  page, and otherwise the one carrying the largest single stream. */
+/** The currency the roll-up is drawn in: the one chosen on Settings → General
+ *  (USD when unset), and null only when no stream has any money at all.
+ *
+ *  IT USED TO BE "THE CURRENCY WITH THE LARGEST SUM", which compared raw
+ *  numbers across currencies — 2,054 RUB beat 126 USD, so the ARR tile went
+ *  rubles the day Apple's sales estimate arrived. */
 function revenueRing(streams: RevenueStream[], F: FinanceReport | null | undefined): string | null {
-  const set = F?.summary.fx.displayCurrency;
-  if (set) return set.toUpperCase();
-  const totals = new Map<string, number>();
-  for (const s of streams)
-    for (const a of s.amounts) {
-      const key = a.currency.toUpperCase();
-      totals.set(key, (totals.get(key) ?? 0) + a.amount);
-    }
-  return [...totals.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  if (!streams.some((s) => s.amounts.length)) return null;
+  return displayCurrency(F);
 }
 
 /** One stream in the ring currency, or the reason it could not be put there.
@@ -13735,7 +13764,18 @@ Object.assign(LIVE_BUILDERS, {
 
 /* WorkDash overview presentations reuse the existing accounting builders. */
 const briefBase = (key: string, d: LiveInputs) => LIVE_BUILDERS[key]?.(d) ?? null;
-const briefMoney = (d: LiveInputs) => firstCurrency(d.stripe?.charges)?.currency ?? firstCurrency(d.stripe?.revenue)?.currency ?? "USD";
+
+/* THE OVERVIEW SPEAKS ONE CURRENCY — the one chosen on Settings → General.
+   A figure in another currency is converted at the typed or reference rate
+   and wears "≈"; one no rate can price stays in its own currency, named. */
+type Shown = { amount: number; currency: string; approx: boolean; rate: number };
+function shown(d: LiveInputs, amount: number, currency: string): Shown {
+  const to = displayCurrency(d.finance);
+  const r = rateBetween(currency, to, d.finance?.summary.fx.rates ?? [], d.finance?.summary.fx.reference ?? null);
+  if (!r) return { amount, currency: currency.toUpperCase(), approx: false, rate: 1 };
+  return { amount: amount * r.rate, currency: to, approx: r.rate !== 1, rate: r.rate };
+}
+const shownText = (x: Shown, dp = 2) => `${x.approx ? "≈" : ""}${inCurrency(x.amount, x.currency, dp)}`;
 Object.assign(LIVE_BUILDERS, {
   "brief.arr": (d: LiveInputs) => {
     const p = briefBase("revenue.combined", d);
@@ -13744,18 +13784,20 @@ Object.assign(LIVE_BUILDERS, {
   "brief.net": (d: LiveInputs) => {
     const r = firstCurrency(d.stripe?.revenue);
     if (!r) return null;
-    const deductions = r.gross - r.net;
+    const net = shown(d, r.net, r.currency), gross = shown(d, r.gross, r.currency);
+    const deductions = gross.amount - net.amount;
     return {
       name: `Net collected · ${windowLabel(d.window ?? 30)}`,
-      value: inCurrency(r.net, r.currency),
-      sub: `From ${inCurrency(r.gross, r.currency, 0)} in Stripe's balance ledger, after fees, refunds, disputes and tax withheld.`,
-      parts: r.gross > 0 && r.net >= 0 && deductions >= 0 ? [
-        { label: "Taken off", value: deductions, text: inCurrency(deductions, r.currency, 0) },
-        { label: "Kept", value: r.net, text: inCurrency(r.net, r.currency, 0), tone: "ok" as const },
+      value: shownText(net),
+      sub: `From ${shownText(gross, 0)} in Stripe's balance ledger, after fees, refunds, disputes and tax withheld.`,
+      parts: gross.amount > 0 && net.amount >= 0 && deductions >= 0 ? [
+        { label: "Taken off", value: deductions, text: shownText({ ...net, amount: deductions }, 0) },
+        { label: "Kept", value: net.amount, text: shownText(net, 0), tone: "ok" as const },
       ] : [],
-      series: r.series.map(p => p.net),
-      caption: "Stripe ledger only; app-store payouts and operating expenses are separate. Currencies are never added together. " +
-        (d.stripe!.revenue.length > 1 ? `Showing ${r.currency.toUpperCase()}; other currencies are on Payments.` : ""),
+      series: r.series.map(p => p.net * net.rate),
+      caption: "Stripe ledger only; app-store payouts and operating expenses are separate. " +
+        (net.approx ? `Converted from ${r.currency.toUpperCase()} into ${net.currency}. ` : "") +
+        (d.stripe!.revenue.length > 1 ? `Showing the ${r.currency.toUpperCase()} ledger; other currencies are on Payments.` : ""),
     };
   },
   "brief.views": (d: LiveInputs) => {
@@ -13775,8 +13817,9 @@ Object.assign(LIVE_BUILDERS, {
   "brief.mrrInsight": (d: LiveInputs) => {
     const c = churnRow(d.stripe, churnDays(d.window));
     if (!c) return null;
-    return { value: `Net ${c.netMrr >= 0 ? "+" : ""}${inCurrency(c.netMrr, c.currency)} MRR in ${c.days} days`,
-      sub: `${inCurrency(c.newMrr,c.currency)} added across ${count(c.newSubs)} new subscriptions against ${inCurrency(c.churnedMrr,c.currency)} churned.`,
+    const m = (n: number) => shownText(shown(d, n, c.currency));
+    return { value: `Net ${c.netMrr >= 0 ? "+" : ""}${m(c.netMrr)} MRR in ${c.days} days`,
+      sub: `${m(c.newMrr)} added across ${count(c.newSubs)} new subscriptions against ${m(c.churnedMrr)} churned.`,
       tone: c.netMrr < 0 ? "warn" as const : "ok" as const };
   },
   "brief.paceInsight": (d: LiveInputs) => {
@@ -13785,8 +13828,9 @@ Object.assign(LIVE_BUILDERS, {
     const last = c.series.slice(-7);
     const avg = last.reduce((n,p) => n+p.gross,0)/last.length;
     const mean = c.series.reduce((n,p) => n+p.gross,0)/c.series.length;
-    return { value: `Last ${last.length} days ran ${inCurrency(avg,c.currency,0)}/day gross`,
-      sub: `${mean > 0 ? (avg/mean).toFixed(1)+"×" : "Compared with"} the ${c.series.length}-day mean of ${inCurrency(mean,c.currency,0)}/day. Successful charges, not recurring revenue.` };
+    const m = (n: number) => shownText(shown(d, n, c.currency), 0);
+    return { value: `Last ${last.length} days ran ${m(avg)}/day gross`,
+      sub: `${mean > 0 ? (avg/mean).toFixed(1)+"×" : "Compared with"} the ${c.series.length}-day mean of ${m(mean)}/day. Successful charges, not recurring revenue.` };
   },
   "brief.trafficInsight": (d: LiveInputs) => {
     const U = d.umami;
@@ -13805,9 +13849,10 @@ Object.assign(LIVE_BUILDERS, {
   "brief.collections": (d: LiveInputs) => {
     const c = firstCurrency(d.stripe?.charges);
     if (!c?.series.length) return null;
-    return { name: "Daily gross charges, Stripe", currency: briefMoney(d),
-      chart: [{ label: `Gross charges · ${c.currency.toUpperCase()}`, points:c.series.map(p => ({ts:at(p.day),value:p.gross})) }],
-      value: inCurrency(c.gross,c.currency,0),
+    const g = shown(d, c.gross, c.currency);
+    return { name: "Daily gross charges, Stripe", currency: g.currency,
+      chart: [{ label: `Gross charges · ${g.currency}${g.approx ? " ≈" : ""}`, points:c.series.map(p => ({ts:at(p.day),value:p.gross * g.rate})) }],
+      value: shownText(g, 0),
       sub: `${windowLabel(d.window ?? 30)} · gross charges before refunds`,
       caption: "Dated by the charge, including one-off payments. This measures cash collected, not MRR. " + (d.stripe!.charges.length > 1 ? `Showing ${c.currency.toUpperCase()}; other currencies stay separate on Payments.` : ""),
     };
@@ -13841,12 +13886,15 @@ Object.assign(LIVE_BUILDERS, {
   "brief.play": (d: LiveInputs) => {
     const p=d.mobile?.play;
     if (!p?.connected) return null;
-    // Keep each currency named and unconverted; there is no mixed-currency total.
-    const ranked=p.packages.flatMap(pkg=>pkg.payout.map(c=>({label:`${shortPackage(pkg.package)} · ${c.currency}`,value:c.amount,text:money(c.amount,c.currency)}))).sort((a,b)=>b.value-a.value);
-    const currencies=new Set(p.packages.flatMap(pkg=>pkg.payout.map(c=>c.currency)));
-    return { ranked, caption:currencies.size > 1 ? "Payouts in their original currencies; compare figures only within the same currency." : "Reported Play payouts by app. These are settlements, not estimated buyer charges.",
+    // Each payout in the display currency; one no rate can price keeps its own and is named.
+    const to=displayCurrency(d.finance);
+    const payouts=p.packages.flatMap(pkg=>pkg.payout.map(c=>({pkg:shortPackage(pkg.package),own:c.currency.toUpperCase(),x:shown(d,c.amount,c.currency)})));
+    const ranked=payouts.map(({pkg,x})=>({label:x.currency===to?pkg:`${pkg} · ${x.currency}`,value:x.amount,text:shownText(x)})).sort((a,b)=>b.value-a.value);
+    const unpriced=new Set(payouts.filter(r=>r.x.currency!==to).map(r=>r.x.currency));
+    const converted=payouts.some(r=>r.x.approx);
+    return { ranked, caption:unpriced.size ? `${[...unpriced].join(", ")} could not be priced in ${to}, so ${unpriced.size===1?"it keeps its":"they keep their"} own currency; compare figures only within the same currency.` : `Reported Play payouts by app. These are settlements, not estimated buyer charges.${converted ? ` Converted into ${to}; ≈ marks a converted figure.` : ""}`,
       // No shared bar scale for unlike currencies.
-      ...(currencies.size > 1 ? {rows:ranked.map(r=>[r.label,r.text] as [string,string]),ranked:[]} : {}) };
+      ...(unpriced.size ? {rows:ranked.map(r=>[r.label,r.text] as [string,string]),ranked:[]} : {}) };
   },
   "brief.attention": (d: LiveInputs) => briefBase("overview.attention",d),
   "brief.projects": (d: LiveInputs) => {

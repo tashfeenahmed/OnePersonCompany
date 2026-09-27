@@ -18,6 +18,7 @@ import { Section } from "@/components/settings/Section";
 import { PaletteSettings } from "@/components/settings/PaletteSettings";
 import { BackupsSettings } from "@/components/settings/BackupsSettings";
 import { CaptureSettings } from "@/components/settings/CaptureSettings";
+import { CurrencySettings } from "@/components/settings/CurrencySettings";
 import { StudioSettings } from "@/components/settings/StudioSettings";
 import { SecuritySettings } from "@/areas/security/SecuritySettings";
 import { MigrationSettings } from "@/areas/migrate/MigrationSettings";
@@ -155,6 +156,8 @@ export function Settings() {
                 </div>
               </div>
             </Section>
+
+            <CurrencySettings />
 
             <Section
               title="New chats"

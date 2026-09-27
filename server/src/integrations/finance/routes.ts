@@ -67,8 +67,11 @@ export const financeRoutes = new Hono();
    owner saves the integration's page and a cached rate is a rate nobody can
    correct. */
 function fx() {
-  const display = (configValue(PLUGIN, "display_currency") ?? "").trim() || null;
-  const { rates: typed, errors } = parseRates(configValue(PLUGIN, "fx"), display ?? "USD");
+  /* UNSET MEANS USD, set on Settings → General. Before this, an unset
+     currency let each card pick "the currency with the biggest number" — and
+     2,054 rubles out-shouts 126 dollars, so the Overview's ARR went RUB. */
+  const display = (configValue(PLUGIN, "display_currency") ?? "").trim() || "USD";
+  const { rates: typed, errors } = parseRates(configValue(PLUGIN, "fx"), display);
   /*
     TYPED RATES FIRST, THE ECB'S FOR THE REST. A rate the owner wrote on the
     page is the last word for its pair; every currency the ledger holds that
