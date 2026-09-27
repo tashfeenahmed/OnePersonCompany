@@ -42,6 +42,29 @@ test("find reads conversations, cards, reports and ventures, and every word must
   assert.equal((await find(" ")).length, 0);
 });
 
+test("find reaches the watchlist: a watched person by name or by what was typed about them", async () => {
+  const now = new Date().toISOString();
+  const watch = db.prepare(
+    "INSERT INTO people_watch (id, name, company, role, email, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  );
+  watch.run("find-p1", "Nadia Okonkwo", "Lagos Freight", "", "", "met at the logistics dinner", now, now);
+  watch.run("find-p2", "Tomás Behan", "", "Head of Ops", "", "", now, now);
+
+  const byName = (await find("nadia")).filter((h) => h.group === "person");
+  assert.deepEqual(byName.map((h) => h.id), ["find-p1"]);
+  assert.equal(byName[0]!.title, "Nadia Okonkwo");
+  assert.equal(byName[0]!.to, "/outputs/dossier?person=find-p1", "lands on her dossiers, as the people rail does");
+  assert.equal(byName[0]!.snippet, null, "a name match needs no snippet");
+
+  const byNote = (await find("logistics dinner")).filter((h) => h.group === "person");
+  assert.deepEqual(byNote.map((h) => h.id), ["find-p1"]);
+  assert.match(byNote[0]!.snippet!, /logistics dinner/);
+
+  const byRole = (await find("behan ops")).map((h) => h.id);
+  assert.ok(byRole.includes("find-p2"), "every typed column counts");
+  assert.equal((await find("nadia flights")).filter((h) => h.group === "person").length, 0, "every word must match");
+});
+
 test("a snippet starts on a word and says when it was cut", () => {
   const text = `${"lorem ipsum ".repeat(20)}the needle is here ${"dolor sit ".repeat(30)}`;
   const snippet = snippetAround(text, ["needle"])!;
