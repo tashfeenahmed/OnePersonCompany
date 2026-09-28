@@ -680,10 +680,87 @@ boardRoutes.post("/cards/:id/move", async (c) => {
      answering it with a 400 would put an error on screen for a no-op. */
   if (before === id) return c.json(boardDoc());
 
-  const neighbours = liveCards(column.id, id);
+  if (before !== null && !liveCards(column.id, id).some((n) => n.id === before))
+    return c.json(
+      {
+        error:
+          "That card is not in that column any more — the board moved under the drag. Reload and try again.",
+      },
+      409,
+    );
+
+  tx(() => placeCard(card, column, before));
+
+  return c.json(boardDoc());
+});
+
+/**
+ * Put one card in `column`, directly above `before` (or at the foot when null).
+ * The caller has checked that `before` is a live card in that column and runs
+ * this inside `tx`. Shared by the single move and the group move, so both
+ * keep Done's stamp and the renumbering rule in exactly one place.
+ */
+function placeCard(card: CardRow, column: ColumnRow, before: number | null) {
+  const neighbours = liveCards(column.id, card.id);
   const index =
     before === null ? neighbours.length : neighbours.findIndex((n) => n.id === before);
-  if (index < 0)
+  let position = between(neighbours[index - 1], neighbours[index]);
+  if (position === null) {
+    /* The gap closed. Renumber this column and ask again — the second
+       answer cannot fail, because every neighbour is now 1000 apart. */
+    renumber(column.id);
+    const fresh = liveCards(column.id, card.id);
+    position = between(fresh[index - 1], fresh[index]) ?? endOf(column.id);
+  }
+
+  const doneAt = column.key === DONE ? (card.done_at ?? now()) : null;
+
+  db.prepare(
+    `UPDATE board_cards
+        SET column_id = ?, position = ?, done_at = ?, updated_at = ?
+      WHERE id = ?`,
+  ).run(column.id, position, doneAt, now(), card.id);
+}
+
+/**
+ * SEVERAL CARDS, ONE DROP — what a shift-click selection sends.
+ *
+ * `{ ids, columnId, before }`: the cards land in the order `ids` gives, as one
+ * block directly above `before` (or at the foot). One transaction, so a group
+ * move lands whole or not at all — a half-moved selection is a board nobody
+ * asked for. `before` may not be one of the cards being carried; the page
+ * already resolves a drop on the selection to the next card that is not in it.
+ */
+boardRoutes.post("/cards/move-many", async (c) => {
+  const body = (await c.req.json().catch(() => null)) as {
+    ids?: unknown;
+    columnId?: unknown;
+    before?: unknown;
+  } | null;
+  if (!body) return c.json({ error: "Expected a JSON body." }, 400);
+  const ids = body.ids;
+  if (!Array.isArray(ids) || !ids.length || ids.length > 500 || !ids.every((id) => Number.isInteger(id)))
+    return c.json({ error: "`ids` is a list of 1–500 card ids." }, 400);
+  if (new Set(ids).size !== ids.length) return c.json({ error: "A card can only be moved once per drop." }, 400);
+
+  const column = resolveColumn(body.columnId);
+  if (!column) return c.json({ error: "No column by that name. Send its id, or its key." }, 400);
+
+  const before = body.before === undefined || body.before === null ? null : Number(body.before);
+  if (before !== null && !Number.isInteger(before))
+    return c.json({ error: "`before` is the id of the card to land above, or null for the end." }, 400);
+  if (before !== null && ids.includes(before))
+    return c.json({ error: "`before` cannot be one of the cards being moved." }, 400);
+
+  const cards: CardRow[] = [];
+  for (const id of ids as number[]) {
+    const card = cardById(id);
+    if (!card) return c.json({ error: `No card with id ${id}.` }, 404);
+    if (card.archived_at)
+      return c.json({ error: `Card ${id} is archived. Nothing can be dropped into an archive.` }, 409);
+    cards.push(card);
+  }
+  if (before !== null && !liveCards(column.id).some((n) => n.id === before))
     return c.json(
       {
         error:
@@ -693,25 +770,8 @@ boardRoutes.post("/cards/:id/move", async (c) => {
     );
 
   tx(() => {
-    let position = between(neighbours[index - 1], neighbours[index]);
-    if (position === null) {
-      /* The gap closed. Renumber this column and ask again — the second
-         answer cannot fail, because every neighbour is now 1000 apart. */
-      renumber(column.id);
-      const fresh = liveCards(column.id, id);
-      position = between(fresh[index - 1], fresh[index]) ?? endOf(column.id);
-    }
-
-    const doneAt =
-      column.key === DONE ? (card.done_at ?? now()) : null;
-
-    db.prepare(
-      `UPDATE board_cards
-          SET column_id = ?, position = ?, done_at = ?, updated_at = ?
-        WHERE id = ?`,
-    ).run(column.id, position, doneAt, now(), id);
+    for (const card of cards) placeCard(card, column, before);
   });
-
   return c.json(boardDoc());
 });
 

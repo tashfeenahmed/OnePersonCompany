@@ -4210,6 +4210,14 @@ export const api = {
       body: JSON.stringify({ columnId, before }),
     }),
 
+  /** A shift-click selection, dropped as one block in the order `ids` gives.
+   *  One transaction on the server: the group lands whole or not at all. */
+  boardMoveCards: (ids: number[], columnId: number, before: number | null) =>
+    call<BoardDoc>(`/board/cards/move-many`, {
+      method: "POST",
+      body: JSON.stringify({ ids, columnId, before }),
+    }),
+
   /** Out of the way, not gone. It keeps its column and its place; the board
    *  stops returning it. */
   boardArchiveCard: (id: number) =>
