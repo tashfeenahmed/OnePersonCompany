@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { completedBoardMove } from "@/lib/boardCompletion";
+import { carriedCards, groupAnchor } from "@/lib/boardSelection";
 import { burstConfetti, clearConfetti } from "@/lib/confetti";
 import { Archive, ChevronDown, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -101,6 +102,12 @@ type VentureChip = PromptVenture & {
  *
  * Automatic cards arrive through the server's source adapters, with durable
  * origins. Quiet polling also picks up cards created by chat or other tabs.
+ *
+ * SHIFT-CLICK SELECTS. Shift (or Cmd/Ctrl) + click toggles a card into a
+ * selection instead of opening it; dragging any selected card carries the whole
+ * selection, in board order, as one block to the drop point — one request, one
+ * transaction (`/cards/move-many`). A plain click, Escape or a filter change
+ * clears it, so the selection never includes a card the owner cannot see.
  */
 export function Board() {
   const { state } = useStore();
@@ -117,7 +124,8 @@ export function Board() {
      "in this column, above this card" (or at the foot, when `before` is
      null) — the exact pair the move endpoint takes, so nothing has to be
      translated at the moment of the drop. */
-  const [drag, setDrag] = useState<number | null>(null);
+  const [drag, setDrag] = useState<number[] | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
   const [drop, setDrop] = useState<{ columnId: number; before: number | null } | null>(
     null,
   );
@@ -134,6 +142,27 @@ export function Board() {
   const [addingColumn, setAddingColumn] = useState(false);
   const [removingColumn, setRemovingColumn] = useState<BoardColumn | null>(null);
   const { data, error, loading, reload, mutate: writeBoard } = useBoard(drag !== null || opened !== null);
+
+  useEffect(() => {
+    if (!selected.size) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setSelected(new Set()); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected]);
+
+  /* A selection belongs to what is on screen: a new filter starts it over. */
+  function filterTo(id: string | null) {
+    setVenture(id);
+    setSelected(new Set());
+  }
+
+  function toggle(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }
 
   /* `?card=<id>` OPENS THAT CARD — it is how search lands on one. The address
      is spent as it is read: the dialog's state is `opened`, and a parameter
@@ -214,10 +243,21 @@ export function Board() {
   }
 
   async function onDrop(columnId: number, before: number | null, at: { x: number; y: number }) {
-    const id = drag;
+    const ids = drag;
     setDrag(null);
     setDrop(null);
-    if (id === null || !data) return;
+    if (ids === null || !data) return;
+    if (ids.length > 1) {
+      const anchor = groupAnchor(data, columnId, before, ids);
+      const saved = await mutate(
+        () => api.boardMoveCards(ids, columnId, anchor),
+        ids.reduce((doc, id) => applyMove(doc, id, columnId, anchor), data),
+      );
+      if (saved) setSelected(new Set());
+      if (saved && ids.some((id) => completedBoardMove(data, saved, id))) burstConfetti(at.x, at.y);
+      return;
+    }
+    const id = ids[0]!;
     /* Dropped on itself: nothing to say and nothing to send. The server
        answers this with the board unchanged, but a request for a no-op is a
        request that can fail for no reason. */
@@ -255,6 +295,8 @@ export function Board() {
   const cards = data.columns.flatMap((c) => c.cards);
   const openedCard = opened === null ? null : cards.find((c) => c.id === opened) ?? null;
   const filed = cards.filter((c) => c.ventureId && ventures.has(c.ventureId)).length;
+  const carrying = drag === null ? null : new Set(drag);
+  const selectedCount = cards.filter((c) => selected.has(c.id)).length;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -281,14 +323,14 @@ export function Board() {
         {error && <p role="status" className="mt-2 text-xs text-muted-foreground">Could not refresh. Showing your last saved board.</p>}
 
         <div id="board-venture-filters" role="group" aria-label="Filter by venture" className="mt-3.5 flex flex-wrap items-center gap-1.5">
-          <Chip active={venture === null} onClick={() => setVenture(null)}>
+          <Chip active={venture === null} onClick={() => filterTo(null)}>
             All
           </Chip>
           {visibleVentures.map((v) => (
             <Chip
               key={v.id}
               active={venture === v.id}
-              onClick={() => setVenture(venture === v.id ? null : v.id)}
+              onClick={() => filterTo(venture === v.id ? null : v.id)}
             >
               <VentureMark venture={v} size={13} />
               {v.name}
@@ -307,6 +349,21 @@ export function Board() {
             </button>
           )}
         </div>
+
+        {selectedCount > 0 && (
+          <div role="status" className="mt-3 flex items-center gap-2 text-[13px] text-muted-foreground">
+            <span>
+              {selectedCount} {selectedCount === 1 ? "card" : "cards"} selected · drag any of them to move {selectedCount === 1 ? "it" : "them all"} · Esc to clear
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="hover:text-foreground rounded-md px-1.5 py-0.5 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Clear
+            </button>
+          </div>
+        )}
 
         {/* A REFUSED WRITE SAYS SO, IN THE SERVER'S OWN WORDS. The board has
             already gone back to what it was; without this line the only
@@ -344,16 +401,26 @@ export function Board() {
                two different sentences, and only the first one is worth an
                explanation of what a board is. */
             boardEmpty={data.totals.cards === 0}
-            drag={drag}
+            drag={carrying}
+            selected={selected}
             drop={drop?.columnId === column.id ? drop.before : undefined}
-            onDragStart={setDrag}
+            onDragStart={(id) => {
+              /* Grabbing a card outside the selection moves just that card and
+                 lets the selection go, rather than moving cards not in hand. */
+              if (!selected.has(id) && selected.size) setSelected(new Set());
+              setDrag(carriedCards(data, selected, id));
+            }}
+            onToggle={toggle}
             onDragEnd={() => {
               setDrag(null);
               setDrop(null);
             }}
             onDragOver={(before) => pointAt(column.id, before)}
             onDrop={(before, at) => void onDrop(column.id, before, at)}
-            onOpen={setOpened}
+            onOpen={(id) => {
+              setSelected(new Set());
+              setOpened(id);
+            }}
             onAdd={(title) =>
               mutate(() =>
                 api.boardAddCard({
@@ -496,12 +563,14 @@ function Column({
   filter,
   boardEmpty,
   drag,
+  selected,
   drop,
   onDragStart,
   onDragEnd,
   onDragOver,
   onDrop,
   onOpen,
+  onToggle,
   onAdd,
   onRename,
   onLimit,
@@ -513,8 +582,9 @@ function Column({
   ventures: Map<string, VentureChip>;
   filter: string | null;
   boardEmpty: boolean;
-  /** The card being carried, anywhere on the board. */
-  drag: number | null;
+  /** The cards being carried, anywhere on the board — one, or a selection. */
+  drag: ReadonlySet<number> | null;
+  selected: ReadonlySet<number>;
   /** Where the line goes IN THIS LANE: above this card, at the foot when
    *  null, and nowhere at all when undefined (the drag is over another lane). */
   drop: number | null | undefined;
@@ -523,6 +593,7 @@ function Column({
   onDragOver: (before: number | null) => void;
   onDrop: (before: number | null, at: { x: number; y: number }) => void;
   onOpen: (id: number) => void;
+  onToggle: (id: number) => void;
   onAdd: (title: string) => void;
   onRename: (title: string) => void;
   onLimit: (limit: number | null) => Promise<BoardDoc | null>;
@@ -557,11 +628,11 @@ function Column({
   const showMore = () => setVisibleLimit(Math.min(shown.length, visibleLimit + COLUMN_PAGE_SIZE));
 
   /** The next matching card, including the next page, anchors a drop below
-   *  this card. Skip the dragged card because it is leaving its old position. */
+   *  this card. Skip the dragged cards because they are leaving their places. */
   function after(index: number): number | null {
     for (let i = index + 1; i < shown.length; i++) {
       const next = shown[i]!;
-      if (next.id !== drag) return next.id;
+      if (!drag?.has(next.id)) return next.id;
     }
     return null;
   }
@@ -684,8 +755,10 @@ function Column({
             <CardTile
               card={card}
               venture={card.ventureId ? ventures.get(card.ventureId) : undefined}
-              dragging={drag === card.id}
+              dragging={!!drag?.has(card.id)}
+              selected={selected.has(card.id)}
               onOpen={() => onOpen(card.id)}
+              onToggle={() => onToggle(card.id)}
               onDragStart={() => onDragStart(card.id)}
               onDragEnd={onDragEnd}
               onDragOver={(below) => onDragOver(below ? after(i) : card.id)}
@@ -813,7 +886,9 @@ function CardTile({
   card,
   venture,
   dragging,
+  selected,
   onOpen,
+  onToggle,
   onDragStart,
   onDragEnd,
   onDragOver,
@@ -822,7 +897,9 @@ function CardTile({
   card: BoardCard;
   venture: VentureChip | undefined;
   dragging: boolean;
+  selected: boolean;
   onOpen: () => void;
+  onToggle: () => void;
   onDragStart: () => void;
   onDragEnd: () => void;
   /** True when the pointer is in the bottom half — "below this card". */
@@ -836,7 +913,10 @@ function CardTile({
   return (
     <div
       draggable
-      onClick={onOpen}
+      aria-selected={selected}
+      onClick={(e) => (e.shiftKey || e.metaKey || e.ctrlKey ? onToggle() : onOpen())}
+      /* Shift-click would otherwise select the text between two cards. */
+      onMouseDown={(e) => e.shiftKey && e.preventDefault()}
       onDragStart={(e) => {
         /* Some browsers refuse to start a drag with an empty payload. The
            value is never read — the card being carried is state on the page,
@@ -863,6 +943,7 @@ function CardTile({
       }}
       className={cn(
         "bg-card hover:bg-card-hover my-1 cursor-grab rounded-[12px] px-3 py-2.5 transition-colors",
+        selected && "ring-primary ring-2",
         dragging && "opacity-35",
       )}
     >
