@@ -716,9 +716,18 @@ async function redditSearxngSearch(
 ): Promise<AtomHit[]> {
   const answer = await searxng.search(searx.url, searx.key, `site:reddit.com ${term}`);
   const out: AtomHit[] = [];
+  let counted = 0;
   for (const result of answer.results) {
     const matched = REDDIT_THREAD.exec(result.url);
     if (!matched) continue;
+    counted += 1;
+    /* The same matcher the Hacker News tier applies: this query is the bare
+       phrase and a web index answers it bag-of-words too, so the fallback
+       that stands in for a quoted feed query must not be looser than the
+       tier it replaces. A SearXNG row is a title and a URL — no body — so
+       the title is all there is to match, and requiring the phrase in it is
+       the honest floor for a tier that already carries no date and no score. */
+    if (!matchesPhrase(term, result.title)) continue;
     out.push({
       /* The thread's own id36, turned into Reddit's own `t3_` name — so a
          thread the feed already found is the SAME row with a new tier rather
@@ -740,8 +749,14 @@ async function redditSearxngSearch(
     both the site restriction and the query. Returning an empty list here would
     have been recorded as "asked and nobody said anything" — about a phrase
     Reddit refused and a web index never really looked for.
+
+    THE THROWS NOW COUNT WHAT THE NET COULD HAVE CAUGHT. Links that were
+    Reddit threads and got refused by the matcher are a real zero — the node
+    looked and nothing on the phrase came back — so they do not count toward
+    the refusal below; a node that returned no threads at ALL is still the
+    broken-engine case and still throws.
   */
-  if (!out.length)
+  if (!out.length && !counted)
     throw new Error(
       answer.results.length
         ? `the node answered with ${answer.results.length} links and not one was a Reddit thread — its engines are not honouring site:reddit.com`
@@ -1015,6 +1030,7 @@ export async function collectHn(
     }
 
     let kept = 0;
+    let refused = 0;
     for (const raw of doc.hits) {
       if (!raw || typeof raw !== "object") continue;
       const hit = raw as Record<string, unknown>;
@@ -1026,6 +1042,15 @@ export async function collectHn(
         (typeof hit.story_title === "string" && hit.story_title) ||
         null;
       if (!title) continue;
+      /* THE MATCHER. Algolia ranked this hit; it did not confirm the phrase,
+         and ranking is where "trending in my niche" acquired a Python
+         tutorial. A comment's own text counts, because that is where the ask
+         is and a comment's title is only its parent story's. */
+      const body = typeof hit.comment_text === "string" ? hit.comment_text : null;
+      if (!matchesPhrase(term, title, body)) {
+        refused += 1;
+        continue;
+      }
       const created =
         typeof hit.created_at_i === "number"
           ? new Date(hit.created_at_i * 1000).toISOString()
@@ -1059,9 +1084,118 @@ export async function collectHn(
       items: kept,
       error: null,
     });
+    if (refused)
+      warnings.push(
+        `${term}: dropped ${refused} Algolia hit${refused === 1 ? "" : "s"} whose title and text do not contain the phrase — the index ranks by shared words, not by the phrase`,
+      );
   }
 
   return { signals, outcomes, warnings };
+}
+
+/* ------------------------------------------------------------------ matcher */
+
+/** A phrase or a title, reduced to its lowercase alphanumeric words.
+ *  Punctuation and whitespace collapse alike, so `C++`, `c  ++`, and
+ *  `“C++”` all yield `c` — which is the point: the matcher below compares
+ *  WORDS, and a matcher that compared characters would be the substring
+ *  matcher this replaced. */
+const words = (s: string | null | undefined): string[] =>
+  (s ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+const sameWord = (a: string, b: string): boolean =>
+  a === b || `${a}s` === b || a === `${b}s`;
+
+const containsSequence = (hay: string[], needle: string[]): boolean => {
+  if (!needle.length || needle.length > hay.length) return false;
+  outer: for (let i = 0; i + needle.length <= hay.length; i++) {
+    for (let j = 0; j < needle.length; j++)
+      if (!sameWord(hay[i + j]!, needle[j]!)) continue outer;
+    return true;
+  }
+  return false;
+};
+
+/**
+ * Does this text actually talk about the watch phrase?
+ *
+ * THE BUG THIS KILLED, measured on demand run r-1edbgc: Algolia's index
+ * matches a query as a BAG OF WORDS ranked by relevance, not as a phrase, so
+ * "trending in my niche" (HN 18) was being fed by "Jev in 25 Lines of
+ * Python" and "Claude Opus 5.5" — hits sharing perhaps one word each — and
+ * "trying to conceive app" (HN 9) by "Feds Target AI Critics". Those counts
+ * were engine fuzz, not demand, and a watch list read through them was a
+ * roadmap shaped by noise. The SearXNG fallback had the same hole: its query
+ * is the bare phrase, and a web index answers bag-of-words too.
+ *
+ * WORDS ARE COMPARED WHOLE, with one mercy: a trailing plural `s` is free,
+ * because "app" and "apps", "llm" and "llms" name the same thing and the
+ * ticket's false positives share no word stem at all. It is not stem
+ * matching: `plant` and `planning`, `paint` and `painting` stay distinct.
+ *
+ * THE RULE, in order, first hit wins:
+ *   1. the whole phrase, as a run of WHOLE words, anywhere in the title —
+ *      "planning permission ireland" matches "…planning permission in
+ *      ireland…" and refuses a paint article (word boundaries and every
+ *      word being required are the whole battle);
+ *   2. every word of the phrase present as a WHOLE word in the title, in any
+ *      order — the phrase split by an inserted clause is still the phrase;
+ *   3. where a body is known (an HN comment's text, a text post's text),
+ *      either of the two in the body. Titles of comments are the PARENT
+ *      STORY's title, and the ask lives in the comment — matching only the
+ *      title would throw out the one thing HN is here for.
+ * A row that satisfies none of these is not on the phrase, whatever the
+ * engine's relevance ranking said, and it is dropped before it is written.
+ *
+ * WHY ALL WORDS AND NOT JUST THE WHOLE PHRASE: strict quoted matching at the
+ * engine was measured against this list and over-kills — "trying to conceive
+ * … looking for an app" is exactly the demand the phrase names and contains
+ * no adjacent phrase. Requiring every word, whole, drops the three false
+ * counts in the ticket while keeping that row.
+ */
+export function matchesPhrase(
+  phrase: string,
+  title: string | null,
+  body?: string | null,
+): boolean {
+  const tokens = words(phrase);
+  if (!tokens.length) return false;
+  const inTitle = words(title);
+  if (containsSequence(inTitle, tokens)) return true;
+  if (tokens.every((t) => inTitle.some((w) => sameWord(w, t)))) return true;
+  if (body) {
+    const inBody = words(body);
+    if (containsSequence(inBody, tokens)) return true;
+    if (tokens.every((t) => inBody.some((w) => sameWord(w, t)))) return true;
+  }
+  return false;
+}
+
+/** Rows the matcher would refuse today. The engines' fuzzy answers that an
+ *  earlier, looser matcher wrote to the database must not go on counting
+ *  after the fix ships: the route counts rows it holds, so tightening the
+ *  ingest without clearing the store would leave "HN 18" sitting on the card
+ *  with nothing allowed to produce it. Feed-tier Reddit rows are exempt —
+ *  that tier queries the EXACT quoted phrase (`q="…"`, see
+ *  redditFeedSearch), so a phrase absent from its title may still sit in the
+ *  post body the query searched, and no local title check can tell. */
+export function isStaleMatch(row: {
+  tier: string;
+  term: string;
+  title: string;
+  context: string | null;
+}): boolean {
+  if (row.tier !== "algolia" && row.tier !== "searxng") return false;
+  /* Comment rows matched on their body at write time; the body is not
+     stored, so on a purge their last chance is the parent title. Accepting
+     on the title is the conservative call — this pass only deletes what it
+     can positively see is off-phrase. */
+  return !matchesPhrase(row.term, row.title);
 }
 
 /* ------------------------------------------------------------------ cannot */
