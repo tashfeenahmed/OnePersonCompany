@@ -1,241 +1,210 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { CalendarOff, ChevronLeft, ChevronRight, Keyboard } from "lucide-react";
 
 import { PageShell } from "@/components/PageShell";
+import { Button } from "@/components/ui/button";
 import { useApi } from "@/hooks/useApi";
 import { reports, type CalendarEvent, type CalendarReport } from "@/lib/api/reports";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-import { Coming, DayInFull } from "./Agenda";
-import { WeekGrid, type DayColumn } from "./WeekGrid";
+import { Agenda } from "./Agenda";
+import { EventPopover, type OpenedEvent } from "./EventPopover";
+import { useWide } from "./useWide";
+import { MonthGrid } from "./MonthGrid";
+import { CalendarLegend, DaySummary, MiniMonth, UpNext } from "./Sidebar";
+import { TimeGrid, type DayColumn } from "./TimeGrid";
 import {
   addDays,
+  addMonths,
   busyMinutes,
   dayHeading,
-  dot,
+  durationLabel,
   eventDays,
   eventKey,
   eventStart,
-  hoursLabel,
   isoDay,
+  isView,
   parseISODay,
+  periodDays,
+  periodHeading,
   sameDay,
+  startOfMonth,
   startOfWeek,
-  tint,
+  stepPeriod,
   TIMEZONE,
   titleOf,
   untilText,
-  weekDays,
-  weekHeading,
-  WEEKDAYS,
+  type View,
 } from "./dates";
 
-/** Eight hues for calendars Google gave none — see `colors` in the page. */
-const FALLBACK_HUES = ["#4f86f7", "#e2725b", "#33a06f", "#c98a1f", "#8b6bd1", "#2aa7b8", "#d95fa0", "#7f8c3a"];
-
 /**
- * CALENDAR — the hours already spoken for, as a week.
+ * CALENDAR — the owner's Google calendars, read-only, as Day / Week / Month /
+ * Agenda views.
  *
- * Workdash draws this account as a MONTH, and the month is right for the
- * question it asks: is anything on, and roughly when. This page asks the next
- * question down — when am I actually free — and that one needs a clock on the
- * vertical axis, which a month cell does not have room for. Everything else
- * Workdash's page does is here: today marked, blocks in their calendar's own
- * colour, an all-day row, the day in full underneath, what the grid is merged
- * from, and a next-up figure measured against this minute rather than against
- * the window.
+ * THE URL IS THE SELECTION. `/calendar/2026-10-01?view=week` is the week of
+ * the 1st; `/calendar` is today in the last view used (Week on a wide screen,
+ * Agenda on a phone). Old `/calendar/<day>` links still open that day's week.
  *
- * THE URL IS THE SELECTION, the way every tabbed page here does it.
- * `/calendar/2026-09-08` opens the week containing that day AND selects it, so
- * one parameter carries both and a link to a particular day is a link somebody
- * can keep. `/calendar` is this week.
+ * ONE FETCH covers everything the collector holds (a week back, three ahead),
+ * so paging is instant. The bounds come back in `summary.held`; the arrows
+ * stop there and days outside it are drawn hatched, because a day nobody
+ * read is not a free day.
  *
- * ONE FETCH, EVERY WEEK IT CAN REACH. The route holds a fixed window — a week
- * back, three ahead — and the whole of it arrives in one document, so paging
- * between weeks is instant and cannot show a half-loaded grid. The bounds come
- * back in `summary.held` rather than being assumed here, which is what lets the
- * nav stop at the edge instead of drawing empty weeks.
+ * Times are drawn in the browser's clock, the only honest way to draw one
+ * grid when the calendars themselves live in several timezones (dates.ts).
+ * Busy time merges overlaps and gives all-day entries no hours — the server's
+ * own rule, recomputed here so hiding a calendar changes the figure.
  *
- * WHAT THIS PAGE WILL NOT SAY, drawn on it rather than left implicit:
- *
- *   A DAY OUTSIDE THE HELD WINDOW IS NOT A FREE DAY. It is a day nobody read,
- *   and the nav refuses to go there rather than showing seven empty columns.
- *   AN ALL-DAY ENTRY IS NEVER GIVEN HOURS. "Conference" across three days is
- *   not twenty-four hours and not eight; there is no honest number, so they
- *   are listed above the clock and counted separately. The server's own rule.
- *   BUSY HOURS MERGE OVERLAPS. Two calls booked over the same hour are one
- *   busy hour of one person's day. Recomputed here rather than taken from the
- *   route, because hiding a calendar has to change the figure.
- *   THERE ARE NO ATTENDEE NAMES TO SHOW. The collector asks Google only
- *   whether the owner is on the guest list and what they answered, so a count
- *   is the whole of what exists — not a redaction of something held.
+ * READ-ONLY. The collector talks to Google with a single hard-coded GET and
+ * there is no route that writes, so there is no click-to-create: clicking an
+ * event opens its details and a link to Google Calendar.
  */
 
-/** How far a single request reaches. Larger than the collected window on
- *  purpose: the route CLAMPS both bounds to what it holds and reports what it
- *  settled on, so this asks for more than can exist and reads the answer back
- *  rather than hard-coding the collector's numbers in a second place. */
 const ASK_DAYS = 60;
 const ASK_BACK = 30;
 
-/** Days with something on them in the coming list before it is cut. */
-const COMING_DAYS = 8;
-
 const HIDDEN_KEY = "opc.calendar.hidden";
+const VIEW_KEY = "opc.calendar.view";
 
-/**
- * WHICH CALENDARS ARE HIDDEN, remembered in this browser and nowhere else.
- *
- * It is a view preference and not a fact about the business, so it does not
- * belong in the workspace document every device shares — hiding the holidays
- * on a laptop should not hide them on a phone. Every read and write is wrapped:
- * a private window, cleared site data or a browser set to block storage all
- * throw on access, and a calendar page that refuses to render because it could
- * not remember a checkbox would be a page nobody forgives.
- */
-function useHiddenCalendars(): [Set<string>, (id: string) => void] {
+/** A view preference, remembered in this browser only. Every access is
+ *  wrapped: a private window or blocked storage throws. */
+function readStored<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function writeStored(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* nothing to remember it with; it still holds for this visit */
+  }
+}
+
+function useHiddenCalendars() {
   const [hidden, setHidden] = useState<Set<string>>(() => {
-    try {
-      const raw = localStorage.getItem(HIDDEN_KEY);
-      const parsed: unknown = raw ? JSON.parse(raw) : [];
-      return new Set(Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : []);
-    } catch {
-      return new Set();
-    }
+    const parsed: unknown = readStored(HIDDEN_KEY, []);
+    return new Set(Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : []);
   });
-
+  const save = (next: Set<string>) => {
+    writeStored(HIDDEN_KEY, [...next]);
+    return next;
+  };
   const toggle = useCallback((id: string) => {
     setHidden((current) => {
       const next = new Set(current);
       if (!next.delete(id)) next.add(id);
-      try {
-        localStorage.setItem(HIDDEN_KEY, JSON.stringify([...next]));
-      } catch {
-        /* nothing to remember it with; the choice still holds for this visit */
-      }
-      return next;
+      return save(next);
     });
   }, []);
-
-  return [hidden, toggle];
+  const showAll = useCallback(() => setHidden(save(new Set())), []);
+  return { hidden, toggle, showAll };
 }
 
-const weekdayOf = (d: Date): string => WEEKDAYS[(d.getDay() + 6) % 7]!;
-
-/** A figure with the sentence that makes it checkable under it. */
-function Stat({
-  figure,
-  label,
-  note,
-  muted,
-}: {
-  figure: string;
-  label: string;
-  note: string;
-  muted?: boolean;
-}) {
-  return (
-    <div className="bg-card rounded-[14px] px-4.5 py-3.5">
-      <div
-        className={cn(
-          "text-[21px] font-normal tracking-[-0.03em] tabular-nums",
-          muted && "text-muted-foreground",
-        )}
-      >
-        {figure}
-      </div>
-      <div className="mt-0.5 text-[13.5px] font-medium">{label}</div>
-      <p className="text-muted-foreground mt-1 text-[12.5px] leading-relaxed">{note}</p>
-    </div>
-  );
+/** This minute, re-read every 30 seconds so the now-line and "in 25 min"
+ *  keep moving while the page is open. */
+function useNow(): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+  return now;
 }
+
+function agoLabel(iso: string | null | undefined, now: Date): string {
+  if (!iso) return "never";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "never";
+  const mins = Math.round((now.getTime() - t) / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const h = Math.round(mins / 60);
+  if (h < 24) return `${h} hr${h === 1 ? "" : "s"} ago`;
+  const d = Math.round(h / 24);
+  return `${d} day${d === 1 ? "" : "s"} ago`;
+}
+
+const VIEW_LABEL: Record<View, string> = { day: "Day", week: "Week", month: "Month", agenda: "Agenda" };
+const VIEW_KEYS: Record<string, View> = { d: "day", w: "week", m: "month", a: "agenda" };
 
 function NotConnected() {
   return (
-    <div className="bg-card rounded-[14px] px-4.5 py-3.5">
-      <div className="text-[15px] font-medium">No Google calendar is connected</div>
-      <p className="text-muted-foreground mt-1 text-[13px] leading-relaxed">
-        The calendar reads its own Google grant — a refresh token minted with{" "}
-        <span className="font-mono text-[12px]">calendar.readonly</span>. It cannot
-        share the mailbox's: Google grants scopes at the consent screen and no
-        call from this box can widen one, so a Gmail token refreshes perfectly
-        and then refuses every calendar request.
+    <div className="bg-card flex flex-col items-center gap-2 rounded-[14px] px-6 py-14 text-center">
+      <CalendarOff className="text-muted-foreground size-8" strokeWidth={1.5} />
+      <div className="text-[16px] font-medium">Connect your Google Calendar</div>
+      <p className="text-muted-foreground max-w-md text-[13.5px]">
+        The calendar needs its own read-only Google grant (the Gmail one can't read calendars).
       </p>
-      <Link
-        to="/integrations/calendar"
-        className="text-foreground hover:bg-accent mt-2.5 inline-block rounded-lg border px-2.5 py-1 text-[13px]"
-      >
-        Connect it on the Calendar integration →
-      </Link>
+      <Button asChild size="sm" className="mt-1">
+        <Link to="/integrations/calendar">Connect Google Calendar</Link>
+      </Button>
     </div>
   );
 }
 
 export function Calendar() {
   const { day: dayParam } = useParams();
+  const [search] = useSearchParams();
   const navigate = useNavigate();
   const { resolved } = useTheme();
   const dark = resolved === "dark";
-  const [hidden, toggleHidden] = useHiddenCalendars();
+  const wide = useWide();
+  const { hidden, toggle, showAll } = useHiddenCalendars();
 
-  /* ONE CLOCK PER RENDER. Seven columns each calling `new Date()` is seven
-     chances to straddle midnight, and the grid would then mark two days as
-     today. */
-  const now = useMemo(() => new Date(), []);
-  const today = useMemo(
-    () => new Date(now.getFullYear(), now.getMonth(), now.getDate()),
-    [now],
-  );
+  const now = useNow();
+  const todayKey = isoDay(now);
+  const today = useMemo(() => parseISODay(todayKey)!, [todayKey]);
 
-  const askFrom = useMemo(() => isoDay(addDays(today, -ASK_BACK)), [today]);
-  const report = useApi<CalendarReport>(
-    () => reports.calendar(ASK_DAYS, askFrom),
-    [askFrom],
-  );
-
-  /* A `/calendar/<not a day>` selects nothing rather than erroring: an address
-     somebody mistyped should land on this week, not on a stack trace. */
-  const selectedDate = useMemo(
-    () => parseISODay(dayParam ?? null) ?? today,
-    [dayParam, today],
-  );
-  const monday = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
-  const selectedKey = isoDay(selectedDate);
-
-  /* The nav is a set of links, and pressing one changes the address, which is
-     what changes the grid. `replace` so paging through six weeks does not
-     leave six entries between the reader and the page they came from. */
-  const goTo = useCallback(
-    (d: Date) => navigate(`/calendar/${isoDay(d)}`, { replace: true }),
-    [navigate],
-  );
-
+  /* The request is keyed to the day the page opened, not to the ticking
+     clock, so it is made once and not every 30 seconds. */
+  const [askFrom] = useState(() => isoDay(addDays(new Date(), -ASK_BACK)));
+  const report = useApi<CalendarReport>(() => reports.calendar(ASK_DAYS, askFrom), [askFrom]);
   const data = report.data;
 
-  /*
-    EVERY OCCURRENCE, RE-BUCKETED INTO THE CLOCK THE GRID IS DRAWN IN.
+  const view: View = useMemo(() => {
+    const fromUrl = search.get("view");
+    if (isView(fromUrl)) return fromUrl;
+    const stored: unknown = readStored(VIEW_KEY, null);
+    if (isView(stored)) return stored;
+    return wide ? "week" : "agenda";
+  }, [search, wide]);
 
-    The route buckets by the date inside the event's own timestamp, which is
-    right for a row that prints that timestamp back. This page draws a time
-    axis and therefore has to place everything in ONE clock — see dates.ts —
-    so the days are rebuilt here from `eventDays`, in the browser's. The two
-    agree for every event on a calendar in the reader's own timezone, which is
-    most of them, and disagree by a day only where they must.
+  const anchor = useMemo(() => parseISODay(dayParam ?? null) ?? today, [dayParam, today]);
 
-    A multi-day all-day entry lands on every day it covers; a timed one lands
-    on the day it started, however late it runs.
-  */
-  const byDay = useMemo(() => {
+  const go = useCallback(
+    (date: Date, v: View = view) => {
+      if (v !== view) writeStored(VIEW_KEY, v);
+      navigate(`/calendar/${isoDay(date)}?view=${v}`, { replace: true });
+    },
+    [navigate, view],
+  );
+
+  /* ------------------------------------------------------------ the data */
+
+  const freeBusy = useMemo(
+    () => new Set((data?.calendars ?? []).filter((k) => k.accessRole === "freeBusyReader").map((k) => k.calendarId)),
+    [data],
+  );
+
+  /* Every occurrence once, re-bucketed into the browser's clock (dates.ts).
+     A free/busy calendar sends no title, so its slots read "Busy". */
+  const { byDay, visible } = useMemo(() => {
     const out = new Map<string, CalendarEvent[]>();
-    if (!data) return out;
+    const all: CalendarEvent[] = [];
+    if (!data) return { byDay: out, visible: all };
     const seen = new Set<string>();
     for (const d of data.days)
-      for (const e of [...d.events, ...d.allDay]) {
-        const key = eventKey(e);
-        if (seen.has(key)) continue;
+      for (const raw of [...d.events, ...d.allDay]) {
+        const key = eventKey(raw);
+        if (seen.has(key) || hidden.has(raw.calendarId)) continue;
         seen.add(key);
-        if (hidden.has(e.calendarId)) continue;
+        const e = raw.summary === null && freeBusy.has(raw.calendarId) ? { ...raw, summary: "Busy" } : raw;
+        all.push(e);
         for (const day of eventDays(e)) {
           const list = out.get(day);
           if (list) list.push(e);
@@ -244,36 +213,46 @@ export function Calendar() {
       }
     for (const list of out.values())
       list.sort((a, b) => {
-        /* All-day first, then by start. A stay that spans the week should not
-           push the morning's calls down the column. */
         if (a.allDay !== b.allDay) return a.allDay ? -1 : 1;
         return (eventStart(a)?.getTime() ?? 0) - (eventStart(b)?.getTime() ?? 0);
       });
-    return out;
-  }, [data, hidden]);
+    return { byDay: out, visible: all };
+  }, [data, hidden, freeBusy]);
 
-  /*
-    A CALENDAR ALWAYS HAS A COLOUR, GOOGLE'S OR ONE OF OURS. Google publishes
-    one per calendar and the collector keeps it; until it has read one — the
-    column is new — and for any calendar it never sends one for, the
-    calendar takes a hue from a fixed ring by its position in the list, so
-    the same calendar wears the same hue on every visit and two calendars
-    never share one until the ring runs out. The ring is a set of eight
-    distinct, mid-saturation hues that read on both themes at the 18–24%
-    alpha the blocks are tinted at.
-  */
+  /* Google's colour per calendar, or a fixed ring by position when it sent
+     none, so a calendar wears the same hue on every visit. */
   const colors = useMemo(() => {
+    const ring = ["#4f86f7", "#e2725b", "#33a06f", "#c98a1f", "#8b6bd1", "#2aa7b8", "#d95fa0", "#7f8c3a"];
     const out = new Map<string, string | null>();
     let i = 0;
-    for (const k of data?.calendars ?? []) {
-      out.set(k.calendarId, k.color ?? FALLBACK_HUES[i++ % FALLBACK_HUES.length]!);
-    }
+    for (const k of data?.calendars ?? []) out.set(k.calendarId, k.color ?? ring[i++ % ring.length]!);
     return out;
   }, [data]);
 
+  const counts = useMemo(() => {
+    const out = new Map<string, number>();
+    if (!data) return out;
+    const seen = new Set<string>();
+    for (const d of data.days)
+      for (const e of [...d.events, ...d.allDay]) {
+        if (seen.has(eventKey(e))) continue;
+        seen.add(eventKey(e));
+        out.set(e.calendarId, (out.get(e.calendarId) ?? 0) + 1);
+      }
+    return out;
+  }, [data]);
+
+  const heldFrom = useMemo(() => parseISODay(data?.summary.held.from) ?? today, [data, today]);
+  const heldTo = useMemo(() => parseISODay(data?.summary.held.to) ?? today, [data, today]);
+  const isHeld = useCallback(
+    (d: Date) => d.getTime() >= heldFrom.getTime() && d.getTime() <= heldTo.getTime(),
+    [heldFrom, heldTo],
+  );
+
+  const days = useMemo(() => periodDays(view, anchor), [view, anchor]);
   const columns: DayColumn[] = useMemo(
     () =>
-      weekDays(monday).map((date) => {
+      days.map((date) => {
         const day = isoDay(date);
         const events = byDay.get(day) ?? [];
         return {
@@ -282,81 +261,96 @@ export function Calendar() {
           timed: events.filter((e) => !e.allDay),
           allDay: events.filter((e) => e.allDay),
           busyMinutes: busyMinutes(events),
+          held: isHeld(date),
         };
       }),
-    [monday, byDay],
+    [days, byDay, isHeld],
   );
 
-  /* The next thing that has not started, measured against this minute and
-     scanned across everything held rather than across the week on screen —
-     paging back to last Tuesday does not change how far away tomorrow is. */
-  const next = useMemo(() => {
-    let best: { event: CalendarEvent; start: Date } | null = null;
-    for (const list of byDay.values())
-      for (const e of list) {
-        if (e.status === "cancelled" || e.response === "declined" || e.allDay) continue;
-        const start = eventStart(e);
-        if (!start || start.getTime() <= now.getTime()) continue;
-        if (!best || start.getTime() < best.start.getTime()) best = { event: e, start };
-      }
-    return best;
-  }, [byDay, now]);
-
-  /* COUNTED ONCE PER OCCURRENCE, not once per column it touches — otherwise a
-     five-night stay makes the week look five entries busier than it is, and
-     whichever calendar holds the trips looks like the busy one. */
-  const weekEvents = new Set(
-    columns.flatMap((c) => c.timed.concat(c.allDay)).map(eventKey),
-  );
-  const weekBusy = columns.reduce((n, c) => n + c.busyMinutes, 0);
-  const busiest = columns.reduce<DayColumn | null>(
-    (best, c) => (!best || c.busyMinutes > best.busyMinutes ? c : best),
-    null,
-  );
-
-  const held = data?.summary.held;
-  const heldFrom = useMemo(() => parseISODay(held?.from) ?? today, [held, today]);
-  const heldTo = useMemo(() => parseISODay(held?.to) ?? today, [held, today]);
-  const canGoBack = monday.getTime() > startOfWeek(heldFrom).getTime();
-  const canGoOn = addDays(monday, 6).getTime() < heldTo.getTime();
-
-  const selectedEvents = byDay.get(selectedKey) ?? [];
-  const coming = useMemo(() => {
+  const agendaDays = useMemo(() => {
     const out: { day: string; date: Date; events: CalendarEvent[] }[] = [];
-    for (let d = new Date(today); d.getTime() <= heldTo.getTime(); d = addDays(d, 1))
+    const start = anchor.getTime() < heldFrom.getTime() ? heldFrom : anchor;
+    for (let d = start; d.getTime() <= heldTo.getTime(); d = addDays(d, 1))
       out.push({ day: isoDay(d), date: d, events: byDay.get(isoDay(d)) ?? [] });
     return out;
-  }, [today, heldTo, byDay]);
+  }, [anchor, heldFrom, heldTo, byDay]);
 
-  /* Escape leaves the selected day and returns to today's week — the one
-     keyboard gesture a page whose whole state is an address can offer. */
+  /* The arrows stop where the collector stops. */
+  const periodStart =
+    view === "week" ? startOfWeek(anchor) : view === "month" ? startOfMonth(anchor) : anchor;
+  const periodEnd =
+    view === "week"
+      ? addDays(startOfWeek(anchor), 6)
+      : view === "month"
+        ? addDays(startOfMonth(addMonths(anchor, 1)), -1)
+        : view === "agenda"
+          ? addDays(anchor, 6)
+          : anchor;
+  const canPrev = periodStart.getTime() > heldFrom.getTime();
+  const canNext = periodEnd.getTime() < heldTo.getTime();
+  const onToday =
+    view === "week"
+      ? sameDay(startOfWeek(anchor), startOfWeek(today))
+      : view === "month"
+        ? sameDay(startOfMonth(anchor), startOfMonth(today))
+        : sameDay(anchor, today);
+
+  const periodBusy = columns
+    .filter((c) => view !== "month" || c.date.getMonth() === anchor.getMonth())
+    .reduce((n, c) => n + c.busyMinutes, 0);
+
+  /* --------------------------------------------------- the event card */
+
+  const [opened, setOpened] = useState<OpenedEvent | null>(null);
+  const close = useCallback(() => setOpened(null), []);
+  const openAt = useCallback((event: CalendarEvent, e: MouseEvent<HTMLElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setOpened({ event, rect: { x: r.left, y: r.top, w: r.width, h: r.height } });
+  }, []);
+  const activeKey = opened ? eventKey(opened.event) : null;
+
+  /* ---------------------------------------------------------- keyboard */
+
   useEffect(() => {
-    if (!dayParam) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") navigate("/calendar", { replace: true });
+      if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      const key = e.key.toLowerCase();
+      if (key === "t") go(today);
+      else if ((e.key === "ArrowLeft" || key === "p" || key === "k") && canPrev) go(stepPeriod(view, anchor, -1));
+      else if ((e.key === "ArrowRight" || key === "n" || key === "j") && canNext) go(stepPeriod(view, anchor, 1));
+      else if (VIEW_KEYS[key]) go(anchor, VIEW_KEYS[key]);
+      else return;
+      setOpened(null);
+      e.preventDefault();
     };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [dayParam, navigate]);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [go, today, view, anchor, canPrev, canNext]);
 
-  const sub =
-    "Everything on the calendars ticked in Google, as one week. Times are in " +
-    `${TIMEZONE} — this browser's clock — because a grid with a clock down its ` +
-    "side can only be drawn in one.";
+  /* ------------------------------------------------------------ render */
+
+  const sub = `Your Google calendars, read-only · times in ${TIMEZONE}`;
 
   if (report.error)
     return (
       <PageShell title="Calendar" sub={sub} wide>
-        <p className="text-muted-foreground text-[14px]">
-          The API is not answering: {report.error}
-        </p>
+        <div className="bg-card rounded-[14px] px-4.5 py-4 text-[14px]">
+          Couldn't load the calendar: <span className="text-muted-foreground">{report.error}</span>
+          <Button variant="outline" size="xs" className="ml-3" onClick={report.reload}>
+            Try again
+          </Button>
+        </div>
       </PageShell>
     );
 
   if (!data)
     return (
       <PageShell title="Calendar" sub={sub} wide>
-        <p className="text-muted-foreground text-[14px]">Reading the week…</p>
+        <div className="bg-card text-muted-foreground animate-pulse rounded-[14px] px-4.5 py-16 text-center text-[14px]">
+          Loading your calendar…
+        </div>
       </PageShell>
     );
 
@@ -368,235 +362,220 @@ export function Calendar() {
     );
 
   const read = data.calendars.filter((k) => k.selected);
-  const shownCalendars = read.filter((k) => !hidden.has(k.calendarId));
+  /* The busy/free card follows the day in view, or today when today is on screen. */
+  const todayShown = days.some((d) => sameDay(d, today) && (view !== "month" || d.getMonth() === anchor.getMonth()));
+  const summaryDay = view !== "day" && todayShown ? today : anchor;
+  const summaryEvents = byDay.get(isoDay(summaryDay)) ?? [];
+  const nextUp = visible
+    .filter((e) => !e.allDay && e.status !== "cancelled" && e.response !== "declined")
+    .map((e) => ({ e, s: eventStart(e) }))
+    .filter((x) => x.s && x.s.getTime() > now.getTime())
+    .sort((a, b) => a.s!.getTime() - b.s!.getTime())[0];
+
+  const upNext = (
+    <UpNext events={visible} today={today} now={now} colors={colors} onOpen={openAt} />
+  );
 
   return (
     <PageShell title="Calendar" sub={sub} wide>
-      <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat
-          figure={next ? untilText(next.start, now) : "—"}
-          muted={!next}
-          label="Next up"
-          note={
-            next
-              ? `${titleOf(next.event)} · ${dayHeading(next.start)}`
-              : "Nothing ahead in the days this box holds. Measured against this minute, not against the week on screen."
-          }
-        />
-        <Stat
-          figure={String(weekEvents.size)}
-          label="Entries this week"
-          note={`${weekHeading(monday)}, across ${shownCalendars.length} of ${read.length} calendar${read.length === 1 ? "" : "s"} shown. Measured — one per occurrence, however many days it spans.`}
-        />
-        <Stat
-          figure={hoursLabel(weekBusy)}
-          label="Busy this week"
-          note="Metered over the seven days on screen. Overlapping meetings count once; all-day entries and declined invitations count for nothing."
-        />
-        <Stat
-          figure={busiest && busiest.busyMinutes > 0 ? hoursLabel(busiest.busyMinutes) : "—"}
-          muted={!busiest || busiest.busyMinutes === 0}
-          label="Busiest day"
-          note={
-            busiest && busiest.busyMinutes > 0
-              ? dayHeading(busiest.date)
-              : "No timed commitment in this week at all."
-          }
-        />
-      </div>
+      {/* Phones: the one line that matters, above everything. */}
+      {nextUp && (
+        <button
+          type="button"
+          onClick={(e) => openAt(nextUp.e, e)}
+          className="bg-card mb-3 block w-full rounded-[14px] px-4 py-3 text-left text-[14px] lg:hidden"
+        >
+          <span className="text-muted-foreground">Next: </span>
+          <span className="font-medium">{titleOf(nextUp.e)}</span>{" "}
+          {untilText(nextUp.s!, now)}
+        </button>
+      )}
 
-      <div className="mb-2.5 flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-0.5">
-          <button
-            type="button"
-            disabled={!canGoBack}
-            onClick={() => goTo(addDays(monday, -7))}
-            aria-label="Previous week"
-            className="hover:bg-accent grid size-7 place-items-center rounded-lg border disabled:opacity-35"
-          >
-            <ChevronLeft className="size-4" strokeWidth={1.75} />
-          </button>
-          <button
-            type="button"
-            disabled={!canGoOn}
-            onClick={() => goTo(addDays(monday, 7))}
-            aria-label="Next week"
-            className="hover:bg-accent grid size-7 place-items-center rounded-lg border disabled:opacity-35"
-          >
-            <ChevronRight className="size-4" strokeWidth={1.75} />
-          </button>
-        </div>
-        <span className="text-[15px] font-medium tabular-nums">{weekHeading(monday)}</span>
-        {!sameDay(startOfWeek(today), monday) && (
-          <Link
-            to="/calendar"
-            className="text-foreground hover:bg-accent rounded-lg border px-2.5 py-1 text-[13px]"
-          >
-            Today
-          </Link>
-        )}
-        <span className="text-muted-foreground ml-auto text-[12.5px]">
-          {TIMEZONE} · holds {held?.backDays ?? "—"}d back, {held?.aheadDays ?? "—"}d ahead
-        </span>
-      </div>
-
-      <WeekGrid
-        columns={columns}
-        today={today}
-        selected={selectedKey}
-        now={now}
-        colors={colors}
-        dark={dark}
-        onSelectDay={(d) => navigate(`/calendar/${d}`, { replace: true })}
-      />
-
-      <h2 className="text-muted-foreground mt-6 mb-2 text-[12px] tracking-[0.06em] uppercase">
-        The day in full
-      </h2>
-      <DayInFull
-        date={selectedDate}
-        events={selectedEvents}
-        busyMinutes={busyMinutes(selectedEvents)}
-        colors={colors}
-      />
-
-      <h2 className="text-muted-foreground mt-6 mb-2 text-[12px] tracking-[0.06em] uppercase">
-        What is coming
-      </h2>
-      <Coming days={coming} colors={colors} weekdayOf={weekdayOf} limit={COMING_DAYS} />
-
-      <h2 className="text-muted-foreground mt-6 mb-2 text-[12px] tracking-[0.06em] uppercase">
-        What the calendar is merged from
-      </h2>
-      <div className="bg-card rounded-[14px] px-4.5 py-3.5">
-        <p className="text-muted-foreground mb-2.5 text-[13px] leading-relaxed">
-          Only the calendars ticked in Google are read at all — a Google account
-          carries holiday feeds, birthday feeds and everything anybody ever
-          shared, and reading them would triple the events and say nothing about
-          the owner's day. Hiding one below removes it from this browser's view
-          and from every figure on this page; it does not change what is
-          collected, and nothing here can edit a calendar.
-        </p>
-        <div className="flex flex-wrap gap-1.5">
-          {read.map((k) => {
-            const off = hidden.has(k.calendarId);
-            return (
-              <button
-                key={k.calendarId}
-                type="button"
-                onClick={() => toggleHidden(k.calendarId)}
-                aria-pressed={!off}
-                title={
-                  off
-                    ? `Show ${k.summary ?? k.calendarId}`
-                    : `Hide ${k.summary ?? k.calendarId} — ${k.accessRole ?? "unknown role"}, ${k.timezone ?? "no timezone"}`
-                }
-                style={off ? undefined : { backgroundColor: tint(colors.get(k.calendarId) ?? null, dark), borderLeftColor: dot(colors.get(k.calendarId) ?? null) }}
-                className={cn(
-                  "hover:bg-accent flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[12.5px]",
-                  off && "text-muted-foreground line-through opacity-60",
-                )}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_248px]">
+        <div className="min-w-0">
+          {/* Toolbar */}
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => go(today)}
+              disabled={onToday}
+              title="Go to today (T)"
+            >
+              Today
+            </Button>
+            <div className="flex items-center">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={!canPrev}
+                onClick={() => go(stepPeriod(view, anchor, -1))}
+                aria-label={`Previous ${view === "agenda" ? "week" : view}`}
+                title={canPrev ? "Previous (←)" : `Nothing is collected before ${dayHeading(heldFrom)}`}
               >
-                <span
-                  aria-hidden="true"
-                  style={dot(k.color) ? { backgroundColor: dot(k.color)! } : undefined}
+                <ChevronLeft strokeWidth={1.75} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={!canNext}
+                onClick={() => go(stepPeriod(view, anchor, 1))}
+                aria-label={`Next ${view === "agenda" ? "week" : view}`}
+                title={canNext ? "Next (→)" : `Nothing is collected after ${dayHeading(heldTo)}`}
+              >
+                <ChevronRight strokeWidth={1.75} />
+              </Button>
+            </div>
+            <h2 className="min-w-0 text-[17px] font-medium tracking-[-0.01em] tabular-nums">
+              {periodHeading(view, anchor)}
+            </h2>
+            {view !== "agenda" && view !== "day" && (
+              <span className="text-muted-foreground hidden text-[12.5px] sm:inline">
+                {periodBusy > 0 ? `${durationLabel(periodBusy)} busy` : "nothing booked"}
+              </span>
+            )}
+            <div
+              role="tablist"
+              aria-label="Calendar view"
+              className="bg-muted ml-auto flex rounded-lg p-0.5"
+            >
+              {(Object.keys(VIEW_LABEL) as View[]).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === v}
+                  onClick={() => go(anchor, v)}
+                  title={`${VIEW_LABEL[v]} (${v[0]!.toUpperCase()})`}
                   className={cn(
-                    "size-2 shrink-0 rounded-[3px]",
-                    !dot(k.color) && "bg-muted-foreground/40",
+                    "rounded-md px-2.5 py-1 text-[12.5px]",
+                    view === v
+                      ? "bg-card text-foreground font-medium shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
-                />
-                {k.summary ?? k.calendarId}
-                {k.primary && <span className="text-muted-foreground">· primary</span>}
-                {/* A calendar shared as free/busy sends slots and no words.
-                    Saying so beside the name is the difference between "this
-                    dashboard lost the titles" and "there were never any". */}
-                {k.accessRole === "freeBusyReader" && (
-                  <span className="text-muted-foreground">· free/busy</span>
-                )}
-                <span className="text-muted-foreground tabular-nums">
-                  {countIn(byDay, k.calendarId, off)}
-                </span>
-              </button>
-            );
-          })}
+                >
+                  {VIEW_LABEL[v]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {(view === "day" || view === "week") && (
+            <TimeGrid
+              columns={columns}
+              today={today}
+              now={now}
+              colors={colors}
+              dark={dark}
+              activeKey={activeKey}
+              onOpen={openAt}
+              onPickDay={(d) => go(parseISODay(d)!, "day")}
+            />
+          )}
+          {view === "day" && columns[0] && columns[0].held && columns[0].timed.length + columns[0].allDay.length === 0 && (
+            <p className="text-muted-foreground mt-2 text-center text-[13px]">
+              Nothing on {sameDay(anchor, today) ? "today" : dayHeading(anchor)} — a clear day.
+            </p>
+          )}
+          {view === "month" && (
+            <MonthGrid
+              days={days}
+              month={anchor}
+              today={today}
+              byDay={byDay}
+              isHeld={isHeld}
+              colors={colors}
+              dark={dark}
+              activeKey={activeKey}
+              onOpen={openAt}
+              onPickDay={(d) => go(parseISODay(d)!, "day")}
+            />
+          )}
+          {view === "agenda" && (
+            <Agenda
+              days={agendaDays}
+              today={today}
+              now={now}
+              colors={colors}
+              activeKey={activeKey}
+              heldTo={heldTo}
+              onOpen={openAt}
+            />
+          )}
+
+          <div className="text-muted-foreground mt-3 hidden items-center gap-1.5 text-[12px] md:flex">
+            <Keyboard className="size-3.5" strokeWidth={1.75} />
+            <Kbd>T</Kbd> today <Kbd>←</Kbd>
+            <Kbd>→</Kbd> move <Kbd>D</Kbd>
+            <Kbd>W</Kbd>
+            <Kbd>M</Kbd>
+            <Kbd>A</Kbd> switch view <Kbd>Esc</Kbd> close
+          </div>
         </div>
-        {read.some((k) => k.color === null) && (
-          <p className="text-muted-foreground mt-2.5 text-[12px] leading-relaxed">
-            A calendar with no swatch is one whose colour this box has not
-            collected yet — the field was added after these rows were written,
-            and it fills in on the collector's next run. Its blocks use the
-            app's own neutral tone until then rather than a colour invented
-            here.
-          </p>
-        )}
+
+        <aside className="flex min-w-0 flex-col gap-3">
+          <MiniMonth
+            anchor={anchor}
+            today={today}
+            view={view}
+            hasEvents={(d) => (byDay.get(d)?.length ?? 0) > 0}
+            isHeld={isHeld}
+            onPick={(d) => go(d, view === "month" || view === "agenda" ? "day" : view)}
+          />
+          <div className="hidden lg:block">{upNext}</div>
+          <DaySummary
+            date={summaryDay}
+            events={summaryEvents}
+            busy={busyMinutes(summaryEvents)}
+            held={isHeld(summaryDay)}
+            today={today}
+            now={now}
+            colors={colors}
+          />
+          <CalendarLegend
+            calendars={read}
+            colors={colors}
+            hidden={hidden}
+            counts={counts}
+            onToggle={toggle}
+            onShowAll={showAll}
+          />
+          <details className="text-muted-foreground px-1 text-[12px] leading-relaxed">
+            <summary className="hover:text-foreground cursor-pointer select-none">
+              Synced {agoLabel(data.accounts[0]?.lastReadAt, now)} · about this calendar
+            </summary>
+            <ul className="mt-1.5 list-disc space-y-1 pl-4">
+              <li>
+                Read-only, from {data.accounts.map((a) => a.label).join(", ") || "Google"}. Only calendars
+                ticked in Google are read; hiding one here only changes this browser's view.
+              </li>
+              <li>
+                Covers {dayHeading(heldFrom)} to {dayHeading(heldTo)}. Hatched days are outside that
+                window — unknown, not free.
+              </li>
+              <li>Busy time merges overlaps. All-day entries and declined invitations count as free.</li>
+              <li>Guests are shown as a count; names and descriptions are never collected.</li>
+            </ul>
+          </details>
+        </aside>
       </div>
 
-      <div className="border-line-soft mt-6 rounded-[14px] border border-dashed px-3.5 py-3">
-        <div className="mb-2 text-[12px] tracking-[0.06em] uppercase">
-          What this page will not say
-        </div>
-        <ul className="text-muted-foreground space-y-1.5 text-[13px] leading-relaxed">
-          <li>
-            · Anything outside {held?.from ?? "—"} to {held?.to ?? "—"}. The
-            collector keeps {held?.backDays ?? "—"} days back and{" "}
-            {held?.aheadDays ?? "—"} ahead, so the arrows stop at those weeks
-            rather than drawing empty columns — a day nobody read is not a free
-            day.
-          </li>
-          <li>
-            · How many hours an all-day entry is worth. Three days of
-            &ldquo;Conference&rdquo; is not twenty-four hours and not eight, so
-            all-day entries sit above the clock, are counted separately, and
-            contribute nothing to any figure here.
-          </li>
-          <li>
-            · Who is on a meeting. The collector asks Google only whether the
-            owner is on the guest list and what they answered — no name and no
-            address has ever reached this box, so an attendee count is the whole
-            of what exists rather than a redaction of something held. No event
-            description is fetched or stored either.
-          </li>
-          <li>
-            · That a busy hour is a meeting hour. Overlapping bookings are
-            merged, so two calls in the same hour are one busy hour; declined
-            invitations and called-off events are excluded, and an unanswered
-            one is included because it is still holding the slot.
-          </li>
-          <li>
-            · What time it is anywhere else. Every block is placed and labelled
-            in {TIMEZONE}, this browser's clock — the calendars themselves run
-            in {new Set(read.map((k) => k.timezone).filter(Boolean)).size || 1}{" "}
-            different ones, and a grid drawn in more than one clock would report
-            clashes that do not exist.
-          </li>
-          {data.summary.cancelled > 0 && (
-            <li>
-              · Nothing about the {data.summary.cancelled} called-off event
-              {data.summary.cancelled === 1 ? "" : "s"} except that they were
-              called off. They are drawn struck through rather than removed,
-              because a meeting somebody cancelled is news.
-            </li>
-          )}
-        </ul>
-        <p className="text-muted-foreground mt-2.5 text-[12px] leading-relaxed">
-          Read {data.accounts.map((a) => a.label).join(", ") || "—"} · last
-          collection{" "}
-          {data.accounts[0]?.lastReadAt?.slice(0, 16).replace("T", " ") ?? "never"}.
-          Read-only: there is no request this page can make that creates, moves
-          or cancels anything.
-        </p>
-      </div>
+      {opened && (
+        <EventPopover
+          opened={opened}
+          color={colors.get(opened.event.calendarId) ?? null}
+          freeBusyOnly={freeBusy.has(opened.event.calendarId)}
+          today={today}
+          now={now}
+          onClose={close}
+        />
+      )}
     </PageShell>
   );
 }
 
-/** How many of the events on screen came off one calendar. Counted from what
- *  is DRAWN rather than from the server's own tally, so the figure beside a
- *  name can never disagree with the grid above it. */
-function countIn(byDay: Map<string, CalendarEvent[]>, calendarId: string, off: boolean): string {
-  if (off) return "hidden";
-  const seen = new Set<string>();
-  for (const list of byDay.values())
-    for (const e of list) if (e.calendarId === calendarId) seen.add(eventKey(e));
-  return String(seen.size);
+function Kbd({ children }: { children: string }) {
+  return (
+    <kbd className="bg-muted text-foreground/80 rounded border px-1 font-sans text-[10.5px]">{children}</kbd>
+  );
 }
