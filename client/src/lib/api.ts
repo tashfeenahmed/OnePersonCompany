@@ -1248,7 +1248,12 @@ export type CloudflareTraffic = {
    *  else. */
   days: number;
   fields: string;
+  /** Top countries by requests (ISO codes, `XX` = unplaced). Null until a
+   *  collection has asked Cloudflare for them across the whole window. */
+  countries?: CloudflareCountry[] | null;
 };
+
+export type CloudflareCountry = { code: string; requests: number; threats: number };
 
 /**
  * Where a zone's domain actually delegates, as far as this box can tell.
@@ -1343,6 +1348,14 @@ export type CloudflareReport = {
      *  to fix that with. */
     uniquesByZone: number | null;
     zones: number;
+    /** Each zone's slice of the day — zones with no requests are left out. */
+    sites?: {
+      name: string;
+      requests: number;
+      pageViews: number | null;
+      uniques: number | null;
+      threats: number | null;
+    }[];
     /** Today, which Cloudflare is still writing. Never in a total. */
     partial: boolean;
   }[];
@@ -1367,6 +1380,8 @@ export type CloudflareReport = {
     recordsUnreadable: number;
     onPages: number;
     busiest: { name: string; requests: number } | null;
+    /** Every zone's countries over the window, top twenty. */
+    countries?: CloudflareCountry[] | null;
     /** Measured, and served nothing. Named rather than counted. */
     silent: string[];
     seenAt: string | null;

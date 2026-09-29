@@ -817,11 +817,11 @@ const SEED: StoreState = {
       TRAFFIC & DNS. What the edge actually served, and whether the names in
       front of it point where they should.
 
-      The pairing card gets the full width because it is the one thing on this
-      board neither Cloudflare's console nor a registrar's can show: it is a
-      JOIN, and it needs both sides connected. Seven zones here are registered
-      somewhere this dashboard cannot read, and five registered names have no
-      zone at all — findings that are invisible from either end alone.
+      Drawn rather than written: four figures with their own lines, every day
+      as a stack of sites, every site ranked beside its favicon, response codes
+      and cache as proportion bars, and DNS and mail as a checklist of ticks.
+      The registrar join stays — as the delegation card — because it is the one
+      thing neither Cloudflare's console nor a registrar's can show.
     */
     {
       id: "d-traffic",
@@ -829,20 +829,20 @@ const SEED: StoreState = {
       name: "Traffic & DNS",
       widgets: [
         { id: "tr1", type: "cf.total", w: 1 },
-        { id: "tr2", type: "cf.zones", w: 1 },
+        { id: "tr16", type: "traffic.pageViews", w: 1 },
         { id: "tr3", type: "cf.bandwidth", w: 1 },
         { id: "tr4", type: "cf.threats", w: 1 },
-        { id: "tr5", type: "cf.daily", w: 4 },
-        { id: "tr6", type: "cf.visitors", w: 4 },
-        { id: "tr7", type: "cf.requests", w: 2 },
-        { id: "tr8", type: "cf.responses", w: 2 },
-        { id: "tr9", type: "cf.unmatched", w: 4 },
-        { id: "tr10", type: "cf.dns", w: 2 },
-        { id: "tr11", type: "cf.email", w: 2 },
-        { id: "tr12", type: "cf.cacheRatio", w: 1 },
-        { id: "tr13", type: "cf.records", w: 1 },
-        { id: "tr14", type: "cf.cannot", w: 2 },
-        { id: "tr15", type: "cf.table", w: 4 },
+        { id: "tr17", type: "traffic.daily", w: 4 },
+        { id: "tr18", type: "traffic.sites", w: 2 },
+        { id: "tr19", type: "traffic.visitors", w: 2 },
+        { id: "tr20", type: "traffic.status", w: 2 },
+        { id: "tr21", type: "traffic.countries", w: 2 },
+        { id: "tr22", type: "traffic.cache", w: 2 },
+        { id: "tr23", type: "traffic.threatsBySite", w: 2 },
+        { id: "tr24", type: "traffic.dnsHealth", w: 4 },
+        { id: "tr25", type: "traffic.email", w: 2 },
+        { id: "tr26", type: "traffic.delegation", w: 2 },
+        { id: "tr27", type: "traffic.table", w: 4 },
       ],
     },
     {
