@@ -29,6 +29,7 @@ import * as dynadot from "./providers/dynadot.ts";
 import * as spaceship from "./providers/spaceship.ts";
 import { daysUntil, domainHasExpired, type DomainRow } from "./providers/domains.ts";
 import * as github from "./providers/github.ts";
+import { collectInsights } from "./providers/githubInsights.ts";
 import * as npm from "./providers/npm.ts";
 import {
   configValue,
@@ -643,6 +644,13 @@ export async function collectGithub(): Promise<GithubSummary> {
       ]);
     }
     writeGithubTraffic(points);
+
+    /* Stars by day and release downloads ride the traffic cadence; in the
+       background, so a slow backfill never holds up the run. */
+    if (result.traffic.size)
+      void collectInsights().catch((err) =>
+        console.error("[github] insights failed:", err instanceof Error ? err.message : err),
+      );
 
     /*
       THE READINGS ARE THE FIGURES WITH NO OTHER HISTORY. Traffic and downloads

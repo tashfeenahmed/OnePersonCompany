@@ -554,6 +554,8 @@ export type Widget = {
     users?: boolean;
     /** /api/mobilehealth/apps — every app, both stores joined. */
     apps?: boolean;
+    /** /api/github/insights — stars by day, releases, per-repo traffic. */
+    devInsights?: boolean;
     /**
      * WHAT THE APPS DO, beside `mobile`'s account of what they earn: crash and
      * ANR rates and counts, which report each store answered, the reviews and
@@ -2236,6 +2238,7 @@ export const WIDGETS: Record<string, Widget> = {
     src: "github",
     name: "Traffic",
     kind: "chart",
+    unit: "count",
     live: { github: true },
   },
   "github.clones": {
@@ -2378,6 +2381,7 @@ export const WIDGETS: Record<string, Widget> = {
     src: "npm",
     name: "Downloads by week",
     kind: "chart",
+    unit: "count",
     live: { npm: true },
   },
   "npm.packages": {
@@ -2569,6 +2573,20 @@ export const WIDGETS: Record<string, Widget> = {
     kind: "rows",
     live: { costs: true },
   },
+
+  /* ---------------------------------------------------------- development
+     THE DEVELOPMENT BOARD since 2026-09-29: stars by day and release
+     downloads from /api/github/insights beside the collector's own figures. */
+  "dev.stars": { src: "github", name: "Stars", window: "selected", kind: "metric", live: { devInsights: true, github: true } },
+  "dev.starsDaily": { src: "github", name: "New stars per day", window: "selected", kind: "daily", live: { devInsights: true }, unit: "count" },
+  "dev.downloads": { src: "github", name: "Release downloads", kind: "metric", live: { devInsights: true } },
+  "dev.traffic": { src: "github", name: "Repo views per day", window: "selected", kind: "daily", live: { devInsights: true }, unit: "count" },
+  "dev.clones": { src: "github", name: "Clones per day", window: "selected", kind: "daily", live: { devInsights: true }, unit: "count" },
+  "dev.releases": { src: "github", name: "Latest releases", kind: "ranked", live: { devInsights: true } },
+  "dev.platforms": { src: "github", name: "Downloads by platform", kind: "proportion", live: { devInsights: true } },
+  "dev.repos": { src: "github", name: "Every repo", window: "selected", kind: "table", live: { devInsights: true, github: true } },
+  "dev.worth": { src: "github", name: "Worth a look", kind: "statuses", live: { devInsights: true, github: true } },
+  "dev.npmDaily": { src: "npm", name: "npm downloads per day", window: "selected", kind: "daily", live: { npm: true }, unit: "count" },
 
   /* --------------------------------------------------------------- apps
      THE APPS BOARD since 2026-09-29: every card reads one joined document and

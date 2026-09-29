@@ -63,6 +63,7 @@ import type { FeedItem } from "@/data/widgets";
 import type { AdRow, AdsBoardDocs } from "@/lib/api/adsboard";
 import type { MobileHealthDocs } from "@/lib/api/mobilehealthboard";
 import type { AppsDoc } from "@/lib/api/apps";
+import type { DevInsights } from "@/lib/api/devInsights";
 import type { WebAnalyticsDocs } from "@/lib/api/webanalyticsboard";
 import { rateBetween } from "./fx.ts";
 import {
@@ -343,6 +344,8 @@ export type LiveInputs = {
   apps?: AppsDoc | null;
   /** The app picked on the Apps board, or null for every app. */
   appFilter?: string | null;
+  /** Stars by day, release downloads, per-repo traffic (Development board). */
+  devInsights?: DevInsights | null;
   webAnalytics?: WebAnalyticsDocs | null;
   /*
     THE PER-PROJECT CONTRACT. A widget whose catalog entry says `perProject`
@@ -14316,6 +14319,233 @@ Object.assign(LIVE_BUILDERS, {
           app: a,
         })),
       caption: "Android, from Play's crash export",
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ========================================================== development
+   THE DEVELOPMENT BOARD — stars by day and release downloads from
+   /api/github/insights, beside the collector's own repo figures. Repo names
+   drop the owner ("tashfeenahmed/freellmapi" → "freellmapi") because every
+   repo here is the owner's and the prefix is the same word forty times.
+   ======================================================================== */
+
+const repoShort = (full: string) => full.split("/").at(-1) ?? full;
+
+/** Every day in the document's window, oldest first. */
+function insightDays(D: DevInsights): string[] {
+  const out: string[] = [];
+  for (let d = Date.parse(`${D.window.from}T00:00:00Z`); d <= Date.parse(`${D.window.to}T00:00:00Z`); d += 86_400_000)
+    out.push(new Date(d).toISOString().slice(0, 10));
+  return out;
+}
+
+/** Rows per day, split by repo, as `daily` bars. */
+function byRepoDaily(D: DevInsights, rows: { repo: string; day: string; value: number }[]) {
+  const grid = insightDays(D);
+  const repos = [...new Set(rows.map((r) => r.repo))];
+  const at = new Map(rows.map((r) => [`${r.repo}|${r.day}`, r.value]));
+  return grid.map((day) => {
+    const parts = repos.map((repo) => ({ label: repoShort(repo), value: at.get(`${repo}|${day}`) ?? 0 }));
+    return { day, total: parts.reduce((n, p) => n + p.value, 0), parts };
+  });
+}
+
+/** Downloads per repo inside the window, from the daily snapshots of each
+ *  repo's running total. Null when fewer than two snapshots exist. */
+function releaseGain(D: DevInsights): { total: number; days: number } | null {
+  const byRepo = new Map<string, { day: string; downloads: number }[]>();
+  for (const r of D.releaseDays) byRepo.set(r.repo, [...(byRepo.get(r.repo) ?? []), r]);
+  let total = 0;
+  let span = 0;
+  for (const rows of byRepo.values()) {
+    if (rows.length < 2) continue;
+    total += rows.at(-1)!.downloads - rows[0]!.downloads;
+    span = Math.max(span, (Date.parse(rows.at(-1)!.day) - Date.parse(rows[0]!.day)) / 86_400_000);
+  }
+  return span ? { total, days: span } : null;
+}
+
+Object.assign(LIVE_BUILDERS, {
+  "dev.stars": ({ devInsights: D, github: G }: LiveInputs) => {
+    if (!D || !G) return null;
+    const grid = insightDays(D);
+    const perDay = grid.map((day) => D.starDays.filter((r) => r.day === day).reduce((n, r) => n + r.n, 0));
+    const gained = perDay.reduce((n, v) => n + v, 0);
+    return {
+      value: count(G.summary.stars),
+      sub: `+${count(gained)} in the last ${D.window.days} days · ${count(Math.round(gained / Math.max(1, D.window.days)))}/day`,
+      series: perDay,
+      seriesAt: grid.map((d) => `${d}T00:00:00Z`),
+      unit: "count" as const,
+    };
+  },
+
+  "dev.starsDaily": ({ devInsights: D }: LiveInputs) => {
+    if (!D?.starDays.length) return null;
+    const daily = byRepoDaily(D, D.starDays.map((r) => ({ repo: r.repo, day: r.day, value: r.n })));
+    const total = daily.reduce((n, d) => n + d.total, 0);
+    const peak = daily.reduce((b, d) => (d.total > b.total ? d : b), daily[0]!);
+    return {
+      daily,
+      dailySplit: "By repo",
+      unit: "count" as const,
+      caption: `${count(total)} new stars · best day ${dayShort(peak.day)} with ${count(peak.total)} · from GitHub's own star timestamps`,
+    };
+  },
+
+  "dev.downloads": ({ devInsights: D }: LiveInputs) => {
+    if (!D?.releases.length) return null;
+    const total = D.releases.reduce((n, r) => n + r.downloads, 0);
+    const latest = D.releases.filter((r) => r.publishedAt).sort((a, b) => (b.publishedAt! > a.publishedAt! ? 1 : -1))[0];
+    const gain = releaseGain(D);
+    return {
+      value: count(total),
+      sub: also(
+        gain ? `+${count(gain.total)} in the last ${Math.round(gain.days)} days` : "all-time, per-day figures start today",
+        latest ? `${repoShort(latest.repo)} ${latest.tag}: ${count(latest.downloads)}` : "",
+      ),
+    };
+  },
+
+  "dev.traffic": ({ devInsights: D }: LiveInputs) => {
+    if (!D?.repoTraffic.length) return null;
+    const daily = byRepoDaily(D, D.repoTraffic.map((r) => ({ repo: r.repo, day: r.day, value: r.views })));
+    const total = daily.reduce((n, d) => n + d.total, 0);
+    return {
+      daily,
+      dailySplit: "By repo",
+      unit: "count" as const,
+      caption: `${count(total)} views · GitHub keeps 14 days, this box keeps everything it has read since`,
+    };
+  },
+
+  "dev.clones": ({ devInsights: D }: LiveInputs) => {
+    if (!D?.repoTraffic.length) return null;
+    const daily = byRepoDaily(D, D.repoTraffic.map((r) => ({ repo: r.repo, day: r.day, value: r.clones })));
+    const total = daily.reduce((n, d) => n + d.total, 0);
+    if (!total) return null;
+    return { daily, dailySplit: "By repo", unit: "count" as const, caption: `${count(total)} clones — CI and bots clone too` };
+  },
+
+  "dev.releases": ({ devInsights: D }: LiveInputs) => {
+    if (!D?.releases.length) return null;
+    const rows = D.releases
+      .filter((r) => r.publishedAt && r.downloads > 0)
+      .sort((a, b) => (b.publishedAt! > a.publishedAt! ? 1 : -1))
+      .slice(0, 10);
+    if (!rows.length) return null;
+    return {
+      ranked: rows.map((r) => ({
+        label: `${repoShort(r.repo)} ${r.tag}`,
+        value: r.downloads,
+        text: count(r.downloads),
+        sub: dayShort(r.publishedAt!.slice(0, 10)),
+      })),
+      caption: "Newest first · asset downloads GitHub counts per release",
+    };
+  },
+
+  "dev.platforms": ({ devInsights: D }: LiveInputs) => {
+    if (!D?.releases.length) return null;
+    const by = new Map<string, number>();
+    for (const r of D.releases)
+      for (const a of r.assets) if (a.platform !== "Update metadata") by.set(a.platform, (by.get(a.platform) ?? 0) + a.downloads);
+    const rows = [...by.entries()].filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+    if (!rows.length) return null;
+    const total = rows.reduce((n, [, v]) => n + v, 0);
+    const meta = D.releases.flatMap((r) => r.assets).filter((a) => a.platform === "Update metadata").reduce((n, a) => n + a.downloads, 0);
+    return {
+      value: count(total),
+      sub: `installer downloads, all releases${meta ? ` · ${count(meta)} auto-update checks left out` : ""}`,
+      parts: rows.map(([label, n]) => ({ label, value: n, text: count(n) })),
+      partsLabel: "Installer downloads by platform",
+      rows: rows.map(([label, n]) => [label, `${count(n)} · ${pct(n / total, { digits: 0 })}`] as [string, string]),
+    };
+  },
+
+  "dev.repos": ({ devInsights: D, github: G }: LiveInputs) => {
+    if (!D || !G?.repos.length) return null;
+    const stars = new Map<string, number>();
+    for (const r of D.starDays) stars.set(r.repo, (stars.get(r.repo) ?? 0) + r.n);
+    const views = new Map<string, number>();
+    const clones = new Map<string, number>();
+    for (const r of D.repoTraffic) {
+      views.set(r.repo, (views.get(r.repo) ?? 0) + r.views);
+      clones.set(r.repo, (clones.get(r.repo) ?? 0) + r.clones);
+    }
+    const downloads = new Map<string, number>();
+    for (const r of D.releases) downloads.set(r.repo, (downloads.get(r.repo) ?? 0) + r.downloads);
+    const repos = G.repos
+      .filter((r) => !r.fork && !r.archived)
+      .sort((a, b) => (views.get(b.fullName) ?? 0) - (views.get(a.fullName) ?? 0) || b.stars - a.stars);
+    return {
+      headers: ["Repo", "Stars", `+Stars · ${windowLabel(D.window.days)}`, "Views", "Clones", "Downloads", "Open issues", "Last push"],
+      table: repos.map((r) => [
+        `${repoShort(r.fullName)}${r.private ? " · private" : ""}`,
+        count(r.stars),
+        stars.has(r.fullName) ? `+${count(stars.get(r.fullName)!)}` : DASH,
+        views.has(r.fullName) ? count(views.get(r.fullName)!) : DASH,
+        clones.has(r.fullName) ? count(clones.get(r.fullName)!) : DASH,
+        downloads.has(r.fullName) ? count(downloads.get(r.fullName)!) : DASH,
+        count(r.openIssues),
+        r.pushedAt ? ago(r.pushedAt) : DASH,
+      ]),
+      caption: "Sorted by views · a dash is a figure GitHub doesn't give for that repo",
+    };
+  },
+
+  "dev.worth": ({ devInsights: D, github: G }: LiveInputs) => {
+    if (!D || !G?.repos.length) return null;
+    const out: [string, StatusTone][] = [];
+    const views = new Map<string, number>();
+    for (const r of D.repoTraffic) views.set(r.repo, (views.get(r.repo) ?? 0) + r.views);
+    const stars = new Map<string, number>();
+    for (const r of D.starDays) stars.set(r.repo, (stars.get(r.repo) ?? 0) + r.n);
+    /* Momentum: the repo gaining the most stars, and its pace. */
+    const top = [...stars.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (top) out.push([`${repoShort(top[0])} gained ${count(top[1])} stars in ${D.window.days} days`, "ok"]);
+    /* Week over week on the top repo's stars. */
+    if (top) {
+      const grid = insightDays(D);
+      const last7 = grid.slice(-7).reduce((n, d) => n + (D.starDays.find((r) => r.repo === top[0] && r.day === d)?.n ?? 0), 0);
+      const prev7 = grid.slice(-14, -7).reduce((n, d) => n + (D.starDays.find((r) => r.repo === top[0] && r.day === d)?.n ?? 0), 0);
+      if (prev7 > 0) {
+        const ch = (last7 - prev7) / prev7;
+        out.push([`${repoShort(top[0])} stars this week ${ch >= 0 ? "up" : "down"} ${pct(Math.abs(ch), { digits: 0 })} on the week before (${count(last7)} vs ${count(prev7)})`, ch < -0.25 ? "warn" : "ok"]);
+      }
+    }
+    /* Traffic without a recent push: people are looking at something stale. */
+    for (const r of G.repos) {
+      const v = views.get(r.fullName) ?? 0;
+      if (v < 50 || !r.pushedAt) continue;
+      const idle = (Date.now() - Date.parse(r.pushedAt)) / 86_400_000;
+      if (idle > 45) out.push([`${repoShort(r.fullName)} had ${count(v)} views but no push in ${Math.round(idle)} days`, "warn"]);
+    }
+    /* Viewed a lot, starred little. */
+    for (const [repo, v] of views) {
+      const s = stars.get(repo) ?? 0;
+      if (v >= 150 && s / v < 0.01) out.push([`${repoShort(repo)}: ${count(v)} views, ${count(s)} new stars — the README may not be converting`, "warn"]);
+    }
+    for (const r of G.repos.filter((x) => x.openIssues >= 10).sort((a, b) => b.openIssues - a.openIssues).slice(0, 3))
+      out.push([`${repoShort(r.fullName)} has ${count(r.openIssues)} open issues and PRs`, "warn"]);
+    return out.length ? { statuses: out.slice(0, 8) } : null;
+  },
+
+  "dev.npmDaily": ({ npm: N }: LiveInputs) => {
+    if (!N?.packages.length) return null;
+    const days = [...new Set(N.packages.flatMap((p) => p.days.map((d) => d.day)))].sort().slice(-30);
+    if (!days.length) return null;
+    const at = new Map(N.packages.flatMap((p) => p.days.map((d) => [`${p.package}|${d.day}`, d.downloads] as [string, number])));
+    const daily = days.map((day) => {
+      const parts = N.packages.map((p) => ({ label: p.package, value: at.get(`${p.package}|${day}`) ?? 0 }));
+      return { day, total: parts.reduce((n, p) => n + p.value, 0), parts };
+    });
+    return {
+      daily,
+      dailySplit: "By package",
+      unit: "count" as const,
+      caption: "Tarball fetches, not installs — CI and mirrors count too",
     };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);

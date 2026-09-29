@@ -382,4 +382,42 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       ALTER TABLE calendar_events ADD COLUMN hangout_link TEXT;
     `,
   },
+  {
+    name: "494_github_insights",
+    sql: `
+      -- STARS BY DAY and RELEASE DOWNLOADS — see providers/githubInsights.ts.
+      -- Stars come from the stargazers API's own timestamps; the state row
+      -- says from which day a repo's history is complete.
+      CREATE TABLE IF NOT EXISTS github_star_days (
+        full_name TEXT NOT NULL,
+        day       TEXT NOT NULL,
+        n         INTEGER NOT NULL,
+        PRIMARY KEY (full_name, day)
+      ) WITHOUT ROWID;
+      CREATE TABLE IF NOT EXISTS github_star_state (
+        full_name    TEXT PRIMARY KEY,
+        covered_from TEXT NOT NULL,
+        synced_at    TEXT NOT NULL
+      );
+      -- One row per release asset, replaced whole on every read.
+      CREATE TABLE IF NOT EXISTS github_releases (
+        full_name    TEXT NOT NULL,
+        tag          TEXT NOT NULL,
+        name         TEXT,
+        published_at TEXT,
+        asset        TEXT NOT NULL,
+        downloads    INTEGER NOT NULL,
+        seen_at      TEXT NOT NULL,
+        PRIMARY KEY (full_name, tag, asset)
+      ) WITHOUT ROWID;
+      -- Each repo's running download total, one snapshot per day, so the
+      -- difference between two days is that day's downloads.
+      CREATE TABLE IF NOT EXISTS github_release_days (
+        full_name TEXT NOT NULL,
+        day       TEXT NOT NULL,
+        downloads INTEGER NOT NULL,
+        PRIMARY KEY (full_name, day)
+      ) WITHOUT ROWID;
+    `,
+  },
 ];
