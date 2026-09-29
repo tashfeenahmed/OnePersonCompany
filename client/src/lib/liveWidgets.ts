@@ -14567,14 +14567,14 @@ const demandThreads = (D: NonNullable<LiveInputs["demand"]>) => [
   ...D.reddit.signals.map((s) => ({ ...s, source: "Reddit" as const })),
   ...D.hn.signals.map((s) => ({ ...s, source: "Hacker News" as const })),
 ];
-const threadMeta = (s: ReturnType<typeof demandThreads>[number]): [string, string][] =>
-  [
-    ["where", s.source === "Reddit" ? (s.context ?? "Reddit") : "Hacker News"],
-    ["phrase", s.term],
-    ...(s.points !== null ? [["points", count(s.points)] as [string, string]] : []),
-    ...(s.comments !== null ? [["replies", count(s.comments)] as [string, string]] : []),
-    ...(s.createdAt ? [["posted", ago(s.createdAt)] as [string, string]] : []),
-  ];
+/* The feed draws each meta pair as "<value> <label>", so the label is first. */
+const threadMeta = (s: ReturnType<typeof demandThreads>[number]): [string, string][] => [
+  ...(s.points !== null ? [["points", count(s.points)] as [string, string]] : []),
+  ...(s.comments !== null ? [[s.comments === 1 ? "reply" : "replies", count(s.comments)] as [string, string]] : []),
+];
+/** Where it was posted and which phrase found it — the line under the title. */
+const threadWhere = (s: ReturnType<typeof demandThreads>[number]) =>
+  `${s.source === "Reddit" ? (s.context ?? "Reddit") : "Hacker News"} · found by “${s.term}”`;
 
 Object.assign(LIVE_BUILDERS, {
   "demand.found": ({ demand: D }: LiveInputs) => {
@@ -14672,7 +14672,7 @@ Object.assign(LIVE_BUILDERS, {
       .sort((a, b) => (b.points ?? 0) + 2 * (b.comments ?? 0) - ((a.points ?? 0) + 2 * (a.comments ?? 0)));
     if (!all.length) return null;
     return {
-      feed: all.slice(0, 8).map((s) => ({ title: s.title, href: s.url, meta: threadMeta(s), at: s.createdAt ?? undefined })),
+      feed: all.slice(0, 8).map((s) => ({ title: s.title, text: threadWhere(s), href: s.url, meta: threadMeta(s), at: s.createdAt ? ago(s.createdAt) : undefined })),
     };
   },
 
@@ -14683,7 +14683,7 @@ Object.assign(LIVE_BUILDERS, {
       .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
     if (!open.length) return null;
     return {
-      feed: open.slice(0, 8).map((s) => ({ title: s.title, href: s.url, meta: threadMeta(s), at: s.createdAt ?? undefined, tone: "warn" as StatusTone })),
+      feed: open.slice(0, 8).map((s) => ({ title: s.title, text: threadWhere(s), href: s.url, meta: threadMeta(s), at: s.createdAt ? ago(s.createdAt) : undefined, tone: "warn" as StatusTone })),
     };
   },
 
