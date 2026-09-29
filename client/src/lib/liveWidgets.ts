@@ -5601,8 +5601,9 @@ Object.assign(LIVE_BUILDERS, {
    Self-hosted analytics. Two refusals travel through every builder below and
    both are the route's own: there is NO portfolio visitor count, because Umami
    de-duplicates per website and no endpoint joins identity across them; and
-   the top-N lists are RANKINGS of a list Umami already truncated, so nothing
-   here totals them or presents them as a share of anything.
+   the top-N lists are RANKINGS of a list Umami already truncated, so no card
+   presents them as a share of the site's traffic. Referrers are the one list
+   added across sites — they count views, and views add.
 */
 
 /** The name a site is known by on a card: its domain first, because that is
@@ -5617,34 +5618,6 @@ function secs(n: number | null): string {
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
   return m < 60 ? `${m}m ${s % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`;
-}
-
-/**
- * The top N of a set of per-site rankings, merged.
- *
- * MERGED AND NOT ADDED, which is the whole care in this function. Each row
- * belongs to exactly one website — a path is a path on one site — so putting
- * two sites' rows in one list and ordering by count is a legitimate ranking of
- * rows. What would not be legitimate is summing rows that share a name across
- * sites: "/pricing" on two different products is two different pages, so the
- * site is prefixed onto the label rather than being collapsed away.
- */
-function mergedTop(
-  websites: UmamiWebsite[],
-  pick: (w: UmamiWebsite) => { name: string; count: number }[],
-  limit = 8,
-): [string, string][] {
-  const many = websites.length > 1;
-  return websites
-    .flatMap((w) =>
-      pick(w).map((r) => ({
-        label: many ? `${siteName(w)} ${r.name}` : r.name,
-        count: r.count,
-      })),
-    )
-    .sort((a, b) => b.count - a.count)
-    .slice(0, limit)
-    .map((r) => [r.label, count(r.count)] as [string, string]);
 }
 
 /** The last N complete days of a daily line, and the N before them where
@@ -5672,61 +5645,134 @@ const delta = (now: number, before: number) =>
 const umamiFixed = (days: number, w: WindowValue | undefined) =>
   w === undefined || w === days ? "" : `Umami's own ${days} complete days — the picker does not move this one`;
 
+/* ------------------------------------------------ the window over the line --
+   THE ANALYTICS BOARD READS THE PICKER OFF EACH SITE'S DAILY LINE. Pageviews
+   and visits ADD across days and across sites, so any span the picker names
+   is a sum over the line — and the fetch asks for twice the span, so the span
+   before it is there to compare with. Visitors, bounce and visit length do
+   not add across days and stay at Umami's own thirty, saying so.
+
+   A SITE WITH NO ROW FOR A DAY HAD NO VIEWS THAT DAY. The collector stores
+   what Umami's pageview series answered, and Umami leaves quiet days out;
+   the grid below is the portfolio's own days, so a zero is only ever drawn
+   on a day some site was counted.
+*/
+
+type SiteSpan = {
+  site: UmamiWebsite;
+  host: string;
+  /** Pageviews and visits per grid day, zero where Umami held no row. */
+  views: number[];
+  visits: number[];
+  now: { views: number; visits: number };
+  /** The same length of window before it, or null when the line is short. */
+  before: { views: number; visits: number } | null;
+};
+
+/** The grid of complete days the picker spans, the one before it, and each
+ *  site's sums over both. Null when the line is too short to say anything. */
+function siteSpans(U: UmamiReport | null | undefined, W: WindowValue | undefined) {
+  if (!U) return null;
+  const cut = umamiCut(U.portfolio.days, W);
+  if (!cut) return null;
+  const grid = cut.now.map((d) => d.day);
+  const prior = cut.before?.map((d) => d.day) ?? null;
+  const sum = (m: Map<string, { pageviews: number; sessions: number }>, days: string[]) =>
+    days.reduce(
+      (acc, d) => {
+        const r = m.get(d);
+        return { views: acc.views + (r?.pageviews ?? 0), visits: acc.visits + (r?.sessions ?? 0) };
+      },
+      { views: 0, visits: 0 },
+    );
+  const sites: SiteSpan[] = U.websites.map((w) => {
+    const m = new Map(w.days.map((d) => [d.day, d]));
+    return {
+      site: w,
+      host: siteName(w),
+      views: grid.map((d) => m.get(d)?.pageviews ?? 0),
+      visits: grid.map((d) => m.get(d)?.sessions ?? 0),
+      now: sum(m, grid),
+      before: prior ? sum(m, prior) : null,
+    };
+  });
+  return { grid, prior, sites };
+}
+
+/** "+48%", "−72%", "new" — a change a reader takes in at a glance. */
+function changeWord(now: number, before: number | null): string {
+  if (before === null) return "";
+  if (before === 0) return now > 0 ? "new" : "";
+  const d = ((now - before) / before) * 100;
+  const r = Math.abs(d) >= 10 ? Math.round(d) : Number(d.toFixed(1));
+  return r === 0 ? "flat" : `${r > 0 ? "+" : "−"}${Math.abs(r)}%`;
+}
+
+/** The biggest rows first, at most `per` from any one site — so one site
+ *  with most of the traffic cannot fill the whole list by itself. */
+function spread<T extends { host: string; n: number }>(rows: T[], limit = 10, per = 3): T[] {
+  const taken = new Map<string, number>();
+  const out: T[] = [];
+  for (const r of [...rows].sort((a, b) => b.n - a.n)) {
+    if (out.length >= limit) break;
+    if ((taken.get(r.host) ?? 0) >= per) continue;
+    taken.set(r.host, (taken.get(r.host) ?? 0) + 1);
+    out.push(r);
+  }
+  return out;
+}
+
+/** Bars per day split by site, for the `daily` kind. */
+function siteDaily(grid: string[], sites: SiteSpan[], pick: (s: SiteSpan) => number[]) {
+  return grid.map((day, i) => {
+    const parts = sites
+      .map((s) => ({ label: s.host, value: pick(s)[i]!, host: s.host }))
+      .filter((p) => p.value > 0);
+    return { day, total: parts.reduce((n, p) => n + p.value, 0), parts };
+  });
+}
+
+/** The busiest day on a grid, said as a date. */
+function busiestOf(days: { day: string; total: number }[]): string {
+  const top = days.reduce<{ day: string; total: number } | null>((b, d) => (!b || d.total > b.total ? d : b), null);
+  return top && top.total > 0 ? `busiest ${dayShort(top.day)} at ${count(top.total)}` : "";
+}
+
+/** Headline sums over the picker's span, for the two tiles that follow it. */
+function headline(U: UmamiReport | null | undefined, W: WindowValue | undefined, key: "views" | "visits") {
+  const s = siteSpans(U, W);
+  if (!s || !s.grid.length) return null;
+  const now = s.sites.reduce((n, x) => n + x.now[key], 0);
+  const before = s.prior ? s.sites.reduce((n, x) => n + (x.before?.[key] ?? 0), 0) : null;
+  const series = s.grid.map((_, i) => s.sites.reduce((n, x) => n + (key === "views" ? x.views[i]! : x.visits[i]!), 0));
+  const lead = [...s.sites].sort((a, b) => b.now[key] - a.now[key])[0];
+  return { s, now, before, series, lead };
+}
+
 Object.assign(LIVE_BUILDERS, {
   "umami.pageviews": ({ umami: U, window: W }: LiveInputs) => {
-    const p = U?.portfolio;
-    if (!p?.answering || p.window.pageviews === null) return null;
-    /*
-      THE HEADLINE FOLLOWS THE PICKER OFF THE DAILY LINE. The route's own
-      window is the collector's thirty complete days, whatever `days` it was
-      asked; the line beside it is up to ninety days and pageviews ADD across
-      days, so any other span is a sum over the line — the last N complete
-      days against the N before them where the line holds both. At thirty the
-      route's figure is used as it always was. Visitors do not add and stay
-      on their own card, at Umami's window, saying so.
-    */
-    const cut = umamiCut(p.days, W);
-    if (W !== undefined && W !== p.window.days && cut) {
-      return {
-        value: count(cut.now.reduce((n, d) => n + d.pageviews, 0)),
-        sub: also(
-          also(
-            `${p.answering} of ${p.websites} site${p.websites === 1 ? "" : "s"} answering`,
-            heldDays(W, W === "all" ? cut.now.length : W, cut.now.length, "Umami's daily line"),
-          ),
-          cut.before
-            ? movedBy(
-                delta(cut.now.reduce((n, d) => n + d.pageviews, 0), cut.before.reduce((n, d) => n + d.pageviews, 0)),
-                cut.now.length,
-              )
-            : isAll(W) ? "no previous window to compare with" : "no comparable window before it",
-        ),
-        series: cut.now.length > 1 ? cut.now.map((d) => d.pageviews) : undefined,
-        seriesAt: cut.now.length > 1 ? cut.now.map((d) => at(d.day)) : undefined,
-      };
-    }
+    const h = headline(U, W, "views");
+    if (!h) return null;
+    const share = h.lead && h.now > 0 ? h.lead.now.views / h.now : null;
     return {
-      value: count(p.window.pageviews),
-      sub: also(
-        `${p.answering} of ${p.websites} site${p.websites === 1 ? "" : "s"} answering`,
-        movedBy(p.deltas.pageviews, p.window.days),
-      ),
-      series: p.days.length > 1 ? p.days.map((d) => d.pageviews) : undefined,
-      seriesAt: p.days.length > 1 ? p.days.map((d) => at(d.day)) : undefined,
+      value: count(h.now),
+      delta: h.before ? (delta(h.now, h.before) ?? undefined) : undefined,
+      sub:
+        share !== null && share >= 0.5
+          ? `${pct(share, { digits: 0 })} on ${h.lead!.host}`
+          : `across ${h.s.sites.filter((x) => x.now.views > 0).length} sites`,
+      series: h.series.length > 1 ? h.series : undefined,
+      seriesAt: h.series.length > 1 ? h.s.grid.map(at) : undefined,
     };
   },
 
   /*
-    THE CARD THAT REFUSES TO ADD, and keeps its key while doing it.
-
-    Umami counts a visitor once per website per window. Two sites' figures are
-    therefore two answers about overlapping populations, and the only honest
-    portfolio total is the one that exists when there is a single site — where
-    "the portfolio" and "the site" are the same thing. With more than one, the
-    card stops being a number and says which figures it is holding instead;
-    every one of them is on `umami.sites` a row below. The same move
-    `meta.roas` makes, for the same reason: a key a saved board points at is
-    worth more than a card, and a wrong number is worth less than neither.
+    THE CARD THAT REFUSES TO ADD, and keeps its key while doing it. Umami
+    counts a visitor once per website, so with more than one site there is no
+    portfolio figure; the card names the largest site's instead and the
+    per-site ranking carries the rest. Not on the Analytics board any more —
+    `analytics.visits` is, because visits DO add — but a saved board may
+    still point at it.
   */
   "umami.visitors": ({ umami: U, window: W }: LiveInputs) => {
     const p = U?.portfolio;
@@ -5737,96 +5783,442 @@ Object.assign(LIVE_BUILDERS, {
       const only = sites[0]!;
       return {
         value: count(only.visitors),
-        /* Visitors are de-duplicated inside Umami's own window and cannot be
-           re-cut from a daily line, so this stays at thirty whatever the
-           picker says — and says so when they disagree. */
-        sub: also(
-          `${only.domain ?? only.entity} · de-duplicated over ${p.window.days} days`,
-          umamiFixed(p.window.days, W),
-        ),
+        sub: also(`${only.domain ?? only.entity}`, umamiFixed(p.window.days, W)),
       };
     }
     const biggest = [...sites].sort((a, b) => (b.visitors ?? 0) - (a.visitors ?? 0))[0]!;
     return {
-      value: "—",
-      sub:
-        `not added across ${sites.length} sites — one reader of two of them is ` +
-        `one person, and no Umami endpoint can say so. Largest is ` +
-        `${biggest.domain ?? biggest.entity} at ${count(biggest.visitors)}`,
+      value: count(biggest.visitors),
+      sub: `on ${biggest.domain ?? biggest.entity} · never added across ${sites.length} sites`,
     };
   },
 
-  "umami.bounce": ({ umami: U, window: W }: LiveInputs) => {
+  "umami.bounce": ({ umami: U }: LiveInputs) => {
     const w = U?.portfolio.window;
     if (!w || w.bounceRate === null) return null;
+    /* The window before, from the same SUMS — never an average of rates. */
+    const prev = (U?.websites ?? []).filter((s) => s.previous?.visits);
+    const pb = prev.reduce((n, s) => n + (s.previous!.bounces ?? 0), 0);
+    const pv = prev.reduce((n, s) => n + (s.previous!.visits ?? 0), 0);
     return {
       value: percent(w.bounceRate),
-      /* Computed from the SUMS rather than averaged across sites: an average
-         of two percentages weights four visits like four thousand. */
-      sub: also(
-        `a visit with one pageview, Umami's own definition · ${count(w.bounces)} of ${count(w.visits)} visits`,
-        umamiFixed(w.days, W),
+      sub: pv ? `left after one page · was ${percent((pb / pv) * 100)}` : "left after one page",
+    };
+  },
+
+  "umami.avgVisit": ({ umami: U }: LiveInputs) => {
+    const w = U?.portfolio.window;
+    if (!w || w.avgVisitSeconds === null) return null;
+    const prev = (U?.websites ?? []).filter((s) => s.previous?.visits);
+    const pt = prev.reduce((n, s) => n + (s.previous!.totaltime ?? 0), 0);
+    const pv = prev.reduce((n, s) => n + (s.previous!.visits ?? 0), 0);
+    return {
+      value: secs(w.avgVisitSeconds),
+      sub: pv ? `per visit · was ${secs(pt / pv)}` : "per visit",
+    };
+  },
+
+  "umami.daily": ({ umami: U, window: W }: LiveInputs) => {
+    const s = siteSpans(U, W);
+    if (!s || s.grid.length < 2) return null;
+    const daily = siteDaily(s.grid, s.sites, (x) => x.views);
+    return {
+      daily,
+      dailySplit: "By site",
+      dailyOpen: "split" as const,
+      unit: "count" as const,
+      caption: also(busiestOf(daily), "Umami's own days"),
+    };
+  },
+
+  /* Every website as one table — kept for boards that place it. The
+     Analytics board draws `analytics.sites` instead. */
+  "umami.sites": ({ umami: U }: LiveInputs) => {
+    const sites = U?.websites.filter((w) => w.window) ?? [];
+    if (!sites.length) return null;
+    const sorted = [...sites].sort((a, b) => (b.window!.pageviews ?? 0) - (a.window!.pageviews ?? 0));
+    return {
+      headers: ["Site", "Pageviews", "Change", "Visitors", "Bounce", "Avg visit"],
+      rowHosts: sorted.map(siteName),
+      table: sorted.map((w) => [
+        siteName(w),
+        count(w.window!.pageviews),
+        changeWord(w.window!.pageviews ?? 0, w.previous?.pageviews ?? null) || DASH,
+        count(w.window!.visitors),
+        percent(w.window!.bounceRate),
+        secs(w.window!.avgVisitSeconds),
+      ]),
+    };
+  },
+
+  /*
+    THE PAGES, EACH WEARING ITS SITE. A path is a path on one site, so rows
+    are ranked side by side and never merged; the label is the address
+    without its scheme, which is unique and reads as itself. At most three
+    per site, so the biggest site cannot be the whole list.
+  */
+  "umami.pages": ({ umami: U }: LiveInputs) => {
+    const rows = spread((U?.websites ?? []).flatMap((w) => w.top.pages.map((p) => ({ host: siteName(w), path: p.name, n: p.count }))));
+    if (!rows.length) return null;
+    return {
+      ranked: rows.map((r) => ({
+        label: `${r.host}${r.path === "/" ? "" : r.path}`,
+        value: r.n,
+        text: count(r.n),
+        host: r.host,
+      })),
+    };
+  },
+
+  /*
+    REFERRERS ADD ACROSS SITES, because they count VIEWS: github.com sending
+    a view to two sites sent two views. The row wears the referrer's favicon
+    only when the referrer is one of ours (HostMark draws nothing otherwise),
+    and says where most of it went.
+  */
+  "umami.referrers": ({ umami: U }: LiveInputs) => {
+    const by = new Map<string, { n: number; to: Map<string, number> }>();
+    for (const w of U?.websites ?? [])
+      for (const r of w.top.referrers) {
+        const k = r.name.replace(/^www\./, "");
+        const e = by.get(k) ?? { n: 0, to: new Map<string, number>() };
+        e.n += r.count;
+        e.to.set(siteName(w), (e.to.get(siteName(w)) ?? 0) + r.count);
+        by.set(k, e);
+      }
+    const rows = [...by.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 10);
+    if (!rows.length) return null;
+    return {
+      ranked: rows.map(([name, e]) => {
+        const dest = [...e.to.entries()].sort((a, b) => b[1] - a[1]);
+        return {
+          label: name,
+          value: e.n,
+          text: count(e.n),
+          host: name,
+          sub: dest.length > 1 ? `${dest.length} sites` : `→ ${dest[0]![0]}`,
+        };
+      }),
+    };
+  },
+
+  "umami.events": ({ umami: U }: LiveInputs) => {
+    const seen = new Set<string>();
+    const rows = spread((U?.websites ?? []).flatMap((w) => w.top.events.map((e) => ({ host: siteName(w), name: e.name, n: e.count }))));
+    if (!rows.length) return null;
+    return {
+      ranked: rows.map((r) => {
+        const label = seen.has(r.name) ? `${r.name} · ${r.host}` : r.name;
+        seen.add(r.name);
+        return { label, value: r.n, text: count(r.n), host: r.host, sub: r.host };
+      }),
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ============================================================ analytics ==
+   THE ANALYTICS BOARD'S OWN CARDS — the picture of every site at once.
+
+   Pageviews and visits come off each site's daily line and follow the
+   picker. Bounce and visit length are Umami's own thirty days. Countries,
+   devices and browsers are the web-analytics rotation's thirty-day rows for
+   EVERY site, summed site by site: Umami counts a visitor once per website,
+   so these are site-visitors — one person on two sites is two — and every
+   card that adds them says so in its one line. Shares are always of what was
+   drawn from, never of a total nobody measured.
+*/
+
+/** The overview's sites, narrowed to the Umami sites this board can see —
+ *  a venture board hands in a narrowed Umami report and gets its own rows. */
+function overviewSites(W: WebAnalyticsDocs | null | undefined, U: UmamiReport | null | undefined) {
+  const all = W?.overview?.sites ?? [];
+  if (!U) return all;
+  const ids = new Set(U.websites.map((w) => w.websiteId));
+  return all.filter((s) => ids.has(s.websiteId));
+}
+
+/** One dimension summed across sites: value → site-visitors, the sum of the
+ *  blocks' own totals, and what no value accounted for. */
+function acrossSites(W: WebAnalyticsDocs | null | undefined, U: UmamiReport | null | undefined, dimension: string) {
+  const sites = overviewSites(W, U);
+  const by = new Map<string, number>();
+  let total = 0;
+  let siteTotal = 0;
+  let unattributed = 0;
+  let reported = 0;
+  for (const s of sites) {
+    const b = s.segments.find((x) => x.dimension === dimension);
+    if (!b) continue;
+    reported++;
+    total += b.total;
+    if (b.siteTotal !== null) siteTotal += b.siteTotal;
+    if (b.unattributed !== null && b.unattributed > 0) unattributed += b.unattributed;
+    for (const v of b.values) by.set(v.value, (by.get(v.value) ?? 0) + v.count);
+  }
+  if (!reported || total <= 0) return null;
+  return { rows: [...by.entries()].sort((a, b) => b[1] - a[1]), total, siteTotal, unattributed, reported };
+}
+
+const BROWSERS: Record<string, string> = {
+  chrome: "Chrome",
+  "edge-chromium": "Edge",
+  edge: "Edge (legacy)",
+  firefox: "Firefox",
+  ios: "Safari · iPhone",
+  safari: "Safari",
+  crios: "Chrome · iPhone",
+  fxios: "Firefox · iPhone",
+  "chromium-webview": "Android in-app",
+  "ios-webview": "iPhone in-app",
+  opera: "Opera",
+  yandexbrowser: "Yandex",
+  samsung: "Samsung Internet",
+  instagram: "Instagram in-app",
+  facebook: "Facebook in-app",
+  silk: "Silk",
+  miui: "Xiaomi",
+  "edge-ios": "Edge · iPhone",
+};
+const DEVICES: Record<string, string> = {
+  laptop: "Laptop",
+  desktop: "Desktop",
+  mobile: "Phone",
+  tablet: "Tablet",
+};
+
+/** The ten sites with the most visits that have the figure — a rate over a
+ *  handful of visits is noise, and a list of twenty-four is a wall. */
+function busiestSites(U: UmamiReport | null | undefined, pick: (w: UmamiWebsite) => number | null | undefined) {
+  return (U?.websites ?? [])
+    .filter((w) => pick(w) !== null && pick(w) !== undefined && (w.window?.visits ?? 0) >= 30)
+    .sort((a, b) => (b.window!.visits ?? 0) - (a.window!.visits ?? 0))
+    .slice(0, 10);
+}
+
+/** Which kind of place a referrer is. A guess from the hostname, said as a
+ *  guess: the card's line calls these "kinds", not sources of truth. */
+function referrerKind(host: string, ours: Set<string>): string {
+  const h = host.toLowerCase().replace(/^www\./, "");
+  const is = (...names: string[]) => names.some((n) => h === n || h.endsWith(`.${n}`) || h.startsWith(`${n}.`));
+  if (ours.has(h) || [...ours].some((o) => h.endsWith(`.${o}`))) return "Our own sites";
+  if (is("chatgpt.com", "chat.openai.com", "perplexity.ai", "claude.ai", "gemini.google.com", "copilot.microsoft.com", "chat.deepseek.com", "grok.com", "you.com", "phind.com", "kagi.com"))
+    return "AI assistants";
+  if (/(^|\.)(google|bing|duckduckgo|yandex|baidu|yahoo|ecosia|qwant|naver|seznam|sogou|so|startpage)\.[a-z.]+$/.test(h) || is("search.brave.com"))
+    return "Search";
+  if (is("github.com", "gitlab.com", "github.io", "stackoverflow.com", "npmjs.com", "pypi.org", "huggingface.co", "dev.to"))
+    return "Developer sites";
+  if (is("t.co", "x.com", "twitter.com", "reddit.com", "news.ycombinator.com", "linkedin.com", "lnkd.in", "facebook.com", "instagram.com", "youtube.com", "bsky.app", "threads.net", "tiktok.com", "producthunt.com", "discord.com", "telegram.org", "t.me", "medium.com", "substack.com", "pinterest.com", "quora.com"))
+    return "Social";
+  return "Other";
+}
+
+Object.assign(LIVE_BUILDERS, {
+  "analytics.visits": ({ umami: U, window: W }: LiveInputs) => {
+    const h = headline(U, W, "visits");
+    if (!h) return null;
+    const views = h.s.sites.reduce((n, x) => n + x.now.views, 0);
+    return {
+      value: count(h.now),
+      delta: h.before ? (delta(h.now, h.before) ?? undefined) : undefined,
+      sub: h.now > 0 ? `${(views / h.now).toFixed(1)} pages per visit` : "",
+      series: h.series.length > 1 ? h.series : undefined,
+      seriesAt: h.series.length > 1 ? h.s.grid.map(at) : undefined,
+    };
+  },
+
+  /*
+    EVERYTHING BUT THE LARGEST SITE, per day. When one site carries most of
+    the portfolio its bars flatten every other site to a line; this is the
+    same chart with that one taken out, named in the title.
+  */
+  "analytics.dailyRest": ({ umami: U, window: W }: LiveInputs) => {
+    const s = siteSpans(U, W);
+    if (!s || s.grid.length < 2) return null;
+    const ranked = [...s.sites].sort((a, b) => b.now.views - a.now.views);
+    const lead = ranked[0];
+    if (!lead || ranked.length < 2) return null;
+    const rest = ranked.slice(1);
+    const daily = siteDaily(s.grid, rest, (x) => x.views);
+    return {
+      name: `Pageviews per day without ${lead.host} · ${windowLabel(W ?? 30)}`,
+      daily,
+      dailySplit: "By site",
+      dailyOpen: "split" as const,
+      unit: "count" as const,
+      caption: also(`${count(rest.reduce((n, x) => n + x.now.views, 0))} views on ${rest.filter((x) => x.now.views > 0).length} sites`, busiestOf(daily)),
+    };
+  },
+
+  /* Every site, biggest first, with its own line and its change. */
+  "analytics.sites": ({ umami: U, window: W }: LiveInputs) => {
+    const s = siteSpans(U, W);
+    if (!s) return null;
+    const live = s.sites.filter((x) => x.now.views > 0).sort((a, b) => b.now.views - a.now.views);
+    if (!live.length) return null;
+    const shown = live.slice(0, 12);
+    const hidden = live.slice(12);
+    const quiet = s.sites.length - live.length;
+    return {
+      ranked: shown.map((x) => ({
+        label: x.host,
+        value: x.now.views,
+        text: count(x.now.views),
+        host: x.host,
+        spark: x.views.length > 1 ? x.views : undefined,
+        sub: changeWord(x.now.views, x.before?.views ?? null) || undefined,
+      })),
+      caption: also(
+        hidden.length ? `${hidden.length} more with ${count(hidden.reduce((n, x) => n + x.now.views, 0))} views` : "",
+        quiet ? `${quiet} with none` : "",
       ),
     };
   },
 
-  "umami.avgVisit": ({ umami: U, window: W }: LiveInputs) => {
-    const w = U?.portfolio.window;
-    if (!w || w.avgVisitSeconds === null) return null;
+  /* The sites whose views moved most against the span before, up or down. */
+  "analytics.movers": ({ umami: U, window: W }: LiveInputs) => {
+    const s = siteSpans(U, W);
+    if (!s) return null;
+    if (!s.prior) return { ranked: [], caption: isAll(W) ? "No earlier window to compare with" : "Not enough history for the window before" };
+    const moved = s.sites
+      .filter((x) => x.before && x.now.views + x.before.views >= 20 && x.now.views !== x.before.views)
+      .map((x) => ({ x, diff: x.now.views - x.before!.views }))
+      .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
+      .slice(0, 8);
+    if (!moved.length) return { ranked: [], caption: "No site moved" };
+    /* ORDERED BY HOW MANY VIEWS MOVED, DRAWN BY HOW FAR. One site gaining a
+       hundred thousand views would otherwise flatten every other bar to a
+       pixel; the length is the percentage (capped at 200%), the order is
+       the size of the change, and both figures are printed. */
     return {
-      value: secs(w.avgVisitSeconds),
-      sub: also(`total time ÷ ${count(w.visits)} visits, over ${w.days} days`, umamiFixed(w.days, W)),
+      ranked: moved.map(({ x, diff }) => {
+        const was = x.before!.views;
+        const rel = was > 0 ? Math.abs(diff) / was : null;
+        return {
+          label: x.host,
+          value: rel === null ? 2 : Math.min(rel, 2),
+          text: `${diff > 0 ? "▲" : "▼"} ${rel === null ? "new" : `${diff > 0 ? "+" : "−"}${pct(rel, { digits: 0 })}`}`,
+          host: x.host,
+          sub: `${count(was)} → ${count(x.now.views)}`,
+        };
+      }),
+      rankedMax: 2,
+      caption: `Views against the ${s.prior.length} days before`,
     };
   },
 
-  "umami.daily": ({ umami: U }: LiveInputs) => {
-    const days = U?.portfolio.days ?? [];
-    if (days.length < 2) return null;
+  "analytics.countries": ({ webAnalytics: WA, umami: U }: LiveInputs) => {
+    const a = acrossSites(WA, U, "country");
+    if (!a) return null;
+    const rows = a.rows.filter(([code]) => /^[A-Za-z]{2}$/.test(code)).slice(0, 10);
+    const missing = a.siteTotal > 0 ? a.unattributed / a.siteTotal : 0;
     return {
-      chart: [
-        { label: "Pageviews", points: days.map((d) => ({ ts: at(d.day), value: d.pageviews })) },
-        { label: "Visits", points: days.map((d) => ({ ts: at(d.day), value: d.sessions })) },
+      ranked: rows.map(([code, n]) => ({
+        label: countryName(code),
+        value: n,
+        text: count(n),
+        sub: pct(n / a.total, { digits: 0 }),
+      })),
+      caption: also(
+        "Visitors, counted site by site",
+        missing >= 0.05 ? `${pct(missing, { digits: 0 })} of visitors had no country` : "",
+      ),
+    };
+  },
+
+  "analytics.devices": ({ webAnalytics: WA, umami: U }: LiveInputs) => {
+    const a = acrossSites(WA, U, "device");
+    if (!a) return null;
+    const named = a.rows.filter(([v]) => DEVICES[v]);
+    const other = a.rows.filter(([v]) => !DEVICES[v]).reduce((n, [, c]) => n + c, 0);
+    const phone = (a.rows.find(([v]) => v === "mobile")?.[1] ?? 0) + (a.rows.find(([v]) => v === "tablet")?.[1] ?? 0);
+    return {
+      value: pct(phone / a.total, { digits: 0 }),
+      sub: "on a phone or tablet",
+      parts: [
+        ...named.map(([v, n]) => ({ label: DEVICES[v]!, value: n, text: pct(n / a.total, { digits: 0 }) })),
+        ...(other ? [{ label: "Other", value: other, text: pct(other / a.total, { digits: 1 }) }] : []),
       ],
-      unit: "count" as const,
-      caption:
-        `${days.length} days across ${U!.portfolio.websites} site` +
-        `${U!.portfolio.websites === 1 ? "" : "s"} · bucketed in the INSTANCE's ` +
-        `timezone, which this browser does not know — so these are not UTC days ` +
-        `and are never lined up against another integration's`,
+      partsLabel: "Visitors by screen, site by site",
     };
   },
 
-  "umami.sites": ({ umami: U }: LiveInputs) => {
-    const sites = U?.websites.filter((w) => w.window) ?? [];
-    if (!sites.length) return null;
+  "analytics.browsers": ({ webAnalytics: WA, umami: U }: LiveInputs) => {
+    const a = acrossSites(WA, U, "browser");
+    if (!a) return null;
+    const merged = new Map<string, number>();
+    for (const [v, n] of a.rows) {
+      const name = BROWSERS[v] ?? v;
+      merged.set(name, (merged.get(name) ?? 0) + n);
+    }
+    const rows = [...merged.entries()].sort((x, y) => y[1] - x[1]).slice(0, 6);
     return {
-      headers: ["Site", "Pageviews", "Visitors", "Visits", "Bounce", "Avg visit"],
-      table: [...sites]
-        .sort((a, b) => (b.window!.pageviews ?? 0) - (a.window!.pageviews ?? 0))
-        .map((w) => [
-          siteName(w),
-          count(w.window!.pageviews),
-          count(w.window!.visitors),
-          count(w.window!.visits),
-          percent(w.window!.bounceRate),
-          secs(w.window!.avgVisitSeconds),
-        ]),
+      ranked: rows.map(([name, n]) => ({
+        label: name,
+        value: n,
+        text: pct(n / a.total, { digits: 0 }),
+      })),
     };
   },
 
-  "umami.pages": ({ umami: U }: LiveInputs) => {
-    const rows = mergedTop(U?.websites ?? [], (w) => w.top.pages);
-    return rows.length ? { rows } : null;
+  /*
+    WHAT KIND OF PLACE SENT THE VIEWS — search, AI assistants, developer
+    sites, social, our own sites. Views add across sites, so this is a real
+    split of the referred views; a view with no referrer is not in it.
+  */
+  "analytics.sources": ({ umami: U }: LiveInputs) => {
+    const sites = U?.websites ?? [];
+    const ours = new Set(sites.map((w) => (w.domain ?? "").toLowerCase().replace(/^www\./, "")).filter(Boolean));
+    const by = new Map<string, number>();
+    let total = 0;
+    for (const w of sites)
+      for (const r of w.top.referrers) {
+        const k = referrerKind(r.name, ours);
+        by.set(k, (by.get(k) ?? 0) + r.count);
+        total += r.count;
+      }
+    if (!total) return null;
+    const parts = [...by.entries()].sort((a, b) => b[1] - a[1]);
+    const lead = parts[0]!;
+    return {
+      value: pct(lead[1] / total, { digits: 0 }),
+      sub: `of referred views came from ${lead[0].toLowerCase()}`,
+      parts: parts.map(([label, n]) => ({ label, value: n, text: count(n) })),
+      partsLabel: `${count(total)} views that arrived from a link`,
+    };
   },
 
-  "umami.referrers": ({ umami: U }: LiveInputs) => {
-    const rows = mergedTop(U?.websites ?? [], (w) => w.top.referrers);
-    return rows.length ? { rows } : null;
+  /* Bounce per site, worst first — the busiest sites, where a rate means something. */
+  "analytics.bounceSites": ({ umami: U }: LiveInputs) => {
+    const sites = busiestSites(U, (w) => w.window?.bounceRate);
+    if (!sites.length) return null;
+    const rows = [...sites].sort((a, b) => b.window!.bounceRate! - a.window!.bounceRate!);
+    return {
+      ranked: rows.map((w) => ({
+        label: siteName(w),
+        value: w.window!.bounceRate!,
+        text: percent(w.window!.bounceRate, 0),
+        host: siteName(w),
+        sub: `${count(w.window!.visits)} visits`,
+      })),
+      rankedMax: 100,
+      caption: "The ten busiest sites, worst first",
+    };
   },
 
-  "umami.events": ({ umami: U }: LiveInputs) => {
-    const rows = mergedTop(U?.websites ?? [], (w) => w.top.events);
-    return rows.length ? { rows } : null;
+  "analytics.durationSites": ({ umami: U }: LiveInputs) => {
+    const sites = busiestSites(U, (w) => w.window?.avgVisitSeconds);
+    if (!sites.length) return null;
+    const rows = [...sites].sort((a, b) => b.window!.avgVisitSeconds! - a.window!.avgVisitSeconds!);
+    return {
+      ranked: rows.map((w) => ({
+        label: siteName(w),
+        value: w.window!.avgVisitSeconds!,
+        text: secs(w.window!.avgVisitSeconds),
+        host: siteName(w),
+        sub: w.window!.visits ? `${(w.window!.pageviews! / w.window!.visits).toFixed(1)} pages` : undefined,
+      })),
+      caption: "The ten busiest sites, longest first",
+    };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
 

@@ -1098,24 +1098,27 @@ export function DailyBars({
   unit,
   caption,
   split,
+  open,
 }: {
   days: DailyBar[];
   unit: ChartUnit;
   caption?: string;
   split?: string;
+  /** Start on the split tab — for a card whose point is the split. */
+  open?: "split";
 }) {
   const [host, w] = useMeasuredWidth<HTMLDivElement>();
   const { tip, show, hide } = useTip();
   const [hot, setHot] = useState<number | null>(null);
   const hasParts = !!split && days.some((d) => d.parts?.length);
-  const [tab, setTab] = useState<"total" | "split">("total");
+  const [tab, setTab] = useState<"total" | "split">(open ?? "total");
   const splitOn = hasParts && tab === "split";
 
   /* The window's top six parts, in size order, with their marks. */
-  const sums = new Map<string, { value: number; mark?: string | null }>();
+  const sums = new Map<string, { value: number; mark?: string | null; host?: string | null }>();
   for (const d of days)
     for (const p of d.parts ?? []) {
-      const cur = sums.get(p.label) ?? { value: 0, mark: p.mark };
+      const cur = sums.get(p.label) ?? { value: 0, mark: p.mark, host: p.host };
       cur.value += p.value;
       sums.set(p.label, cur);
     }
@@ -1124,8 +1127,8 @@ export function DailyBars({
   const index = new Map(named.map(([label], i) => [label, i]));
   const hasOther = ranked.length > named.length;
   const legend = [
-    ...named.map(([label, v], i) => ({ label, mark: v.mark, colour: PART_COLOURS[i]! })),
-    ...(hasOther ? [{ label: OTHER, mark: null, colour: "var(--border)" }] : []),
+    ...named.map(([label, v], i) => ({ label, mark: v.mark, host: v.host, colour: PART_COLOURS[i]! })),
+    ...(hasOther ? [{ label: OTHER, mark: null, host: null, colour: "var(--border)" }] : []),
   ];
 
   /* Each day's stack, in legend order, so the colours sit in the same place. */
@@ -1248,6 +1251,7 @@ export function DailyBars({
             <span key={l.label} className="inline-flex items-center gap-1.5">
               <i aria-hidden className="size-2 rounded-[2px]" style={{ background: l.colour }} />
               {l.mark && <ModelMark name={l.mark} size={12} />}
+              {l.host && <HostMark host={l.host} size={12} />}
               {l.label}
             </span>
           ))}

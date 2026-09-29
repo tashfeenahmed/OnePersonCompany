@@ -902,18 +902,29 @@ const SEED: StoreState = {
       slug: "analytics",
       name: "Analytics",
       widgets: [
+        /* Reworked 2026-09-29 at the owner's word — "more visuals, less
+           text, favicons where you can": four tiles, pageviews per day by
+           site, every site with its line and change, what moved, the
+           smaller sites without the biggest one flattening them, then who
+           the visitors were and how each site holds them. Bluesky and the
+           Every website table stay in the palette. */
         { id: "an1", type: "umami.pageviews", w: 1 },
-        { id: "an2", type: "umami.visitors", w: 1 },
+        { id: "an13", type: "analytics.visits", w: 1 },
         { id: "an3", type: "umami.bounce", w: 1 },
         { id: "an4", type: "umami.avgVisit", w: 1 },
         { id: "an5", type: "umami.daily", w: 4 },
+        { id: "an14", type: "analytics.sites", w: 2 },
+        { id: "an15", type: "analytics.movers", w: 2 },
+        { id: "an16", type: "analytics.dailyRest", w: 4 },
         { id: "an6", type: "umami.pages", w: 2 },
         { id: "an7", type: "umami.referrers", w: 2 },
+        { id: "an17", type: "analytics.countries", w: 2 },
+        { id: "an18", type: "analytics.devices", w: 1 },
+        { id: "an19", type: "analytics.browsers", w: 1 },
+        { id: "an20", type: "analytics.sources", w: 2 },
         { id: "an8", type: "umami.events", w: 2 },
-        { id: "an9", type: "bluesky.followers", w: 1 },
-        { id: "an10", type: "bluesky.engagement", w: 1 },
-        { id: "an11", type: "umami.sites", w: 4 },
-        { id: "an12", type: "bluesky.handles", w: 4 },
+        { id: "an21", type: "analytics.bounceSites", w: 2 },
+        { id: "an22", type: "analytics.durationSites", w: 2 },
       ],
     },
     /*
