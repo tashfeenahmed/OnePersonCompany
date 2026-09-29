@@ -1,4 +1,6 @@
+import { useId } from "react";
 import { MODEL_MARKS, modelHouse, monogram } from "@/data/modelMarks";
+import { MODEL_LOGOS } from "@/data/modelLogos";
 import { cn } from "@/lib/utils";
 
 /**
@@ -24,6 +26,25 @@ export function ModelMark({
 }) {
   const house = modelHouse(name);
   const mark = MODEL_MARKS[house];
+  const logo = MODEL_LOGOS[house];
+  /* Gradient ids are made unique per mark: sixty rows sharing one id would
+     all point at the first, and a first one inside a hidden row paints none. */
+  const uid = useId().replace(/[^a-zA-Z0-9_-]/g, "");
+  if (logo)
+    return (
+      <svg
+        aria-hidden
+        viewBox={logo.box}
+        width={size}
+        height={size}
+        fill="currentColor"
+        fillRule="evenodd"
+        className={cn("inline-block shrink-0", className)}
+        dangerouslySetInnerHTML={{
+          __html: `<title>${house}</title>${logo.svg.replace(/id="([^"]+)"/g, `id="$1-${uid}"`).replace(/url\(#([^)]+)\)/g, `url(#$1-${uid})`)}`,
+        }}
+      />
+    );
   if (!mark)
     return (
       <span

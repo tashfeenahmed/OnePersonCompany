@@ -1485,7 +1485,7 @@ export function defaultWidth(type: string): 1 | 2 | 4 {
   const kind = WIDGETS[type]?.kind;
   if (kind === "metric") return 1;
   /* A section heading runs across the whole board. */
-  if (kind === "heading") return 4;
+  if (kind === "heading" || kind === "daily") return 4;
   if (kind === "chart" || kind === "table" || kind === "runway") return 4;
   /* A feed carries a picture, three lines of copy and a strip of figures per
      row: at two columns the copy wraps to six lines and the figures stack. */

@@ -30,7 +30,9 @@ export type WidgetKind =
   | "domain-search"
   /** A section title across the board, no card around it — the line that
    *  tells one half of a board from the other. Name and `sub` only. */
-  | "heading";
+  | "heading"
+  /** Bars per day, with a Total tab and a split tab (by model, by source). */
+  | "daily";
 
 export type StatusTone = "ok" | "warn" | "bad";
 
@@ -168,6 +170,13 @@ export type RankedRow = {
   /** A SUB-AGENT ROLE (`researcher`, `seo`, …), for its artwork beside the
    *  label — see components/org/RoleIcon. */
   role?: string;
+};
+
+/** One day of a `daily` card. `parts` carry a `mark` when they are models. */
+export type DailyBar = {
+  day: string;
+  total: number;
+  parts?: { label: string; value: number; mark?: string | null }[];
 };
 
 /**
@@ -578,6 +587,13 @@ export type Widget = {
    * that cannot follow the picker, and its builder says why.
    */
   window?: WidgetWindow;
+  /** A phrase in the name that is a link — "your limits" going to the page
+   *  where they are set. Drawn underlined; the rest of the name is text. */
+  nameLink?: { text: string; to: string };
+  /** daily — one entry per day: the total and, for the split tab, its parts. */
+  daily?: DailyBar[];
+  /** daily — the split tab's name: "By model", "By source". */
+  dailySplit?: string;
   /** metric */
   value?: string;
   /** Colours the reading and puts a word beside it — "watch", "act". Only for
@@ -2448,14 +2464,14 @@ export const WIDGETS: Record<string, Widget> = {
   "openrouter.daily": {
     src: "openrouter",
     name: "Spend per day",
-    kind: "chart",
+    kind: "daily",
     live: { costs: true },
     unit: "usd",
   },
   "openrouter.tokensDaily": {
     src: "openrouter",
     name: "Tokens per day",
-    kind: "chart",
+    kind: "daily",
     live: { costs: true },
     unit: "count",
   },
@@ -2606,7 +2622,7 @@ export const WIDGETS: Record<string, Widget> = {
   "llm.daily": {
     src: "llm",
     name: "OPC tokens per day · chat and sub-agents",
-    kind: "chart",
+    kind: "daily",
     live: { llm: true },
     unit: "count",
   },
@@ -2633,7 +2649,8 @@ export const WIDGETS: Record<string, Widget> = {
   },
   "llm.budget": {
     src: "llm",
-    name: "OPC today against the limits",
+    name: "OPC today against your limits",
+    nameLink: { text: "your limits", to: "/settings?tab=budgets" },
     kind: "meters",
     live: { llm: true },
   },

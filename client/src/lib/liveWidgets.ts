@@ -6903,12 +6903,12 @@ Object.assign(LIVE_BUILDERS, {
     if (!a?.days.length) return null;
     const total = a.days.reduce((n, d) => n + d.usd, 0);
     return {
-      chart: [
-        {
-          label: "Spend, USD",
-          points: a.days.map((d) => ({ ts: `${d.day}T00:00:00Z`, value: d.usd })),
-        },
-      ],
+      daily: a.days.map((d) => ({
+        day: d.day,
+        total: d.usd,
+        parts: d.models?.map((m) => ({ label: shortModel(m.model), value: m.usd, mark: m.model })),
+      })),
+      dailySplit: "By model",
       unit: "usd" as const,
       caption:
         `${usd(total)} over ${a.days.length} charged days · mean ${usd(total / a.days.length)}/day · ` +
@@ -6922,13 +6922,15 @@ Object.assign(LIVE_BUILDERS, {
     const total = a.days.reduce((n, d) => n + tokensOf(d), 0);
     const spend = a.days.reduce((n, d) => n + d.usd, 0);
     return {
-      chart: [
-        { label: "Prompt", points: a.days.map((d) => ({ ts: `${d.day}T00:00:00Z`, value: d.promptTokens })) },
-        { label: "Completion", points: a.days.map((d) => ({ ts: `${d.day}T00:00:00Z`, value: d.completionTokens })) },
-      ],
+      daily: a.days.map((d) => ({
+        day: d.day,
+        total: tokensOf(d),
+        parts: d.models?.map((m) => ({ label: shortModel(m.model), value: m.tokens, mark: m.model })),
+      })),
+      dailySplit: "By model",
       unit: "count" as const,
       caption: also(
-        `${compact(total)} tokens over ${a.days.length} charged days`,
+        `${compact(total)} tokens over ${a.days.length} charged days · ${compact(a.promptTokens)} in, ${compact(a.completionTokens)} out`,
         perMillion(spend, total) ? `${perMillion(spend, total)} blended across the window` : "",
       ),
     };
@@ -7015,10 +7017,15 @@ Object.assign(LIVE_BUILDERS, {
     const total = L.days.reduce((n, d) => n + d.chatTokens + d.runTokens, 0);
     if (!total) return null;
     return {
-      chart: [
-        { label: "Chat", points: L.days.map((d) => ({ ts: `${d.day}T00:00:00Z`, value: d.chatTokens })) },
-        { label: "Runs", points: L.days.map((d) => ({ ts: `${d.day}T00:00:00Z`, value: d.runTokens })) },
-      ],
+      daily: L.days.map((d) => ({
+        day: d.day,
+        total: d.chatTokens + d.runTokens,
+        parts: [
+          { label: "Sub-agents", value: d.runTokens },
+          { label: "Chat", value: d.chatTokens },
+        ],
+      })),
+      dailySplit: "Chat vs sub-agents",
       unit: "count" as const,
       caption: `${compact(total)} tokens the backends reported over ${L.window.days} days · a day with nothing is drawn as nothing`,
     };

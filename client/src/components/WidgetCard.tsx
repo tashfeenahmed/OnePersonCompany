@@ -7,9 +7,11 @@ import { measuredWidget } from "@/lib/widgetView";
 import { ChevronDown, Trash2, UnfoldHorizontal } from "lucide-react";
 import { BrandTile } from "@/components/BrandTile";
 import { useMemo } from "react";
+import { Link } from "react-router-dom";
 import {
   Bars,
   Chart,
+  DailyBars,
   Donut,
   Dumbbell,
   Feed,
@@ -391,7 +393,24 @@ export function WidgetCard({
             name the only thing allowed to give, so a long name truncates
             rather than the dot dropping. */}
         <span className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="truncate text-[12.5px]">{title}</span>
+          <span className="truncate text-[12.5px]">
+            {def.nameLink && title.includes(def.nameLink.text) ? (
+              <>
+                {title.slice(0, title.indexOf(def.nameLink.text))}
+                <Link
+                  to={def.nameLink.to}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="underline underline-offset-2 hover:text-foreground"
+                  title="Set under Settings → Usage limits"
+                >
+                  {def.nameLink.text}
+                </Link>
+                {title.slice(title.indexOf(def.nameLink.text) + def.nameLink.text.length)}
+              </>
+            ) : (
+              title
+            )}
+          </span>
           {/* WHAT KIND OF NUMBER, in a word — "measured", "est.", "metered".
               Only a builder sets one, so it is only ever on a live card; see
               Widget.tag. */}
@@ -489,17 +508,15 @@ export function WidgetCard({
 
         {!empty && def.kind === "metric" && (
           <>
-            {/* MONEY IS SET LARGER AND HEAVIER than any other figure — 36px
-                semibold against 28px regular — the way the money pages
-                headline a bill: a dollar amount on a cost board is the thing
-                the card exists for, and it is read from across the room. A
-                count, a duration or a percentage keeps the quieter size. */}
+            {/* EVERY HEADLINE FIGURE IS SET LIKE MONEY — 36px semibold — since
+                2026-09-29: token counts and runway days at the old 28px
+                regular read as captions beside the bills. */}
             <div
               className={cn(
                 "leading-tight tracking-[-0.03em] tabular-nums",
                 splitMoney(def.value ?? "")
                   ? "text-[36px] font-semibold tracking-[-0.035em]"
-                  : "text-[28px] font-normal",
+                  : "text-[36px] font-semibold tracking-[-0.035em]",
               )}
             >
               <Figure text={def.value ?? ""} />
@@ -583,6 +600,10 @@ export function WidgetCard({
               </div>
             ))}
           </div>
+        )}
+
+        {!empty && def.kind === "daily" && def.daily && (
+          <DailyBars days={def.daily} unit={def.unit ?? "count"} caption={def.caption} split={def.dailySplit} />
         )}
 
         {!empty && def.kind === "chart" && (
@@ -669,7 +690,7 @@ export function WidgetCard({
                   "leading-tight tracking-[-0.03em] tabular-nums",
                   splitMoney(def.value)
                     ? "text-[36px] font-semibold tracking-[-0.035em]"
-                    : "text-[28px] font-normal",
+                    : "text-[36px] font-semibold tracking-[-0.035em]",
                 )}
               >
                 <Figure text={def.value} />

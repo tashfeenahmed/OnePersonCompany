@@ -21,6 +21,7 @@ import { VentureMark } from "@/components/VentureChrome";
 import { useStore } from "@/lib/store";
 import type {
   ChartSeries,
+  DailyBar,
   DonutSlice,
   DumbbellRow,
   FeedItem,
@@ -1060,6 +1061,194 @@ export function Bars({
         </div>
       )}
       <div className="text-muted-foreground mt-1 text-[12.5px]">{labels}</div>
+      <ChartTip tip={tip} width={w} />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ daily */
+
+/** Enough distinct hues for six named parts; "Other" is always the border grey. */
+const PART_COLOURS = [
+  "var(--chart-line-1)",
+  "var(--chart-line-2)",
+  "var(--chart-line-3)",
+  "var(--chart-line-4)",
+  "#c084fc",
+  "#f59e0b",
+];
+const OTHER = "Other";
+
+/**
+ * BARS PER DAY, the owner's preferred reading for spend and tokens over a
+ * line: a day is a thing you count, and a bar makes a quiet day visibly quiet.
+ *
+ * TWO TABS when the builder sent parts: the total, and the same bars stacked
+ * by the split (model, source). The split keeps the six biggest parts across
+ * the WINDOW and folds the rest into Other, so a colour means the same model
+ * on every day.
+ */
+export function DailyBars({
+  days,
+  unit,
+  caption,
+  split,
+}: {
+  days: DailyBar[];
+  unit: ChartUnit;
+  caption?: string;
+  split?: string;
+}) {
+  const [host, w] = useMeasuredWidth<HTMLDivElement>();
+  const { tip, show, hide } = useTip();
+  const [hot, setHot] = useState<number | null>(null);
+  const hasParts = !!split && days.some((d) => d.parts?.length);
+  const [tab, setTab] = useState<"total" | "split">("total");
+  const splitOn = hasParts && tab === "split";
+
+  /* The window's top six parts, in size order, with their marks. */
+  const sums = new Map<string, { value: number; mark?: string | null }>();
+  for (const d of days)
+    for (const p of d.parts ?? []) {
+      const cur = sums.get(p.label) ?? { value: 0, mark: p.mark };
+      cur.value += p.value;
+      sums.set(p.label, cur);
+    }
+  const ranked = [...sums.entries()].sort((a, b) => b[1].value - a[1].value);
+  const named = ranked.slice(0, PART_COLOURS.length);
+  const index = new Map(named.map(([label], i) => [label, i]));
+  const hasOther = ranked.length > named.length;
+  const legend = [
+    ...named.map(([label, v], i) => ({ label, mark: v.mark, colour: PART_COLOURS[i]! })),
+    ...(hasOther ? [{ label: OTHER, mark: null, colour: "var(--border)" }] : []),
+  ];
+
+  /* Each day's stack, in legend order, so the colours sit in the same place. */
+  const stacks = days.map((d) => {
+    const vals = new Array<number>(legend.length).fill(0);
+    let seen = 0;
+    for (const p of d.parts ?? []) {
+      const i = index.get(p.label);
+      if (i !== undefined) vals[i]! += p.value;
+      else if (hasOther) vals[legend.length - 1]! += p.value;
+      seen += p.value;
+    }
+    /* What the parts do not account for (rounding, a model with no row) is
+       drawn as Other rather than dropped, so a stack is as tall as its total. */
+    if (hasOther && d.total > seen) vals[legend.length - 1]! += d.total - seen;
+    return vals;
+  });
+
+  const max = Math.max(...days.map((d) => d.total), 0) || 1;
+  const peak = days.reduce((bi, d, i) => (d.total > days[bi]!.total ? i : bi), 0);
+  const H = 132;
+
+  return (
+    <div ref={host} className="relative mt-1">
+      {hasParts && (
+        <div className="mb-2 flex justify-end">
+          <div role="tablist" className="bg-muted inline-flex rounded-[9px] p-0.5 text-[12px]">
+            {(["total", "split"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                role="tab"
+                aria-selected={tab === t}
+                onClick={() => setTab(t)}
+                className={cn(
+                  "rounded-[7px] px-2.5 py-0.5 transition-colors",
+                  tab === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t === "total" ? "Total" : split}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="text-muted-foreground mb-1 text-[11.5px] tabular-nums">{axisLabel(max, unit)}</div>
+      <div
+        className="border-line-soft flex items-end gap-[3px] border-b"
+        style={{ height: H }}
+        onPointerLeave={() => {
+          setHot(null);
+          hide();
+        }}
+      >
+        {days.map((d, i) => (
+          <div
+            key={d.day}
+            role="img"
+            aria-label={`${dateLong(d.day)}: ${reading(d.total, unit)}`}
+            className={cn(
+              "flex h-full min-w-0 flex-1 flex-col justify-end transition-opacity",
+              hot !== null && hot !== i && "opacity-55",
+            )}
+            onPointerEnter={(e) => {
+              const hostBox = host.current?.getBoundingClientRect();
+              if (!hostBox) return;
+              const box = e.currentTarget.getBoundingClientRect();
+              setHot(i);
+              const parts = splitOn
+                ? legend
+                    .map((l, k) => ({ ...l, v: stacks[i]![k]! }))
+                    .filter((p) => p.v > 0)
+                    .sort((a, b) => b.v - a.v)
+                : [];
+              show({
+                x: box.left - hostBox.left + box.width / 2,
+                y: box.top - hostBox.top,
+                title: `${dateLong(d.day)} · ${reading(d.total, unit)}`,
+                rows: parts.length ? (
+                  <>
+                    {parts.map((p) => (
+                      <TipRow key={p.label} label={p.label} value={reading(p.v, unit)} />
+                    ))}
+                  </>
+                ) : null,
+              });
+            }}
+          >
+            {splitOn ? (
+              <div
+                className="flex min-h-[2px] flex-col-reverse overflow-hidden rounded-t-[3px]"
+                style={{ height: `${(d.total / max) * 100}%` }}
+              >
+                {stacks[i]!.map((v, k) =>
+                  v > 0 ? (
+                    <div key={k} style={{ flex: `${v} 0 0`, background: legend[k]!.colour, minHeight: 1 }} />
+                  ) : null,
+                )}
+              </div>
+            ) : (
+              <div
+                className="min-h-[2px] rounded-t-[3px]"
+                style={{
+                  height: `${(d.total / max) * 100}%`,
+                  background: seriesColour(0),
+                  opacity: i === peak ? 1 : 0.8,
+                }}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="text-muted-foreground mt-1 flex justify-between text-[11.5px]">
+        <span>{days.length ? dayShort(Date.parse(`${days[0]!.day}T00:00:00Z`)) : ""}</span>
+        <span>{days.length ? dayShort(Date.parse(`${days.at(-1)!.day}T00:00:00Z`)) : ""}</span>
+      </div>
+      {splitOn && (
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[12px]">
+          {legend.map((l) => (
+            <span key={l.label} className="inline-flex items-center gap-1.5">
+              <i aria-hidden className="size-2 rounded-[2px]" style={{ background: l.colour }} />
+              {l.mark && <ModelMark name={l.mark} size={12} />}
+              {l.label}
+            </span>
+          ))}
+        </div>
+      )}
+      {caption && <p className="text-muted-foreground mt-1.5 text-[12px] leading-snug">{caption}</p>}
       <ChartTip tip={tip} width={w} />
     </div>
   );
