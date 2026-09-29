@@ -90,6 +90,7 @@ function inputsOf(live: LiveData, points: LiveInputs["points"], extra: Pick<Live
     users: live.users,
     mobileHealth: live.mobileHealth,
     apps: live.apps,
+    devInsights: live.devInsights,
     webAnalytics: live.webAnalytics,
     window: live.window,
     ...extra,
