@@ -1490,11 +1490,12 @@ export function Ranked({
   const { state } = useStore();
   return (
     <div className="mt-1 flex flex-col gap-2">
-      {rows.map((r) => {
+      {rows.map((r, i) => {
         const share = (Math.max(r.value, 0) / top) * 78;
         const venture = r.venture ? state.ventures.find((v) => v.id === r.venture) : undefined;
         return (
-          <div key={r.label} className="min-w-0">
+          /* The index as well: one query can rank for two sites. */
+          <div key={`${r.label}|${i}`} className="min-w-0">
             <div className="flex items-baseline gap-2 text-[13px]">
               {r.mark && <ModelMark name={r.mark} size={13} className="self-center" />}
               {venture && <VentureMark venture={venture} size={16} className="self-center" />}

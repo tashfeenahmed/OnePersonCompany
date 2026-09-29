@@ -917,111 +917,35 @@ const SEED: StoreState = {
       ],
     },
     /*
-      SEO. Everything that decides whether a stranger ever reaches one of these
-      sites, from the four sources that can actually say something about it.
-
-      THE CRAWL LEADS, because it is the only thing on this board we control:
-      an error on our own page is a fault with an owner and a fix, where a
-      ranking is a report of somebody else's decision. Google's verdict sits
-      beside it, and then the three wide tables that are the evidence — who
-      links in, which directories carry us, and every venture's own crawl. They
-      are at full width because not one of them fits in a column: a source per
-      row, a directory per column, a venture per line.
-
-      THEN THE NARROW CARDS, and they are the ones with something to do in
-      them: the queries a nudge would move, the pages, what Bing has indexed
-      and what it could not crawl, the referring-domain counts and the checks
-      that were blocked. The board CLOSES on worst-first, which is the only
-      card here that is a list of instructions.
-
-      NOTHING ON THIS BOARD IS ADDED TO ANYTHING ELSE ON IT. The audit counts
-      faults on pages, Search Console counts impressions on a results page, the
-      backlink sources count referring domains and disagree with each other by
-      design, and the presence matrix counts directory listings. Four counts of
-      four different acts, and the only figure that could span them would be a
-      score — which is the number this dashboard exists to refuse.
-
-      A VENTURE WITH NO CRAWL IS NOT A VENTURE WITH NO PROBLEMS, and both audit
-      cards are built to say so rather than let an empty column read as a clean
-      one.
-    */
-    /*
-      RE-SEEDED IN SEED_VERSION 16 TO FOLLOW WORKDASH'S SEO PAGES TOP TO
-      BOTTOM: the totals, then every property drawn as itself, then the
-      queries and pages, then indexing and authority. Nothing that was here
-      left unless a new card draws the same rows in Workdash's form —
-      `gsc.striking` and `gsc.pages` went, replaced by their ranked-bar
-      versions; everything else kept its place in the new order.
-
-      NO SCORE, STILL. Workdash opens with a median audit score and ranks
-      its sites by one; the audit here refuses a score, so `audit.ranked` is
-      errors worst-first and `audit.crawled` beside `audit.issues` is the
-      honest pair of tiles. The four documents this box computes itself —
-      authority, AI visibility, follow-ups, IndexNow — close the board with
-      what Workdash draws from its agent routes.
+      REWORKED 2026-09-29 AT THE OWNER'S WORD — "improve the visualization,
+      more visuals, less text, favicons where you can". Forty-three cards
+      became sixteen: four tiles, every site as a small card (audit grade,
+      clicks and their line, Bing index, links in, AI mentions), clicks a
+      day by site, what moved and what to fix first, then the lists as bars
+      with each site's favicon. The tables, the per-project cards and the
+      refusal card stay in the palette.
     */
     {
       id: "d-seo",
       slug: "seo",
       name: "SEO",
       widgets: [
-        /* Totals — the four search tiles, the audit pair, the two lines. */
-        { id: "seo13", type: "gsc.clicks", w: 1 },
-        { id: "seo14", type: "gsc.impressions", w: 1 },
-        { id: "seo15", type: "gsc.ctr", w: 1 },
-        { id: "seo2", type: "gsc.position", w: 1 },
-        { id: "seo16", type: "gsc.properties", w: 1 },
-        { id: "seo17", type: "audit.crawled", w: 1 },
-        { id: "seo1", type: "audit.issues", w: 1 },
-        { id: "seo8", type: "bing.index", w: 1 },
-        { id: "seo18", type: "gsc.trend", w: 4 },
-        { id: "seo19", type: "gsc.clicksTrend", w: 4 },
-        /* Every property, drawn as itself. Full width where a card has one
-           row per property: eighteen rows beside a five-row neighbour is a
-           card ending a screen above the one next to it. */
-        { id: "seo20", type: "gsc.dumbbell", w: 4 },
+        { id: "seo50", type: "seo.clicks", w: 1 },
+        { id: "seo51", type: "seo.impressions", w: 1 },
+        { id: "seo52", type: "seo.needsFix", w: 1 },
+        { id: "seo53", type: "seo.aiFound", w: 1 },
+        { id: "seo54", type: "seo.sites", w: 4 },
+        { id: "seo57", type: "seo.fixFirst", w: 2 },
+        { id: "seo60", type: "seo.grades", w: 2 },
+        { id: "seo55", type: "seo.clicksDaily", w: 4 },
+        { id: "seo56", type: "seo.movers", w: 2 },
+        { id: "seo59", type: "seo.striking", w: 2 },
+        { id: "seo58", type: "seo.queries", w: 2 },
         { id: "seo21", type: "audit.ranked", w: 2 },
-        { id: "seo12", type: "audit.worst", w: 2 },
-        { id: "seo22", type: "gsc.propertyClicks", w: 4 },
-        { id: "seo23", type: "gsc.propertyImpressions", w: 4 },
-        { id: "seo24", type: "gsc.sites", w: 4 },
-        { id: "seo5", type: "audit.ventures", w: 4 },
-        { id: "seo25", type: "gsc.quiet", w: 2 },
-        { id: "seo29", type: "gsc.zeroClick", w: 2 },
-        /* Queries and pages. */
-        { id: "seo26", type: "gsc.queriesRanked", w: 2 },
-        { id: "seo27", type: "gsc.pagesRanked", w: 2 },
-        { id: "seo28", type: "gsc.strikingRanked", w: 4 },
-        { id: "seo30", type: "gsc.propertyQueries", w: 4 },
-        { id: "seo31", type: "gsc.propertyStriking", w: 4 },
-        /* Indexing and authority. */
-        { id: "seo32", type: "gsc.sitemapsByProperty", w: 4 },
-        { id: "seo9", type: "bing.crawl", w: 2 },
-        { id: "seo33", type: "indexing.told", w: 2 },
-        { id: "seo34", type: "bing.propertyIndex", w: 4 },
-        { id: "seo35", type: "authority.ceiling", w: 4 },
-        { id: "seo10", type: "backlinks.domains", w: 2 },
-        { id: "seo36", type: "geo.mentioned", w: 2 },
-        { id: "seo3", type: "backlinks.bySource", w: 4 },
-        { id: "seo4", type: "presence.matrix", w: 4 },
-        { id: "seo11", type: "presence.blocked", w: 2 },
-        { id: "seo37", type: "seoops.moved", w: 2 },
-        /*
-          PER PROJECT (SEED_VERSION 17). One of each per-project card, with
-          no venture chosen: each says "pick a venture" until the owner does,
-          in edit mode, from the card's own header — and the palette adds a
-          second one for a second venture. Seeded without a venture because
-          the seed cannot know which one the owner reads first; seeded at
-          all because a card that has to be found in the palette is a card
-          nobody finds.
-        */
-        { id: "seo39", type: "gsc.project", w: 2 },
-        { id: "seo40", type: "audit.project", w: 2 },
-        { id: "seo41", type: "authority.project", w: 2 },
-        { id: "seo42", type: "indexing.project", w: 2 },
-        { id: "seo43", type: "seoops.project", w: 2 },
-        /* The refusals close the board, the way `meta.cannot` closes Social. */
-        { id: "seo38", type: "gsc.cannot", w: 4 },
+        { id: "seo61", type: "seo.indexed", w: 2 },
+        { id: "seo62", type: "seo.links", w: 2 },
+        { id: "seo63", type: "seo.ai", w: 2 },
+        { id: "seo64", type: "seo.listed", w: 2 },
       ],
     },
     /*
@@ -1456,7 +1380,7 @@ export function defaultWidth(type: string): 1 | 2 | 4 {
   const kind = WIDGETS[type]?.kind;
   if (kind === "metric") return 1;
   /* A section heading runs across the whole board. */
-  if (kind === "heading" || kind === "daily" || kind === "appfilter" || kind === "appgrid" || kind === "threads" || kind === "gallery" || kind === "adgallery") return 4;
+  if (kind === "heading" || kind === "daily" || kind === "appfilter" || kind === "appgrid" || kind === "threads" || kind === "gallery" || kind === "adgallery" || kind === "sitegrid") return 4;
   if (kind === "chart" || kind === "table" || kind === "runway") return 4;
   /* A feed carries a picture, three lines of copy and a strip of figures per
      row: at two columns the copy wraps to six lines and the figures stack. */
