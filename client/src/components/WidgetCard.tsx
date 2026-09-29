@@ -313,6 +313,41 @@ export function WidgetCard({
       : !isLive ? unavailable : null;
   const failedSource = Object.keys(base.live ?? {}).find(key =>
     live.sourceStates[key === "metric" ? `metric:${base.live?.metric}` : key] === "error");
+  /* A SECTION HEADING has no data and no card: a title across the grid. In
+     edit mode it keeps the move and remove controls every card has. */
+  if (base.kind === "heading")
+    return (
+      <div
+        {...dragHandlers}
+        className={cn(
+          "col-span-12 flex items-end gap-3 px-1 pt-5 pb-0.5",
+          editing && "cursor-grab touch-none rounded-[14px] border border-dashed select-none",
+          dragging && "opacity-35",
+        )}
+      >
+        <BrandTile icon={src.icon} name={src.name} mono={src.mono} tint={src.tint} className="size-6 rounded-md" glyphClassName="size-[13px] text-[11px]" />
+        <div className="min-w-0">
+          <h2 className="text-[17px] font-medium tracking-[-0.015em]">{base.name}</h2>
+          {base.sub && <p className="text-muted-foreground text-[12.5px] leading-snug">{base.sub}</p>}
+        </div>
+        {editing && (
+          <div className="widget-action ml-auto flex gap-px">
+            <button aria-label={`Move ${base.name} earlier`} className="p-1" onClick={() => onMove?.(-1)}>←</button>
+            <button aria-label={`Move ${base.name} later`} className="p-1" onClick={() => onMove?.(1)}>→</button>
+            <button
+              title="Remove"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove();
+              }}
+              className="text-muted-foreground hover:bg-accent hover:text-foreground grid place-items-center rounded-[9px] p-1"
+            >
+              <Trash2 className="size-3.5" strokeWidth={1.6} />
+            </button>
+          </div>
+        )}
+      </div>
+    );
   if (base.presentation?.startsWith("server-")) return <ServerWidget def={def} placed={placed} empty={empty}
     portfolioWide={!!scope && !narrowed}
     stale={!!failedSource || !!live.error} error={live.sourceErrors[failedSource ?? sourceKey] ?? live.error}
