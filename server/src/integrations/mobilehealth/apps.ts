@@ -194,7 +194,7 @@ export function appsDoc(days: number) {
     icon: string | null;
     ventureId: string | null;
     appstore: { id: string; state: string | null; onStore: boolean | null; version: string | null; url: string | null; rating: number | null; ratingCount: number | null } | null;
-    play: { package: string; url: string | null; rating: number | null; ratingCount: number | null; activeDevices: number | null } | null;
+    play: { package: string; url: string | null; rating: number | null; ratingCount: number | null; activeDevices: number | null; activeAt: string | null } | null;
     rating: { average: number; count: number | null } | null;
     totals: { ios: number; android: number; uninstalls: number };
     daily: { day: string; ios: number; android: number }[];
@@ -227,10 +227,15 @@ export function appsDoc(days: number) {
   }
   const latestPlay = new Map(
     (db.prepare(
-      `SELECT s.package, s.active_devices, s.rating_total FROM play_stats s
-         JOIN (SELECT package, MAX(day) d FROM play_stats GROUP BY package) m
-           ON m.package = s.package AND m.d = s.day`,
-    ).all() as { package: string; active_devices: number | null; rating_total: number | null }[]).map((r) => [r.package, r]),
+      /* The newest day that CARRIES each figure: Play's latest rows often
+         arrive before their device count and rating, and a null there read
+         as "no devices" on the board. */
+      `SELECT p.package,
+              (SELECT active_devices FROM play_stats WHERE package = p.package AND active_devices IS NOT NULL ORDER BY day DESC LIMIT 1) active_devices,
+              (SELECT day FROM play_stats WHERE package = p.package AND active_devices IS NOT NULL ORDER BY day DESC LIMIT 1) active_at,
+              (SELECT rating_total FROM play_stats WHERE package = p.package AND rating_total IS NOT NULL ORDER BY day DESC LIMIT 1) rating_total
+         FROM (SELECT DISTINCT package FROM play_stats) p`,
+    ).all() as { package: string; active_devices: number | null; active_at: string | null; rating_total: number | null }[]).map((r) => [r.package, r]),
   );
   for (const p of packages) {
     const key = appKey(p);
@@ -244,6 +249,7 @@ export function appsDoc(days: number) {
       package: p, url: l?.url ?? `https://play.google.com/store/apps/details?id=${p}`,
       rating: l?.rating ?? s?.rating_total ?? null, ratingCount: l?.rating_count ?? null,
       activeDevices: s?.active_devices ?? null,
+      activeAt: s?.active_at ?? null,
     };
     byKey.set(key, e);
   }
@@ -280,6 +286,16 @@ export function appsDoc(days: number) {
     e.daily[i]!.android += r.i ?? 0;
     e.totals.android += r.i ?? 0;
     e.totals.uninstalls += r.u ?? 0;
+  }
+  /* The daily table's uninstall column is empty in this export era; the
+     per-version slices carry user uninstalls, so they are summed instead. */
+  for (const r of db.prepare(
+    `SELECT app, SUM(amount) n FROM mobile_dimensions
+      WHERE day >= ? AND store = 'play' AND dimension = 'app_version' AND metric = 'user_uninstalls'
+      GROUP BY app`,
+  ).all(from) as { app: string; n: number | null }[]) {
+    const e = entryOf("play", r.app);
+    if (e && (r.n ?? 0) > e.totals.uninstalls) e.totals.uninstalls = r.n ?? 0;
   }
 
   /* Countries: App Store downloads by territory, Play installs by country. */

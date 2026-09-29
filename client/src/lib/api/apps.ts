@@ -15,7 +15,7 @@ export type AppEntry = {
     id: string; state: string | null; onStore: boolean | null; version: string | null;
     url: string | null; rating: number | null; ratingCount: number | null;
   } | null;
-  play: { package: string; url: string | null; rating: number | null; ratingCount: number | null; activeDevices: number | null } | null;
+  play: { package: string; url: string | null; rating: number | null; ratingCount: number | null; activeDevices: number | null; activeAt: string | null } | null;
   /** Weighted across stores where counts are known; count null = Play's Console average alone. */
   rating: { average: number; count: number | null } | null;
   totals: { ios: number; android: number; uninstalls: number };
