@@ -8670,15 +8670,17 @@ Object.assign(LIVE_BUILDERS, {
     return {
       ranked: worst.slice(0, 10).map((v) => ({
         label: v.name,
+        /* The venture's favicon beside its name (SEO board, 2026-09-29). */
+        venture: v.id,
         value: v.issues.error,
         text: v.issues.error ? `${count(v.issues.error)} error${v.issues.error === 1 ? "" : "s"}` : "clean",
         /* Warnings ride beside the name and are NEVER in the bar: forty
            notices must not outweigh a dead homepage. */
-        sub: `${count(v.pages)} page${v.pages === 1 ? "" : "s"} · ${count(v.issues.warning)} warn`,
+        sub: `${count(v.issues.warning)} warn · ${count(v.pages)} page${v.pages === 1 ? "" : "s"}`,
       })),
       caption: also(
-        "errors, worst first — there is no score by design",
-        never ? `${never} venture${never === 1 ? "" : "s"} never crawled, not drawn` : "",
+        "Worst first",
+        never ? `${never} never audited` : "",
       ),
     };
   },
@@ -14972,6 +14974,417 @@ Object.assign(LIVE_BUILDERS, {
         { label: "paused", value: by.paused, text: count(by.paused) },
       ],
       partsLabel: "The ads in the account",
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ================================================================== seo
+   THE SEO BOARD, REWORKED 2026-09-29 — "more visuals, less text, favicons
+   where you can". Every site as a small card (audit grade, clicks and their
+   line, pages in Bing's index, inbound links, AI mentions), then what moved,
+   what to fix first, and the lists as bars with the site's favicon.
+
+   THE GRADE IS A RULE, NOT A SCORE: A no errors or warnings, B warnings
+   only, C one or two errors, D three or more. Nothing is weighted, and a site
+   never audited has no letter rather than an A.
+
+   "WHAT MOVED" IS THE WINDOW'S SECOND HALF AGAINST ITS FIRST, from each
+   property's own daily rows — Search Console's previous-window figures are
+   not always collected, and the halves are always there.
+   ======================================================================== */
+
+/** "sc-domain:x.com", "https://www.x.com/", "x.com" → "x.com". */
+function seoHost(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const v = value.replace(/^sc-domain:/i, "");
+  try {
+    return new URL(v.includes("://") ? v : `https://${v}`).hostname.toLowerCase().replace(/^www\./, "") || null;
+  } catch {
+    return null;
+  }
+}
+
+type SeoGrade = "A" | "B" | "C" | "D";
+const seoGrade = (i: { error: number; warning: number } | null): SeoGrade | null =>
+  !i ? null : i.error >= 3 ? "D" : i.error >= 1 ? "C" : i.warning > 0 ? "B" : "A";
+const plural = (n: number, word: string) => `${count(n)} ${word}${n === 1 ? "" : "s"}`;
+
+/** A property's clicks (or impressions) in the window's two halves, on the
+ *  portfolio's own day grid. Null when the property's rows do not cover the
+ *  grid — a property added mid-window has no first half to compare. */
+function seoHalves(G: GscReport, p: GscProperty | null, pick: "clicks" | "impressions" = "clicks") {
+  const grid = G.series.map((d) => d.day);
+  if (grid.length < 4) return null;
+  const half = Math.floor(grid.length / 2);
+  let rows: number[];
+  if (p) {
+    const by = new Map(p.series.map((d) => [d.day, d[pick]]));
+    if (!grid.every((d) => by.has(d))) return null;
+    rows = grid.map((d) => by.get(d)!);
+  } else rows = G.series.map((d) => d[pick]);
+  const prev = rows.slice(0, half).reduce((n, v) => n + v, 0);
+  const last = rows.slice(-half).reduce((n, v) => n + v, 0);
+  return { prev, last, days: half, change: prev >= 10 ? (last - prev) / prev : null };
+}
+
+const seoChangeText = (h: ReturnType<typeof seoHalves>) =>
+  !h || h.change === null
+    ? ""
+    : `${h.change >= 0 ? "▲" : "▼"} ${pct(Math.abs(h.change), { digits: 0 })} in the last ${h.days} days`;
+
+/** Every site the SEO sources know, joined on the hostname. */
+function seoSites(I: LiveInputs) {
+  type Site = {
+    host: string;
+    name: string;
+    venture: string | null;
+    audit: NonNullable<LiveInputs["audit"]>["ventures"][number] | null;
+    gsc: GscProperty | null;
+    bing: NonNullable<LiveInputs["bing"]>["sites"][number] | null;
+    ai: { asked: number; mentioned: number } | null;
+  };
+  const by = new Map<string, Site>();
+  const get = (host: string, name?: string) => {
+    let s = by.get(host);
+    if (!s) {
+      s = { host, name: name ?? host, venture: null, audit: null, gsc: null, bing: null, ai: null };
+      by.set(host, s);
+    }
+    return s;
+  };
+  for (const v of I.audit?.ventures ?? []) {
+    const h = seoHost(v.host);
+    if (!h) continue;
+    const s = get(h, v.name);
+    s.name = v.name;
+    s.venture = v.id;
+    s.audit = v;
+  }
+  if (I.gsc?.connected) for (const p of I.gsc.properties) {
+    const h = seoHost(p.property) ?? seoHost(p.label);
+    if (h) get(h).gsc = p;
+  }
+  for (const b of I.bing?.sites ?? []) {
+    const h = seoHost(b.site) ?? seoHost(b.label);
+    if (h) get(h).bing = b;
+  }
+  const byVenture = new Map([...by.values()].filter((s) => s.venture).map((s) => [s.venture!, s]));
+  for (const a of I.seo?.geo?.answers ?? []) {
+    if (a.kind !== "generic") continue;
+    const s = byVenture.get(a.ventureId);
+    if (!s) continue;
+    s.ai ??= { asked: 0, mentioned: 0 };
+    s.ai.asked += 1;
+    if (a.mentioned) s.ai.mentioned += 1;
+  }
+  return [...by.values()];
+}
+
+Object.assign(LIVE_BUILDERS, {
+  "seo.clicks": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.window.end) return null;
+    const h = seoHalves(G, null);
+    return {
+      value: count(G.totals.clicks),
+      sub: seoChangeText(h) || `${G.window.days} days to ${dayShort(G.window.end)}`,
+      series: G.series.length > 1 ? G.series.map((d) => d.clicks) : undefined,
+      seriesAt: G.series.length > 1 ? G.series.map((d) => at(d.day)) : undefined,
+      unit: "count" as const,
+    };
+  },
+
+  "seo.impressions": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.window.end) return null;
+    const h = seoHalves(G, null, "impressions");
+    return {
+      value: compact(G.totals.impressions),
+      sub: also(seoChangeText(h), G.totals.ctr === null ? "" : `${percent(G.totals.ctr)} clicked`),
+      series: G.series.length > 1 ? G.series.map((d) => d.impressions) : undefined,
+      seriesAt: G.series.length > 1 ? G.series.map((d) => at(d.day)) : undefined,
+      unit: "count" as const,
+    };
+  },
+
+  "seo.needsFix": ({ audit: A }: LiveInputs) => {
+    const rows = audited(A);
+    if (!rows.length) return null;
+    const bad = rows.filter((v) => v.issues.error > 0);
+    const errors = bad.reduce((n, v) => n + v.issues.error, 0);
+    return {
+      value: `${count(bad.length)} of ${count(rows.length)}`,
+      tone: bad.length ? ("warn" as StatusTone) : undefined,
+      sub: bad.length ? `${plural(errors, "error")} to fix` : "no audit errors anywhere",
+    };
+  },
+
+  "seo.aiFound": ({ seo }: LiveInputs) => {
+    const asked = (seo?.geo?.answers ?? []).filter((a) => a.kind === "generic");
+    if (!asked.length) return null;
+    const named = asked.filter((a) => a.mentioned);
+    const sites = new Set(named.map((a) => a.ventureId));
+    return {
+      value: pct(named.length / asked.length, { digits: 0 }),
+      sub: `${count(named.length)} of ${count(asked.length)} questions named one of ours · ${plural(sites.size, "site")}`,
+    };
+  },
+
+  "seo.sites": (I: LiveInputs) => {
+    const G = I.gsc?.connected ? I.gsc : null;
+    const all = seoSites(I);
+    if (!all.length || (!I.audit && !G)) return null;
+    const clicks = (s: (typeof all)[number]) => s.gsc?.clicks ?? -1;
+    const sorted = all.sort(
+      (a, b) => clicks(b) - clicks(a) || (b.gsc?.impressions ?? 0) - (a.gsc?.impressions ?? 0) || a.name.localeCompare(b.name),
+    );
+    const isQuiet = (s: (typeof all)[number]) => (s.gsc?.clicks ?? 0) === 0 && (s.gsc?.impressions ?? 0) < 50 && (s.bing?.clicks ?? 0) === 0;
+    const cards = sorted.filter((s) => !isQuiet(s));
+    const quiet = sorted.filter(isQuiet);
+    return {
+      siteCards: cards.map((s) => {
+        const i = s.audit?.ts ? s.audit.issues : null;
+        const grade = seoGrade(i);
+        const h = G && s.gsc ? seoHalves(G, s.gsc) : null;
+        return {
+          host: s.host,
+          name: s.name,
+          venture: s.venture,
+          grade,
+          gradeNote: !i
+            ? "not audited"
+            : i.error
+              ? also(plural(i.error, "error"), i.warning ? plural(i.warning, "warning") : "")
+              : i.warning
+                ? plural(i.warning, "warning")
+                : "clean audit",
+          clicks: s.gsc ? compact(s.gsc.clicks) : DASH,
+          change: h?.change ?? null,
+          spark: s.gsc && s.gsc.series.length > 1 ? s.gsc.series.map((d) => d.clicks) : null,
+          stats: [
+            ["in Bing", s.bing?.index.inIndex == null ? DASH : compact(s.bing.index.inIndex)],
+            ["links in", s.bing?.inLinks == null ? DASH : compact(s.bing.inLinks)],
+            ["AI found", s.ai ? `${s.ai.mentioned}/${s.ai.asked}` : DASH],
+          ] as [string, string][],
+        };
+      }),
+      quietSites: quiet.map((s) => ({ name: s.name, host: s.host, venture: s.venture })),
+      caption: also(
+        G ? `Google clicks over ${G.window.days} days, busiest first` : "",
+        "grade: A clean · B warnings only · C 1–2 errors · D 3+ errors",
+      ),
+    };
+  },
+
+  "seo.clicksDaily": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || G.series.length < 2) return null;
+    const top = [...G.properties].filter((p) => p.clicks > 0).sort((a, b) => b.clicks - a.clicks).slice(0, 6);
+    const days = G.series.map((d) => {
+      const parts = top.map((p) => ({ label: p.label, value: p.series.find((x) => x.day === d.day)?.clicks ?? 0 }));
+      const rest = d.clicks - parts.reduce((n, x) => n + x.value, 0);
+      if (rest > 0) parts.push({ label: "Other sites", value: rest });
+      return { day: d.day, total: d.clicks, parts };
+    });
+    const peak = days.reduce((b, d) => (d.total > b.total ? d : b), days[0]!);
+    return {
+      daily: days,
+      dailySplit: "By site",
+      unit: "count" as const,
+      caption: `Best day ${dayShort(peak.day)} with ${count(peak.total)} · Google`,
+    };
+  },
+
+  "seo.movers": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected) return null;
+    const rows = G.properties
+      .map((p) => ({ p, h: seoHalves(G, p) }))
+      .filter((r): r is { p: GscProperty; h: NonNullable<ReturnType<typeof seoHalves>> } => !!r.h && Math.abs(r.h.last - r.h.prev) >= 3)
+      .sort((a, b) => Math.abs(b.h.last - b.h.prev) - Math.abs(a.h.last - a.h.prev))
+      .slice(0, 8);
+    if (!rows.length) return null;
+    return {
+      ranked: rows.map(({ p, h }) => {
+        const d = h.last - h.prev;
+        return {
+          label: p.label,
+          host: p.property,
+          value: Math.abs(d),
+          text: `${d > 0 ? "▲" : "▼"} ${count(Math.abs(d))} clicks`,
+          sub: `${count(h.prev)} → ${count(h.last)}`,
+        };
+      }),
+      caption: `Clicks in the last ${rows[0]!.h.days} days against the ${rows[0]!.h.days} before`,
+    };
+  },
+
+  "seo.fixFirst": (I: LiveInputs) => {
+    const sites = seoSites(I);
+    if (!sites.length || !I.audit) return null;
+    const G = I.gsc?.connected ? I.gsc : null;
+    /* [what, figure, host] — worst first: errors on sites people visit,
+       then traffic falling, then what stops a crawler, then the gaps. */
+    const out: [string, string, string | null][] = [];
+    const busy = (s: (typeof sites)[number]) => s.gsc?.clicks ?? 0;
+    const withErrors = sites.filter((s) => s.audit?.ts && s.audit.issues && s.audit.issues.error > 0).sort((a, b) => busy(b) - busy(a));
+    for (const s of withErrors.slice(0, 3)) out.push([`${s.host} · audit errors`, count(s.audit!.issues!.error), s.host]);
+    if (withErrors.length > 3) out.push([`${withErrors.length - 3} more sites · audit errors`, count(withErrors.slice(3).reduce((n, s) => n + s.audit!.issues!.error, 0)), null]);
+    if (G)
+      for (const s of sites) {
+        const h = s.gsc ? seoHalves(G, s.gsc) : null;
+        if (h && h.change !== null && h.change <= -0.3 && h.prev >= 20) out.push([`${s.host} · clicks falling`, `▼ ${pct(-h.change, { digits: 0 })}`, s.host]);
+      }
+    for (const s of sites) {
+      const e = s.bing?.index.crawlErrors ?? 0;
+      if (e >= 100) out.push([`${s.host} · Bing crawl errors`, compact(e), s.host]);
+    }
+    for (const x of I.seo?.indexing?.hosts ?? [])
+      if (x.dryRun > 0 && x.received === 0) out.push([`${x.host} · IndexNow key missing`, `${count(x.dryRun)} unsent`, x.host]);
+      else if (x.refused > 0) out.push([`${x.host} · IndexNow refused`, count(x.refused), x.host]);
+    for (const s of sites)
+      if ((s.gsc?.sitemaps.errors ?? 0) > 0) out.push([`${s.host} · sitemap errors`, count(s.gsc!.sitemaps.errors!), s.host]);
+    for (const s of sites) {
+      const ts = s.audit?.ts;
+      if (ts && busy(s) >= 50 && Date.now() - Date.parse(ts) > 21 * 86_400_000)
+        out.push([`${s.host} · audit is old`, dayShort(ts.slice(0, 10)), s.host]);
+    }
+    const never = sites.filter((s) => s.audit && !s.audit.ts);
+    if (never.length) out.push([`${plural(never.length, "site")} · never audited`, count(never.length), null]);
+    const unindexed = sites.filter((s) => s.bing && s.bing.index.inIndex === 0);
+    if (unindexed.length) out.push([`${plural(unindexed.length, "site")} · nothing in Bing's index`, count(unindexed.length), null]);
+    if (!out.length) return { rows: [["Nothing urgent", "✓"]] as [string, string][] };
+    const shown = out.slice(0, 10);
+    return {
+      rows: shown.map(([k, v]) => [k, v] as [string, string]),
+      rowHosts: shown.map(([, , h]) => h),
+    };
+  },
+
+  "seo.queries": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.queries.length) return null;
+    return {
+      ranked: G.queries.slice(0, 8).map((q) => ({
+        label: q.query,
+        host: q.property,
+        value: q.clicks,
+        text: clicksWord(q.clicks),
+        sub: q.position === null ? undefined : `#${place(q.position)}`,
+      })),
+      caption: `Google · ${G.window.days} days · #average position`,
+    };
+  },
+
+  "seo.striking": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.striking.length) return null;
+    return {
+      ranked: G.striking.slice(0, 8).map((q) => ({
+        label: q.query,
+        host: q.property,
+        value: q.impressions,
+        text: `${count(q.impressions)} impr`,
+        sub: q.position === null ? undefined : `#${place(q.position)}`,
+      })),
+      caption: "Ranking 5th–20th: a push from the top of page one",
+    };
+  },
+
+  "seo.grades": ({ audit: A }: LiveInputs) => {
+    if (!A?.ventures.length) return null;
+    const n = { A: 0, B: 0, C: 0, D: 0, none: 0 };
+    for (const v of A.ventures) {
+      const g = seoGrade(v.ts ? v.issues : null);
+      if (g) n[g]++;
+      else n.none++;
+    }
+    const audited = A.ventures.length - n.none;
+    if (!audited) return null;
+    return {
+      value: `${count(n.A)} of ${count(audited)}`,
+      sub: "audited sites with a clean bill",
+      parts: [
+        { label: "A · clean", value: n.A, text: count(n.A), tone: "ok" as StatusTone },
+        { label: "B · warnings", value: n.B, text: count(n.B) },
+        { label: "C · 1–2 errors", value: n.C, text: count(n.C), tone: "warn" as StatusTone },
+        { label: "D · 3+ errors", value: n.D, text: count(n.D), tone: "bad" as StatusTone },
+        ...(n.none ? [{ label: "not audited", value: n.none, text: count(n.none) }] : []),
+      ].filter((p) => p.value > 0),
+    };
+  },
+
+  "seo.ai": ({ seo }: LiveInputs) => {
+    const answers = seo?.geo?.answers ?? [];
+    if (!answers.length) return null;
+    const by = new Map<string, { name: string; asked: number; named: number; direct: number; right: number }>();
+    for (const a of answers) {
+      const e = by.get(a.ventureId) ?? { name: a.ventureName ?? a.ventureId, asked: 0, named: 0, direct: 0, right: 0 };
+      if (a.kind === "generic") {
+        e.asked += 1;
+        if (a.mentioned) e.named += 1;
+      } else if (a.kind === "direct" && a.accurate !== null) {
+        e.direct += 1;
+        if (a.accurate) e.right += 1;
+      }
+      by.set(a.ventureId, e);
+    }
+    const rows = [...by.entries()]
+      .filter(([, e]) => e.asked > 0)
+      .sort(([, a], [, b]) => b.named / b.asked - a.named / a.asked || (b.direct ? b.right / b.direct : 0) - (a.direct ? a.right / a.direct : 0))
+      .slice(0, 10);
+    if (!rows.length) return null;
+    return {
+      ranked: rows.map(([id, e]) => ({
+        label: e.name,
+        venture: id,
+        value: Math.round((e.named / e.asked) * 100),
+        text: `found ${e.named}/${e.asked}`,
+        sub: e.direct ? `knows it ${e.right}/${e.direct}` : undefined,
+      })),
+      rankedMax: 100,
+      caption: "Found: named when a stranger asks for a tool like it · knows it: described right when asked by name",
+    };
+  },
+
+  "seo.indexed": ({ bing: B }: LiveInputs) => {
+    if (!B?.sites.length) return null;
+    const rows = B.sites.filter((s) => (s.index.inIndex ?? 0) > 0).sort((a, b) => b.index.inIndex! - a.index.inIndex!);
+    if (!rows.length) return null;
+    const none = B.sites.filter((s) => s.index.inIndex === 0).length;
+    return {
+      ranked: rows.slice(0, 10).map((s) => ({
+        label: s.label,
+        host: s.site,
+        value: s.index.inIndex!,
+        text: `${count(s.index.inIndex!)} pages`,
+        sub: s.index.crawlErrors ? plural(s.index.crawlErrors, "crawl error") : undefined,
+      })),
+      caption: none ? `${plural(none, "site")} with none yet` : undefined,
+    };
+  },
+
+  "seo.links": ({ bing: B }: LiveInputs) => {
+    if (!B?.sites.length) return null;
+    const rows = B.sites.filter((s) => (s.inLinks ?? 0) > 0).sort((a, b) => b.inLinks! - a.inLinks!);
+    if (!rows.length) return null;
+    return {
+      ranked: rows.slice(0, 10).map((s) => ({ label: s.label, host: s.site, value: s.inLinks!, text: count(s.inLinks!) })),
+      caption: "Links Bing has seen pointing in — pages, not distinct sites",
+    };
+  },
+
+  "seo.listed": ({ presence: P }: LiveInputs) => {
+    if (!P?.products.length) return null;
+    const rows = P.products
+      .map((p) => ({ p, on: p.sources.filter((s) => s.status === "present").map((s) => s.label), of: p.summary.of - p.summary.blocked - p.summary.unchecked }))
+      .filter((r) => r.of > 0)
+      .sort((a, b) => b.on.length - a.on.length || a.p.product.localeCompare(b.p.product));
+    if (!rows.length) return null;
+    return {
+      ranked: rows.slice(0, 10).map((r) => ({
+        label: r.p.product,
+        host: r.p.host,
+        value: r.on.length,
+        text: `${r.on.length} of ${r.of}`,
+        sub: r.on.length ? r.on.join(", ") : undefined,
+      })),
+      rankedMax: Math.max(...rows.map((r) => r.of)),
+      caption: "Wikipedia, GitHub, Product Hunt, app stores and the like",
     };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
