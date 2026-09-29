@@ -50,7 +50,7 @@ import type {
   UmamiWebsite,
   UptimeReport,
 } from "@/lib/api/reports";
-import type { Meter, ProfileFigure, ProportionPart, RankedRow, RunwayRow, StatusTone, WaterfallStep, Widget } from "@/data/widgets";
+import type { Meter, ProfileFigure, ProportionPart, RankedRow, ThreadCard, RunwayRow, StatusTone, WaterfallStep, Widget } from "@/data/widgets";
 import type { Expense, FinanceReport, MarginRow, PortfolioPnl } from "@/lib/api/finance";
 import type { InboxDoc, InboxItem } from "@/lib/api/inbox";
 import type { CaptureReport } from "@/lib/api/ventures";
@@ -14603,15 +14603,18 @@ const demandThreads = (D: NonNullable<LiveInputs["demand"]>) => [
   ...D.reddit.signals.map((s) => ({ ...s, source: "Reddit" as const })),
   ...D.hn.signals.map((s) => ({ ...s, source: "Hacker News" as const })),
 ];
-/* The feed draws each meta pair as "<value> <label>", so the label is first. */
-const threadMeta = (s: ReturnType<typeof demandThreads>[number]): [string, string][] => [
-  ...(s.points !== null ? [["points", count(s.points)] as [string, string]] : []),
-  ...(s.comments !== null ? [[s.comments === 1 ? "reply" : "replies", count(s.comments)] as [string, string]] : []),
-];
-/** Where it was posted and which phrase found it — the line under the title. */
-const threadWhere = (s: ReturnType<typeof demandThreads>[number]) =>
-  `${s.source === "Reddit" ? (s.context ?? "Reddit") : "Hacker News"} · found by “${s.term}”`;
-
+const threadCard = (s: ReturnType<typeof demandThreads>[number]): ThreadCard => ({
+  source: s.source,
+  where: s.source === "Reddit" ? (s.context ?? "Reddit") : s.context === "comment" ? "a comment" : "a story",
+  title: s.title,
+  body: s.body ?? null,
+  url: s.url,
+  term: s.term,
+  createdAt: s.createdAt,
+  points: s.points,
+  comments: s.comments,
+  unanswered: s.comments === 0,
+});
 Object.assign(LIVE_BUILDERS, {
   "demand.found": ({ demand: D }: LiveInputs) => {
     if (!D) return null;
@@ -14707,9 +14710,7 @@ Object.assign(LIVE_BUILDERS, {
       .filter((s) => (s.points ?? 0) + (s.comments ?? 0) > 0)
       .sort((a, b) => (b.points ?? 0) + 2 * (b.comments ?? 0) - ((a.points ?? 0) + 2 * (a.comments ?? 0)));
     if (!all.length) return null;
-    return {
-      feed: all.slice(0, 8).map((s) => ({ title: s.title, text: threadWhere(s), href: s.url, meta: threadMeta(s), at: s.createdAt ? ago(s.createdAt) : undefined })),
-    };
+    return { threads: all.slice(0, 6).map(threadCard), caption: "Ranked by replies and points" };
   },
 
   "demand.open": ({ demand: D }: LiveInputs) => {
@@ -14718,9 +14719,7 @@ Object.assign(LIVE_BUILDERS, {
       .filter((s) => s.comments === 0)
       .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
     if (!open.length) return null;
-    return {
-      feed: open.slice(0, 8).map((s) => ({ title: s.title, text: threadWhere(s), href: s.url, meta: threadMeta(s), at: s.createdAt ? ago(s.createdAt) : undefined, tone: "warn" as StatusTone })),
-    };
+    return { threads: open.slice(0, 6).map(threadCard), caption: "Newest first · the easiest threads to be the first reply in" };
   },
 
   "demand.subs": ({ demand: D }: LiveInputs) => {

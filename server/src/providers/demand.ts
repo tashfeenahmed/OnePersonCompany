@@ -198,6 +198,9 @@ export type Signal = {
   points: number | null;
   comments: number | null;
   tier: Tier;
+  /** The post's own words (Reddit selftext, an HN story or comment), plain
+   *  text, trimmed. Null for a link post or a tier that carries none. */
+  body?: string | null;
 };
 
 /**
@@ -354,7 +357,21 @@ type AtomHit = {
   url: string;
   sub: string | null;
   createdAt: string | null;
+  body: string | null;
 };
+
+/** HTML (already entity-decoded or not) to plain text, trimmed for a card.
+ *  Reddit's Atom content ends with "submitted by /u/… [link] [comments]",
+ *  which is the feed's chrome, not the post. */
+export function plainBody(html: string | null | undefined, max = 1200): string | null {
+  if (!html) return null;
+  const text = decode(decode(html).replace(/<br\s*\/?>|<\/p>/gi, "\n").replace(/<[^>]+>/g, " "))
+    .replace(/\s*submitted by\s+\/u\/[\s\S]*$/i, "")
+    .replace(/\[link\]|\[comments\]/gi, "")
+    .trim();
+  if (!text) return null;
+  return text.length > max ? `${text.slice(0, max).replace(/\s+\S*$/, "")}…` : text;
+}
 
 /**
  * Entries out of Reddit's Atom search feed, or null.
@@ -386,7 +403,9 @@ function atomHits(body: string): AtomHit[] | null {
     const url = decode(href);
     if (!REDDIT_THREAD.test(url)) continue;
     const updated = tag(block, "updated");
+    const content = block.match(/<content[^>]*>([\s\S]*?)<\/content>/)?.[1] ?? null;
     hits.push({
+      body: plainBody(content),
       id,
       title: title.replace(FEED_CHROME, " ").trim().slice(0, 220),
       url,
@@ -419,6 +438,7 @@ const ARCTIC_URL = "https://arctic-shift.photon-reddit.com/api/posts/ids";
 const ARCTIC_LAG_DAYS = 1.5;
 
 type ArcticRow = {
+  body: string | null;
   score: number | null;
   comments: number | null;
   createdAt: string | null;
@@ -476,6 +496,7 @@ async function arcticEnrich(ids: string[]): Promise<Map<string, ArcticRow>> {
       created !== null &&
       (Date.now() - Date.parse(created)) / 86_400_000 < ARCTIC_LAG_DAYS;
     out.set(name, {
+      body: typeof row.selftext === "string" && row.selftext !== "[removed]" && row.selftext !== "[deleted]" ? plainBody(row.selftext) : null,
       score: !fresh && typeof row.score === "number" ? row.score : null,
       comments: !fresh && typeof row.num_comments === "number" ? row.num_comments : null,
       createdAt: created,
@@ -733,6 +754,8 @@ async function redditSearxngSearch(
          thread the feed already found is the SAME row with a new tier rather
          than a duplicate that would count twice in every total. */
       id: `t3_${matched[2]!}`,
+      /* SearXNG's snippet is a search engine's excerpt of the post. */
+      body: plainBody((result as { content?: string }).content ?? null, 400),
       title: result.title.slice(0, 220),
       url: result.url,
       sub: matched[1]!,
@@ -917,6 +940,7 @@ export async function collectReddit(
         points: extra?.score ?? null,
         comments: extra?.comments ?? null,
         tier,
+        body: extra?.body ?? hit.body ?? null,
       });
       kept += 1;
     }
@@ -1072,6 +1096,9 @@ export async function collectHn(
         comments:
           !isComment && typeof hit.num_comments === "number" ? hit.num_comments : null,
         tier: "algolia",
+        body: plainBody(
+          typeof hit.comment_text === "string" ? hit.comment_text : typeof hit.story_text === "string" ? hit.story_text : null,
+        ),
       });
       kept += 1;
     }

@@ -10,6 +10,7 @@ import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { narrowApps } from "@/lib/api/apps";
 import { AppFilter, AppGrid, ReviewList } from "@/components/apps/AppsWidgets";
+import { ThreadCards } from "@/components/demand/ThreadCards";
 import {
   Bars,
   Chart,
@@ -654,6 +655,10 @@ export function WidgetCard({
               </div>
             ))}
           </div>
+        )}
+
+        {!empty && def.kind === "threads" && def.threads && (
+          <ThreadCards threads={def.threads} caption={def.caption} />
         )}
 
         {!empty && def.kind === "appgrid" && def.appsDoc && (

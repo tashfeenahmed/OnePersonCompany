@@ -2927,6 +2927,7 @@ export async function collectReddit(): Promise<DemandSummary> {
           points: s.points,
           comments: s.comments,
           tier: s.tier,
+          body: s.body ?? null,
         })),
       );
     for (const o of run.outcomes)
@@ -3076,6 +3077,7 @@ export async function collectHackerNews(): Promise<DemandSummary> {
           points: s.points,
           comments: s.comments,
           tier: s.tier,
+          body: s.body ?? null,
         })),
       );
     for (const o of run.outcomes)

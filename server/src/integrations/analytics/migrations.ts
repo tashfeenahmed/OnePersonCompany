@@ -420,4 +420,12 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       ) WITHOUT ROWID;
     `,
   },
+  {
+    name: "495_demand_item_body",
+    sql: `
+      -- The post's own words beside its title, so the Demand board can show
+      -- what somebody actually asked (Reddit selftext, HN story/comment text).
+      ALTER TABLE demand_items ADD COLUMN body TEXT;
+    `,
+  },
 ];

@@ -1909,6 +1909,8 @@ export type DemandSignal = {
   /** When THIS box first saw it, which is the only freshness figure an unaged
    *  row can contribute. */
   firstSeenAt: string;
+  /** The post's own words, plain text; null for a link post. */
+  body?: string | null;
 };
 
 /**
