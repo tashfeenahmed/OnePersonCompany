@@ -3172,22 +3172,15 @@ Object.assign(LIVE_BUILDERS, {
     const days = churnDays(W);
     const c = churnRow(S, days);
     if (!c || !c.byReason.length) return null;
+    // Stripe's cancellation_details.reason has exactly three values; the
+    // customer's own words (cancellation_details.feedback) are not collected.
     const human = (reason: string) =>
       ({
-        customer_request: "Customer asked to cancel",
+        cancellation_requested: "Cancelled on request",
         payment_failed: "Payment failed",
-        price_increase: "Price increase",
-        unsatisfied: "Unsatisfied",
-        product_not_used: "Product not used",
-        sales_issue: "Sales issue",
-        fraud: "Fraud",
-        temporary: "Temporary",
-        other: "Other",
+        payment_disputed: "Payment disputed",
         not_stated: "Reason not stated",
       })[reason] ?? reason.replace(/_/g, " ");
-    const involuntary = c.byReason
-      .filter((r) => r.reason === "payment_failed")
-      .reduce((n, r) => n + r.subscriptions, 0);
     return {
       rows: c.byReason
         .slice(0, 8)
@@ -3197,7 +3190,7 @@ Object.assign(LIVE_BUILDERS, {
         ]),
       caption: also(
         `${c.byReason.length} reason${c.byReason.length === 1 ? "" : "s"} over ${inCurrency(c.churnedMrr, c.currency, 0)} churned · ${isAll(W) ? "90d" : `${days}d`}`,
-        involuntary ? `${count(involuntary)} involuntary — recoverable` : "",
+        c.involuntary ? `${count(c.involuntary)} involuntary — a card failed or was disputed` : "",
       ),
     };
   },

@@ -64,14 +64,14 @@ async function churnRows(): Promise<{
 test("a churned subscription's Stripe reason rides on the churn row", async () => {
   const account = fixture("basic");
   writeStripeSubscriptions([
-    sub(account, "cr_price", { reason: "price_increase", monthlyUsd: 50 }),
-    sub(account, "cr_paid", { reason: "customer_request", monthlyUsd: 20 }),
+    sub(account, "cr_disputed", { reason: "payment_disputed", monthlyUsd: 50 }),
+    sub(account, "cr_paid", { reason: "cancellation_requested", monthlyUsd: 20 }),
   ]);
   const rows = await churnRows();
   const row = rows.find((r) => r.days === 30)!;
   assert.deepEqual(row.byReason, [
-    { reason: "price_increase", mrr: 50, subscriptions: 1 },
-    { reason: "customer_request", mrr: 20, subscriptions: 1 },
+    { reason: "payment_disputed", mrr: 50, subscriptions: 1 },
+    { reason: "cancellation_requested", mrr: 20, subscriptions: 1 },
   ]);
   const sumMrr = row.byReason.reduce((n, r) => n + r.mrr, 0);
   const sumSubs = row.byReason.reduce((n, r) => n + r.subscriptions, 0);
@@ -95,11 +95,11 @@ test("a cancellation Stripe never got a reason for is not_stated, not dropped", 
 test("never-billed cancellations stay out of the reason split", async () => {
   const account = fixture("notbilled");
   writeStripeSubscriptions([
-    sub(account, "cr_trial", { reason: "customer_request", paidCents: 0, trialStart: day(30) }),
-    sub(account, "cr_real", { reason: "customer_request", monthlyUsd: 25 }),
+    sub(account, "cr_trial", { reason: "cancellation_requested", paidCents: 0, trialStart: day(30) }),
+    sub(account, "cr_real", { reason: "cancellation_requested", monthlyUsd: 25 }),
   ]);
   const row = (await churnRows()).find((r) => r.days === 30)!;
-  assert.deepEqual(row.byReason, [{ reason: "customer_request", mrr: 25, subscriptions: 1 }]);
+  assert.deepEqual(row.byReason, [{ reason: "cancellation_requested", mrr: 25, subscriptions: 1 }]);
 });
 
 test("still-billing subscriptions contribute no reason row", async () => {

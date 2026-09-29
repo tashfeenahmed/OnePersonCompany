@@ -242,19 +242,20 @@ test("reasons print human, money-first, with the involuntary tail", () => {
     ...stripe(
       churnRow(30, {
         churnedMrr: 70,
+        involuntary: 3,
         byReason: [
-          { reason: "price_increase", mrr: 50, subscriptions: 1 },
+          { reason: "payment_disputed", mrr: 50, subscriptions: 1 },
           { reason: "payment_failed", mrr: 20, subscriptions: 2 },
         ],
       }),
     ),
   })!;
   assert.deepEqual(p.rows, [
-    ["Price increase", "US$50/mo · 1 sub"],
+    ["Payment disputed", "US$50/mo · 1 sub"],
     ["Payment failed", "US$20/mo · 2 subs"],
   ]);
   assert.match(p.caption!, /2 reasons over US\$70 churned · 30d/);
-  assert.match(p.caption!, /2 involuntary — recoverable/);
+  assert.match(p.caption!, /3 involuntary — a card failed or was disputed/);
 });
 
 test("an unstated reason is shown, never dropped", () => {

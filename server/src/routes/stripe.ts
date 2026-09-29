@@ -314,11 +314,11 @@ function churnSection(subs: StripeSubscriptionRecord[], nowMs: number) {
       /*
         CHURN BY REASON — what Stripe was TOLD the customer left for. Stripe
         stamps a cancellation_details.reason on the subscription when it has
-        one (customer_request, payment_failed, price_increase, ...), and this
+        one (cancellation_requested, payment_failed, payment_disputed), and this
         is the only place this box can see WHY money left, not just how much.
         Baremetrics built Cancellation Insights on exactly this split, because
         "we lost $400 this month" has no action in it and "we lost $400, all
-        of it to price_increase" has one. A null reason is its own bucket,
+        of it to failed cards" has one. A null reason is its own bucket,
         named: old cancellations predate the field and a silent drop would
         make the rows below stop summing to churnedMrr without saying so.
       */
