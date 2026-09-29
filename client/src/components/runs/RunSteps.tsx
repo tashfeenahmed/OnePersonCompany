@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { RunStep } from "@/lib/api/runs";
 import { duration } from "@/lib/format";
@@ -101,19 +102,30 @@ function StepLine({ step }: { step: RunStep }) {
 }
 
 export function RunSteps({ steps }: { steps: RunStep[] }) {
+  /* FOLDED BY DEFAULT: the report is what the page is for, and forty grey
+     lines above it push it off the screen. One line says how many there were. */
+  const [open, setOpen] = useState(false);
   if (!steps.length) return null;
   const running = steps.filter((s) => !s.finishedAt).length;
   return (
     <div className="mb-4">
-      <div className="text-muted-foreground mb-1 text-[12px] tracking-[0.06em] uppercase">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="text-muted-foreground hover:text-foreground mb-1 flex items-center gap-1 text-[12px] tracking-[0.06em] uppercase"
+      >
+        <ChevronRight className={cn("size-3.5 transition-transform", open && "rotate-90")} strokeWidth={1.8} />
         {steps.length} {steps.length === 1 ? "tool call" : "tool calls"}
         {running > 0 && ` · ${running} still going`}
-      </div>
-      <div className="flex flex-col gap-0.5">
-        {steps.map((s) => (
-          <StepLine key={s.toolCallId} step={s} />
-        ))}
-      </div>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-0.5">
+          {steps.map((s) => (
+            <StepLine key={s.toolCallId} step={s} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

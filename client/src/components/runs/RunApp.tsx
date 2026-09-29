@@ -92,7 +92,13 @@ export function RunApp({
   name,
   extras,
   narrow,
+  compact,
 }: {
+  /** THE TAB LAYOUT: the runs are a horizontal strip of tabs with a small
+   *  "New run" button at its right end, the brief opens under that row only
+   *  when asked for, and the latest successful run is opened on arrival so
+   *  the page is a report rather than a list. */
+  compact?: boolean;
   /** A filter the ledger cannot express — the People page's `?person=`,
    *  which is a title match rather than a column. `label` names it in the
    *  heading, `preset` pre-fills the brief so a new run is about them. */
@@ -195,8 +201,12 @@ export function RunApp({
     on screen until the next one lands, which is what a poll is.
   */
   const listVenture = filter === "venture" ? filterVenture!.id : null;
+  /* The key the document was asked for rides on it, so the auto-open below
+     never acts on the previous venture's list during the one render between a
+     filter change and `useApi` emptying itself. */
+  const listKey = `${kind}|${listVenture ?? ""}`;
   const list = useApi(
-    () => runsApi.list({ kind, venture: listVenture, limit: narrow ? 200 : 40 }),
+    () => runsApi.list({ kind, venture: listVenture, limit: narrow ? 200 : 40 }).then((d) => ({ ...d, key: listKey })),
     [kind, listVenture, reload, !!narrow],
   );
   const info: KindInfo | null =
@@ -345,6 +355,18 @@ export function RunApp({
   /* The fold's default: open when there is nothing else to look at. */
   const composeOpen = composing ?? (!runId && shown.length === 0 && !!list.data);
 
+  /* THE LATEST SUCCESSFUL RUN OPENS ITSELF in the tab layout, so choosing a
+     venture in the rail lands on its newest finished report. `replace`, so
+     Back does not bounce off the bare address straight into the run again. */
+  const latestDone =
+    compact && !runId && list.data?.key === listKey
+      ? (shown.find((r) => r.status === "done") ?? null)
+      : null;
+  useEffect(() => {
+    if (latestDone) navigate(here(latestDone.id), { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestDone?.id]);
+
   /* What the fields actually hold — typed values over the server's defaults —
      rather than only what somebody touched. An `extras` slot that filtered on
      `values.topic` would otherwise see nothing until the box was edited, and
@@ -386,9 +408,52 @@ export function RunApp({
         )}
 
         {/* ------------------------------------------------------ the brief */}
-        {info && (
-          <div className="bg-card rounded-[14px]">
-            <button
+        {/* ------------------------------------------ tabs + new run (compact) */}
+        {compact && (
+          <div className="mb-3 flex items-center gap-3">
+            <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto pb-1 [scrollbar-width:thin]">
+              {shown.length === 0 ? (
+                <span className="text-muted-foreground py-1.5 text-[13.5px]">
+                  {list.loading && !list.data
+                    ? "Reading the history…"
+                    : list.data
+                      ? `No runs for ${scopeWord} yet.`
+                      : ""}
+                </span>
+              ) : (
+                shown.map((r) => (
+                  <RunTab
+                    key={r.id}
+                    run={r}
+                    open={r.id === runId}
+                    showVenture={filter !== "venture"}
+                    onOpen={() => navigate(here(r.id))}
+                  />
+                ))
+              )}
+            </div>
+            {info && (
+              <Button
+                size="sm"
+                variant={composeOpen ? "secondary" : "outline"}
+                aria-expanded={composeOpen}
+                onClick={() => setComposing(!composeOpen)}
+                className="shrink-0"
+              >
+                {busyHere ? (
+                  <Loader2 className="size-[14px] animate-spin" strokeWidth={1.8} />
+                ) : (
+                  <Plus className="size-[14px]" strokeWidth={1.8} />
+                )}
+                New run
+              </Button>
+            )}
+          </div>
+        )}
+
+        {info && (!compact || composeOpen) && (
+          <div className={cn("bg-card rounded-[14px]", compact && "mb-4 pt-4")}>
+            {!compact && <button
               type="button"
               aria-expanded={composeOpen}
               onClick={() => setComposing(!composeOpen)}
@@ -405,7 +470,7 @@ export function RunApp({
               {!composeOpen && venture && (
                 <span className="text-muted-foreground text-[12.5px]">for {venture.name}</span>
               )}
-            </button>
+            </button>}
             {composeOpen && (
               <div className="grid gap-3.5 px-4.5 pb-4.5">
                 <div className="grid gap-1.5">
@@ -558,6 +623,7 @@ export function RunApp({
         )}
 
         {/* ------------------------------------------------------- the runs */}
+        {!compact && <>
         <div className="mt-6 mb-2 flex flex-wrap items-baseline gap-2">
           <div className="text-muted-foreground text-[12px] tracking-[0.06em] uppercase">
             Runs
@@ -603,10 +669,11 @@ export function RunApp({
             ))}
           </div>
         )}
+        </>}
 
         {/* ---------------------------------------------------- the open run */}
         {runId && (
-          <div className="border-line-soft mt-6 border-t pt-5">
+          <div className={cn("border-line-soft border-t pt-5", !compact && "mt-6")}>
             {open.error ? (
               <p className="text-muted-foreground text-[14px]">
                 No run at this address.{" "}
@@ -635,6 +702,37 @@ export function RunApp({
         )}
       </div>
     </div>
+  );
+}
+
+/** One run as a tab: the dot, a clipped title, and when. */
+function RunTab({
+  run,
+  open,
+  showVenture,
+  onOpen,
+}: {
+  run: RunSummary;
+  open: boolean;
+  showVenture: boolean;
+  onOpen: () => void;
+}) {
+  const when = isLive(run.status) ? statusWord(run.status) : ago(run.finishedAt ?? run.queuedAt);
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-current={open ? "page" : undefined}
+      title={`${run.title}${run.ventureName ? ` · ${run.ventureName}` : ""} · ${statusWord(run.status)}`}
+      className={cn(
+        "flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12.5px] whitespace-nowrap transition-colors",
+        open ? "border-foreground bg-accent" : "hover:bg-accent border-transparent",
+      )}
+    >
+      <span className={cn("size-1.5 shrink-0 rounded-full", statusTone(run.status))} />
+      {showVenture && run.ventureName && <span className="max-w-[120px] truncate">{run.ventureName}</span>}
+      <span className="text-muted-foreground">{when}</span>
+    </button>
   );
 }
 

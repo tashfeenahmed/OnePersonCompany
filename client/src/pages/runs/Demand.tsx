@@ -25,5 +25,5 @@ import { RunApp } from "@/components/runs/RunApp";
  * output rather than forking the client on the kind.
  */
 export function Demand() {
-  return <RunApp kind="demand" slug="demand" name="Demand" />;
+  return <RunApp compact kind="demand" slug="demand" name="Demand" />;
 }
