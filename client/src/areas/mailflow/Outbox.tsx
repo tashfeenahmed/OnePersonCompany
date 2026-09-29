@@ -3,9 +3,11 @@ import { useLocation, Link } from "react-router-dom";
 import { useDraft } from "@/hooks/useDraft";
 import { useStore } from "@/lib/store";
 import { useEffect, useState } from "react";
-import { Check, Loader2, Pencil, Send, Trash2, X } from "lucide-react";
-import { SubTabs } from "@/components/TabStrip";
-import { day, when } from "@/lib/format";
+import { Check, ChevronLeft, ChevronRight, Inbox, Loader2, Pencil, Plus, Send, Trash2, X } from "lucide-react";
+import { HostMark } from "@/components/HostMark";
+import { ago, day, when } from "@/lib/format";
+import { addressDomain, deliveryLabel, mailTime, senderName, type Tone } from "@/lib/mailText";
+import { Avatar, EmptyState, FilterChips, Problem, SmallPrint, ToneChip, type FilterChip } from "./parts";
 import { PageShell } from "@/components/PageShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,25 +50,6 @@ import { nurtureApi, type DraftReasons } from "@/lib/api/nurture";
  * refusal look arbitrary when it arrives.
  */
 
-const TABS: { key: OutboxStatus | "all"; label: string }[] = [
-  { key: "draft", label: "Drafts" },
-  { key: "approved", label: "Approved" },
-  { key: "sent", label: "Sent" },
-  { key: "dismissed", label: "Dismissed" },
-  { key: "failed", label: "Failed" },
-  { key: "sending", label: "Sending" },
-  { key: "uncertain", label: "Check delivery" },
-  { key: "all", label: "Everything" },
-];
-
-const STATUS_TONE: Record<string, string> = {
-  draft: "text-muted-foreground",
-  approved: "text-warn",
-  sent: "text-ok",
-  dismissed: "text-muted-foreground/70",
-  failed: "text-destructive",
-};
-
 /**
  * THE REASONS BEHIND THE WORDS — the plan, the facts and what the validator
  * said, fetched on demand for the one card the owner opened.
@@ -83,7 +66,7 @@ const STATUS_TONE: Record<string, string> = {
  * card that made the guard invisible.
  */
 function Reasons({ id }: { id: number }) {
-  const [open, setOpen] = useState(false);
+  const open = true;
   const [doc, setDoc] = useState<DraftReasons | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -96,13 +79,8 @@ function Reasons({ id }: { id: number }) {
   }, [open, id, doc]);
 
   return (
-    <div className="border-line-soft mt-2 rounded-lg border px-3 py-2">
-      <button
-        className="text-muted-foreground text-[12.5px] underline"
-        onClick={() => setOpen((v) => !v)}
-      >
-        {open ? "Hide" : "Show"} the facts this was written from
-      </button>
+    <div>
+      {!doc && !error && <p>Loading…</p>}
       {open && error && <p role="alert" className="text-destructive mt-1.5 text-[13px]">{error}</p>}
       {open && doc && (
         <div className="mt-2 space-y-2">
@@ -143,7 +121,7 @@ function Reasons({ id }: { id: number }) {
           {doc.validation && doc.validation.cannotSay.length > 0 && (
             <details>
               <summary className="text-muted-foreground cursor-pointer text-[12.5px]">
-                What nothing here measured, so the message must not mention it
+                Things the email is not allowed to claim
               </summary>
               <ul className="mt-1 space-y-0.5">
                 {doc.validation.cannotSay.map((s, i) => (
@@ -157,6 +135,35 @@ function Reasons({ id }: { id: number }) {
       )}
     </div>
   );
+}
+
+/** A row's status, said as what the owner has to do about it. */
+function statusLabel(status: OutboxStatus, requireApproval: boolean): { label: string; tone: Tone } {
+  switch (status) {
+    case "draft":
+      return requireApproval ? { label: "Waiting for your OK", tone: "warn" } : { label: "Ready to send", tone: "ok" };
+    case "approved":
+      return { label: "Approved · ready to send", tone: "ok" };
+    case "sending":
+      return { label: "Sending…", tone: "muted" };
+    case "sent":
+      return { label: "Sent", tone: "ok" };
+    case "failed":
+      return { label: "Didn't send", tone: "bad" };
+    case "uncertain":
+      return { label: "Check if it sent", tone: "warn" };
+    case "dismissed":
+      return { label: "Dismissed", tone: "muted" };
+    default:
+      return { label: status, tone: "muted" };
+  }
+}
+
+function writtenBy(who: string, sequenceStep: number | null): string {
+  if (sequenceStep !== null) return `Follow-up email ${sequenceStep}`;
+  if (who === "owner") return "Written by you";
+  if (who === "agent") return "Written by AI";
+  return `Written by ${who}`;
 }
 
 function Card({
@@ -190,51 +197,37 @@ function Card({
   }
 
   const live = item.status === "draft" || item.status === "approved" || item.status === "failed";
+  const status = statusLabel(item.status, requireApproval);
+  const fromDomain = addressDomain(item.from);
+  const delivery = item.deliveryEvent ? deliveryLabel(item.deliveryEvent) : null;
 
   return (
-    <div className="bg-card border-line-soft mb-3 rounded-xl p-4.5">
+    <div className="bg-card border-line-soft mb-3 rounded-xl border p-3.5 sm:p-4.5">
       <div className="flex items-start gap-3">
+        <Avatar name={senderName(null, item.to)} address={item.to} size={34} className="mt-0.5" />
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <span className="text-[14.5px] font-medium">{item.subject}</span>
-            <span className={cn("text-[12.5px]", STATUS_TONE[item.status])}>
-              {item.status}
+          <div className="flex items-baseline gap-2">
+            <span className="min-w-0 flex-1 truncate text-[13.5px]">
+              <span className="text-muted-foreground">To </span>
+              {item.to}
+            </span>
+            <span className="text-muted-foreground shrink-0 text-[11.5px] tabular-nums" title={when(item.createdAt)}>
+              {mailTime(item.createdAt)}
             </span>
           </div>
-          <div className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 text-[12.5px]">
-            <span>from {item.fromName ?? item.from ?? "unknown mailbox"} → {item.to}</span>
-            {item.via && (
-              <>
-          <span>·</span>
-          {/* WHICH DOOR IT LEAVES BY. A product-domain message going out
-              through Gmail would land in spam; the card says which
-              transport before anybody approves it, not after. */}
-          <span className="border-line-soft rounded border px-1 py-px">via {item.via}</span>
-              </>
-            )}
-            <span>·</span>
-            <span>written by {item.createdBy}</span>
-            {item.sequenceId !== null && (
-              <>
-                <span>·</span>
-                <span>sequence step {item.sequenceStep}</span>
-              </>
-            )}
-            <span>·</span>
-            <span>{when(item.createdAt)}</span>
-            {item.ventureName && (
-              <>
-                <span>·</span>
-                <span className="border-line-soft rounded border px-1 py-px">
-                  {item.ventureName}
-                </span>
-              </>
-            )}
+          <p className="mt-0.5 text-[14.5px] leading-snug font-medium break-words">{item.subject}</p>
+          <div className="text-muted-foreground mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
+            <ToneChip tone={status.tone}>{status.label}</ToneChip>
+            <span className="inline-flex items-center gap-1">
+              {fromDomain && <HostMark host={fromDomain} size={13} />}
+              From {item.fromName ?? item.from ?? "your mailbox"}
+            </span>
+            <span>· {writtenBy(item.createdBy, item.sequenceId !== null ? item.sequenceStep : null)}</span>
+            {item.ventureName && <span>· {item.ventureName}</span>}
             {item.inReplyTo && (
-              <>
-                <span>·</span>
-                <Link className="underline" to={`/mail/inbox?thread=${encodeURIComponent(item.inReplyTo)}&account=${item.accountId}`}>Open conversation</Link>
-              </>
+              <Link className="underline" to={`/mail/inbox?thread=${encodeURIComponent(item.inReplyTo)}&account=${item.accountId}`}>
+                See the conversation
+              </Link>
             )}
           </div>
         </div>
@@ -243,32 +236,34 @@ function Card({
       {editing ? (
         <div className="mt-3 space-y-2">
           {(editToError || editSubjectError || editBodyError) && <p role="alert">{editToError || editSubjectError || editBodyError}</p>}
-          <Input aria-label="Recipient" value={to} onChange={(e) => setTo(e.target.value)} placeholder="to" />
-          <Input
-            aria-label="Subject"
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            placeholder="subject"
-          />
-          <Textarea
-            aria-label="Message body"
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            rows={10}
-            className="text-[14px]"
-          />
-          <p className="text-muted-foreground text-[12.5px]">
-            Markdown. It is sent as plain text exactly as written.
-            {item.status === "approved" &&
-              " Saving this returns the row to draft — the approval was of the previous wording."}
-          </p>
+          <label className="block text-[12.5px]">
+            <span className="text-muted-foreground">To</span>
+            <Input aria-label="Recipient" value={to} onChange={(e) => setTo(e.target.value)} className="mt-1" />
+          </label>
+          <label className="block text-[12.5px]">
+            <span className="text-muted-foreground">Subject</span>
+            <Input aria-label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} className="mt-1" />
+          </label>
+          <label className="block text-[12.5px]">
+            <span className="text-muted-foreground">Message</span>
+            <Textarea
+              aria-label="Message body"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={10}
+              className="mt-1 text-[14px]"
+            />
+          </label>
+          {item.status === "approved" && (
+            <p className="text-muted-foreground text-[12.5px]">Saving changes means you'll need to approve it again.</p>
+          )}
           <div className="flex gap-1.5">
             <Button
               size="sm"
               disabled={busy}
               onClick={() => void run(() => mailflowApi.edit(item.id, { to, subject, body }))}
             >
-              {busy ? <Loader2 className="animate-spin" /> : <Check />} Save
+              {busy ? <Loader2 className="animate-spin" /> : <Check />} Save changes
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
               <X /> Cancel
@@ -279,62 +274,50 @@ function Card({
         <>
           {/* `preview`, not `body`: the signature is part of what goes out, so
               it is part of what is read before approving. */}
-          <div className="border-line-soft mt-3 rounded-lg border px-3 py-2">
+          <div className="border-line-soft mt-3 max-h-[420px] overflow-y-auto rounded-lg border px-3 py-2 text-[14px]">
             <Markdown text={item.preview} />
           </div>
 
-          {item.hasReasons && <Reasons id={item.id} />}
-
           {item.fromError && (
-            <p role="alert" className="text-destructive mt-2 text-[13.5px]">
-              This cannot be sent as written: {item.fromError}
+            <p role="alert" className="text-destructive mt-2 text-[13px]">
+              Can't be sent as it is: {item.fromError}
             </p>
           )}
-          {/* A WARNING IS NOT A REFUSAL. A domain mid-propagation still drafts
-              and still sends; this is the sentence that should reach the owner
-              before he approves rather than as a 4xx afterwards. */}
           {!item.fromError && item.fromWarning && (
-            <p className="text-warn mt-2 text-[13.5px]">{item.fromWarning}</p>
+            <p className="text-warn mt-2 text-[13px]">{item.fromWarning}</p>
           )}
           {item.error && (
-            <p role="alert" className="text-destructive mt-2 text-[13.5px]">{item.error}</p>
+            <p role="alert" className="text-destructive mt-2 text-[13px]">{item.error}</p>
           )}
           {item.status === "sent" && (
-            <p className="text-muted-foreground mt-2 text-[12.5px]">
-              Sent {when(item.sentAt)} · {item.sentVia === "resend" ? "Resend" : "Gmail"} message id{" "}
-              <span className="font-mono">{item.messageId}</span>
-              {item.sentVia === "resend" && (
-                <>
-                  {" · "}
-                  {/* NULL is NOT READ, never "not delivered". A message accepted
-                      a second ago normally reads as "sent" rather than
-                      "delivered", so the reading is dated. */}
-                  {item.deliveryEvent
-                    ? `Resend last reported “${item.deliveryEvent}” at ${when(item.deliveryReadAt)}`
-                    : "Resend's delivery event was not read; that is not the same as not delivered"}
-                </>
-              )}
+            <p className="text-muted-foreground mt-2 flex flex-wrap items-center gap-1.5 text-[12.5px]">
+              Sent {mailTime(item.sentAt)} through {item.sentVia === "resend" ? "Resend" : "Gmail"}
+              {delivery && <ToneChip tone={delivery.tone}>{delivery.label}</ToneChip>}
             </p>
           )}
-          {refused && <p role="alert" className="text-destructive mt-2 text-[13.5px]">{refused}</p>}
+          {refused && <p role="alert" className="text-destructive mt-2 text-[13px]">{refused}</p>}
 
-          {item.status === "uncertain" && <div className="mt-3 flex flex-wrap gap-2 text-sm">
-            <a className="underline" href="https://mail.google.com/mail/u/0/#sent" target="_blank" rel="noreferrer">Check Gmail Sent</a>
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => {
-              if (confirm("Have you checked the correct Gmail account's Sent folder and confirmed this exact message was NOT sent? Unlocking it permits another delivery attempt.")) void run(() => mailflowApi.resolve(item.id));
-            }}>I checked: not sent</Button>
-          </div>}
+          {item.status === "uncertain" && (
+            <div className="border-warn/40 bg-warn/5 mt-3 rounded-lg border p-3 text-[13px]">
+              <p>We couldn't confirm this sent. Look in Gmail's Sent folder first so it isn't sent twice.</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="outline" asChild>
+                  <a href="https://mail.google.com/mail/u/0/#sent" target="_blank" rel="noreferrer">Open Gmail Sent</a>
+                </Button>
+                <Button size="sm" variant="ghost" disabled={busy} onClick={() => {
+                  if (confirm("Have you checked the correct Gmail account's Sent folder and confirmed this exact message was NOT sent? Unlocking it permits another delivery attempt.")) void run(() => mailflowApi.resolve(item.id));
+                }}>It didn't send — let me retry</Button>
+              </div>
+            </div>
+          )}
           {live && (
             <div className="mt-3 flex flex-wrap gap-1.5">
-              <Button size="sm" variant="ghost" onClick={() => setEditing(true)} disabled={busy}>
-                <Pencil /> Edit
-              </Button>
               {item.status !== "approved" && requireApproval && (
                 <Button
                   size="sm"
-                  variant="outline"
                   disabled={busy}
                   onClick={() => void run(() => mailflowApi.approve(item.id, item.approvalKey))}
+                  title="Say it's right. You'll send it with one more press."
                 >
                   {busy ? <Loader2 className="animate-spin" /> : <Check />} Approve
                 </Button>
@@ -345,18 +328,38 @@ function Card({
                   disabled={busy}
                   onClick={() => void run(() => mailflowApi.send(item.id, item.approvalKey))}
                 >
-                  {busy ? <Loader2 className="animate-spin" /> : <Send />} Send it
+                  {busy ? <Loader2 className="animate-spin" /> : <Send />} Send now
                 </Button>
               )}
+              <Button size="sm" variant="outline" onClick={() => setEditing(true)} disabled={busy}>
+                <Pencil /> Edit
+              </Button>
               <Button
                 size="sm"
                 variant="ghost"
                 disabled={busy}
                 onClick={() => void run(() => mailflowApi.dismiss(item.id))}
+                title="Don't send it"
               >
                 <Trash2 /> Dismiss
               </Button>
             </div>
+          )}
+
+          {(item.hasReasons || item.messageId || item.via) && (
+            <SmallPrint summary={item.hasReasons ? "Why this email was written" : "Details"} className="mt-3">
+              {item.via && <p>Leaves through {item.via === "resend" ? "Resend" : "Gmail"}.</p>}
+              {item.messageId && (
+                <p>
+                  Message id <span className="font-mono">{item.messageId}</span>
+                </p>
+              )}
+              {item.sentVia === "resend" && !item.deliveryEvent && item.status === "sent" && (
+                <p>No delivery update from Resend yet — that doesn't mean it wasn't delivered.</p>
+              )}
+              {item.deliveryEvent && item.deliveryReadAt && <p>Delivery checked {ago(item.deliveryReadAt)}.</p>}
+              {item.hasReasons && <Reasons id={item.id} />}
+            </SmallPrint>
           )}
         </>
       )}
@@ -381,31 +384,37 @@ function Composer({ accounts, onCreated }: { accounts: OutboxDoc["accounts"]; on
   const [open, setOpen] = useState(!!reply || !!to || !!subject || !!body);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
   useEffect(() => { if (reply) setOpen(true); }, [key]);
-  if (!open) return <Button size="sm" variant="outline" onClick={() => setOpen(true)}><Pencil />Write a draft</Button>;
-  return <section className="bg-card rounded-xl p-5 space-y-3 mb-4">
-    <h2 className="font-medium">{reply?.thread ? "Draft a reply" : "New draft"}</h2>
-    {reply?.back && <Link className="text-sm underline" to={reply.back}>Back to conversation</Link>}
-    <label className="block text-sm">From<SelectField aria-label="From account" value={account} disabled={!!reply?.thread} onValueChange={(value) => setAccount(value)} className="flex border rounded p-2 w-full">
-      <SelectOption value="">Choose a Gmail account</SelectOption>{accounts.map(a => <SelectOption key={a.id} value={a.id}>{a.address ?? a.label}</SelectOption>)}
-    </SelectField></label>
-    <label className="block text-sm">To<Input value={to} type="email" onChange={e => setTo(e.target.value)} /></label>
-    <label className="block text-sm">Subject<Input value={subject} maxLength={300} onChange={e => setSubject(e.target.value)} /></label>
-    <label className="block text-sm">Message<Textarea value={body} maxLength={20000} rows={8} onChange={e => setBody(e.target.value)} /></label>
-    <label className="block text-sm">Venture<SelectField value={venture} onValueChange={(value) => setVenture(value)} className="flex border rounded p-2 w-full"><SelectOption value="">No venture</SelectOption>{state.ventures.map(v => <SelectOption key={v.id} value={v.id}>{v.name}</SelectOption>)}</SelectField></label>
+  if (!open) return <Button size="sm" onClick={() => setOpen(true)}><Plus />New email</Button>;
+  return <section className="bg-card border-line-soft mb-5 space-y-3 rounded-xl border p-4 sm:p-5">
+    <div className="flex flex-wrap items-baseline gap-2">
+      <h2 className="text-[15px] font-medium">{reply?.thread ? "Reply" : "New email"}</h2>
+      {reply?.back && <Link className="text-muted-foreground text-[12.5px] underline" to={reply.back}>Back to the conversation</Link>}
+    </div>
+    <div className="grid gap-3 sm:grid-cols-2">
+      <label className="block text-[12.5px]"><span className="text-muted-foreground">From</span><SelectField aria-label="From account" value={account} disabled={!!reply?.thread} onValueChange={(value) => setAccount(value)} className="mt-1 flex w-full rounded border p-2">
+        <SelectOption value="">Choose a Gmail account</SelectOption>{accounts.map(a => <SelectOption key={a.id} value={a.id}>{a.address ?? a.label}</SelectOption>)}
+      </SelectField></label>
+      <label className="block text-[12.5px]"><span className="text-muted-foreground">To</span><Input className="mt-1" value={to} type="email" onChange={e => setTo(e.target.value)} /></label>
+    </div>
+    <label className="block text-[12.5px]"><span className="text-muted-foreground">Subject</span><Input className="mt-1" value={subject} maxLength={300} onChange={e => setSubject(e.target.value)} /></label>
+    <label className="block text-[12.5px]"><span className="text-muted-foreground">Message</span><Textarea className="mt-1 text-[14px]" value={body} maxLength={20000} rows={8} onChange={e => setBody(e.target.value)} /></label>
+    <label className="block text-[12.5px]"><span className="text-muted-foreground">Venture (optional)</span><SelectField value={venture} onValueChange={(value) => setVenture(value)} className="mt-1 flex w-full rounded border p-2"><SelectOption value="">No venture</SelectOption>{state.ventures.map(v => <SelectOption key={v.id} value={v.id}>{v.name}</SelectOption>)}</SelectField></label>
     {(error || toError || subjectError || bodyError) && <p role="alert" className="text-destructive text-sm">{error || toError || subjectError || bodyError}</p>}
-    <div className="flex gap-2"><Button disabled={busy || !account || !to.trim() || !subject.trim() || !body.trim()} onClick={async () => {
+    <div className="flex flex-wrap items-center gap-2"><Button disabled={busy || !account || !to.trim() || !subject.trim() || !body.trim()} onClick={async () => {
       setBusy(true); setError(null);
       try { const result = await mailflowApi.draft({ to, subject, body, account: Number(account), venture: venture || null, inReplyTo: reply?.thread }); onCreated(result.item); setTo(""); setSubject(""); setBody(""); setOpen(false); }
       catch (error) { setError(error instanceof Error ? error.message : String(error)); }
       finally { setBusy(false); }
-    }}>Save draft</Button><Button variant="ghost" onClick={() => setOpen(false)}>Close · keep draft</Button></div>
-    <p className="text-xs text-muted-foreground">Drafts save on this device as you type. Sending requires your owner sign-in and a reviewed preview.</p>
+    }}>{busy ? <Loader2 className="animate-spin" /> : <Check />}Save as draft</Button><Button variant="ghost" onClick={() => setOpen(false)}>Close (keeps what you typed)</Button></div>
+    <p className="text-muted-foreground text-[12px]">It's saved to the list below, where you approve and send it.</p>
   </section>;
 }
 
+type Filter = OutboxStatus | "all";
+
 export function Outbox() {
   const [offset, setOffset] = useState(0);
-  const [tab, setTab] = useState<OutboxStatus | "all">("draft");
+  const [tab, setTab] = useState<Filter>("draft");
   const doc = useApi<OutboxDoc>(
     () => mailflowApi.outbox(tab === "all" ? null : tab, offset),
     [tab, offset],
@@ -422,71 +431,77 @@ export function Outbox() {
           }
         : prev,
     );
-    /* A status change moves the row between tabs, so the counts have to be
-       re-read. The list is small and local; this is one cheap request. */
+    /* A status change moves the row between filters, so the counts are re-read. */
     doc.reload();
   }
 
+  const requireApproval = d?.settings.requireApproval ?? true;
+  const c = d?.counts;
+  const chips: FilterChip<Filter>[] = [
+    { key: "draft", label: requireApproval ? "Waiting for OK" : "Ready to send", count: c?.draft, urgent: true },
+    ...(requireApproval ? [{ key: "approved" as Filter, label: "Approved", count: c?.approved, urgent: true }] : []),
+    ...(["failed", "uncertain", "sending"] as const)
+      .filter((k) => (c?.[k] ?? 0) > 0 || tab === k)
+      .map((k) => ({
+        key: k as Filter,
+        label: k === "failed" ? "Didn't send" : k === "uncertain" ? "Check if sent" : "Sending",
+        count: c?.[k],
+        urgent: k !== "sending",
+      })),
+    { key: "sent", label: "Sent", count: c?.sent },
+    { key: "dismissed", label: "Dismissed", count: c?.dismissed },
+    { key: "all", label: "All" },
+  ];
+
+  const { limit, total } = d?.pagination ?? { limit: 50, total: 0 };
+
   return (
     <PageShell
-      title="Outbox"
-      sub={
-        <>
-          Mail written here — by the agent or by you — and sent only when you
-          press Send. Nothing on this page goes out on its own.
-        </>
-      }
+      title="Drafts"
+      sub="Emails written for you. Nothing sends until you approve it."
+      wide
     >
-      {d && <Composer accounts={d.accounts} onCreated={() => { setOffset(0); setTab("draft"); doc.reload(); }} />}
       {d && (
-        <p className="text-muted-foreground mb-4 text-[12.5px] leading-relaxed">
-          Default mailbox: {d.mailbox.address ?? "connect Gmail in Integrations"} ·{" "}
-          {d.today.sent} of {d.today.cap} sent today ·{" "}
-          {d.settings.gapDays === 0
-            ? "no per-address floor"
-            : `one message per address per ${d.settings.gapDays} days, dismissed rows included`}{" "}
-          ·{" "}
-          {d.settings.requireApproval
-            ? "drafts require approval"
-            : "approval is switched off — your Send approves on the way past. The agent still cannot send."}
-        </p>
+        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <Composer accounts={d.accounts} onCreated={() => { setOffset(0); setTab("draft"); doc.reload(); }} />
+          <span className="text-muted-foreground text-[12.5px]">
+            {d.today.sent} of {d.today.cap} sent today
+          </span>
+        </div>
       )}
 
-      <SubTabs
-        tabs={TABS.map((t) => ({
-          key: t.key,
-          label: t.label,
-          count: d && t.key !== "all" ? d.counts[t.key] : undefined,
-        }))}
-        activeKey={tab}
-        onSelect={(k) => {
-          setTab(k as OutboxStatus | "all");
+      <FilterChips
+        label="Show"
+        chips={chips}
+        value={tab}
+        onChange={(k) => {
+          setTab(k);
           setOffset(0);
         }}
         className="mb-4"
       />
 
-      {doc.error && (
-        <p className="text-muted-foreground mb-4 text-[14px]">
-          The outbox could not be read.{" "}
-          <span className="text-destructive">{doc.error}</span>
-        </p>
-      )}
+      {doc.error && <Problem className="mb-4">Couldn't load your drafts: {doc.error}</Problem>}
 
       {doc.loading && !d && (
         <p className="text-muted-foreground text-[14px]">
           <Loader2 className="mr-1.5 inline size-3.5 animate-spin" />
-          Reading the queue.
+          Loading…
         </p>
       )}
 
       {d && d.items.length === 0 && (
-        <p className="text-muted-foreground text-[14px]">
-          No messages in this view. Create a draft to get started.
-        </p>
+        <EmptyState
+          icon={tab === "draft" || tab === "approved" ? Check : Inbox}
+          title={tab === "draft" || tab === "approved" ? "Nothing waiting for you" : "Nothing here"}
+          body={
+            tab === "draft"
+              ? "When you reply to an email or AI writes a follow-up, it waits here for your OK."
+              : "Pick another filter above, or write a new email."
+          }
+        />
       )}
 
-      {d && <div className="flex gap-3 items-center text-sm mb-3"><button disabled={offset === 0 || doc.loading} onClick={() => setOffset(n => Math.max(0, n - 50))}>Previous</button><span>{d.pagination.total ? offset + 1 : 0}–{offset + d.items.length} of {d.pagination.total}</span><button disabled={offset + d.items.length >= d.pagination.total || doc.loading} onClick={() => setOffset(n => n + 50)}>Next</button><button className="underline ml-auto" onClick={doc.reload}>Refresh</button></div>}
       {d?.items.map((item) => (
         <Card
           key={item.id}
@@ -496,10 +511,34 @@ export function Outbox() {
         />
       ))}
 
+      {d && total > limit && (
+        <div className="text-muted-foreground mt-2 flex items-center gap-2 text-[12.5px]">
+          <Button size="sm" variant="ghost" disabled={offset === 0 || doc.loading} onClick={() => setOffset((n) => Math.max(0, n - limit))}>
+            <ChevronLeft /> Newer
+          </Button>
+          <span className="tabular-nums">
+            {offset + 1}–{offset + d.items.length} of {total}
+          </span>
+          <Button size="sm" variant="ghost" disabled={offset + d.items.length >= total || doc.loading} onClick={() => setOffset((n) => n + limit)}>
+            Older <ChevronRight />
+          </Button>
+        </div>
+      )}
+
       {d && (
-        <p className="text-muted-foreground/70 mt-8 text-[12.5px] leading-relaxed">
-          {d.note}
-        </p>
+        <SmallPrint summary="Sending rules" className="mt-8">
+          <p>Sends from {d.mailbox.address ?? "no mailbox yet — connect Gmail under Integrations"}.</p>
+          <p>
+            At most {d.today.cap} emails a day
+            {d.settings.gapDays > 0 ? `, and one email per person every ${d.settings.gapDays} days (dismissed ones count too)` : ""}.
+          </p>
+          <p>
+            {d.settings.requireApproval
+              ? "Every email needs your Approve, then Send now. AI can write drafts but can never send."
+              : "Approval is off — Send now sends straight away. AI still can't send."}
+          </p>
+          <p>{d.note}</p>
+        </SmallPrint>
       )}
     </PageShell>
   );

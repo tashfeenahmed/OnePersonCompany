@@ -1,4 +1,7 @@
 import { Link } from "react-router-dom";
+import { Check, Undo2 } from "lucide-react";
+import { Avatar, ToneChip } from "@/areas/mailflow/parts";
+import { dueLabel, mailTime, temperatureLabel } from "@/lib/mailText";
 import { Chart } from "@/components/charts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -42,7 +45,6 @@ export function TempDot({ t }: { t: Temperature }) {
   return <span className={cn("inline-block size-[7px] shrink-0 rounded-full", look)} />;
 }
 
-const tempWord = (t: Temperature) => (t === null ? "no rhythm yet" : t);
 
 /* ------------------------------------------------------------ venture badge */
 
@@ -57,7 +59,7 @@ export function VentureBadge({ p }: { p: Person }) {
       title={p.link.why}
       className="border-line-soft text-muted-foreground hover:text-foreground rounded-md border px-1.5 py-px text-[11.5px] whitespace-nowrap"
     >
-      {p.link.ventureName} · by domain
+      {p.link.ventureName}
     </Link>
   );
 }
@@ -73,38 +75,40 @@ export function ContactRow({
   open: boolean;
   onToggle: () => void;
 }) {
+  const name = p.name ?? p.address;
+  const temp = temperatureLabel(p.temperature);
   return (
     <button
       type="button"
       onClick={onToggle}
       aria-expanded={open}
       className={cn(
-        "hover:bg-accent/60 flex w-full items-center gap-2.5 px-3 py-2 text-left",
+        "hover:bg-accent/60 flex w-full items-start gap-3 px-3 py-2.5 text-left sm:items-center sm:px-4",
         open && "bg-accent/40",
       )}
     >
-      <TempDot t={p.temperature} />
+      <Avatar name={name} address={p.address} size={34} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[14.5px]">
-          {p.name ?? p.address}
-          {p.name && (
-            <span className="text-muted-foreground ml-1.5 text-[12.5px]">{p.address}</span>
-          )}
+        <span className="flex items-baseline gap-2">
+          <span className="min-w-0 flex-1 truncate text-[14px]">
+            {name}
+            {p.name && <span className="text-muted-foreground ml-1.5 text-[12.5px]">{p.address}</span>}
+          </span>
+          <span className="text-muted-foreground shrink-0 text-[12px] tabular-nums">
+            {p.lastAt ? mailTime(p.lastAt) : ""}
+          </span>
         </span>
-        <span className="text-muted-foreground block truncate text-[12.5px]">
-          {p.received} in · {p.sent} out · {p.threads}{" "}
-          {p.threads === 1 ? "thread" : "threads"} ·{" "}
-          {p.cadenceDays === null ? "no rhythm yet" : `usually every ${p.cadenceDays}d`}
+        <span className="mt-1 flex flex-wrap items-center gap-1.5">
+          <ToneChip tone={temp.tone} title={p.why}>
+            {temp.label}
+          </ToneChip>
+          {p.stale && <ToneChip tone="warn">Gone quiet</ToneChip>}
+          <span className="text-muted-foreground text-[12px]">
+            {p.received} from them · {p.sent} from you
+            {p.cadenceDays !== null && ` · usually every ${p.cadenceDays} days`}
+          </span>
+          <VentureBadge p={p} />
         </span>
-      </span>
-      <VentureBadge p={p} />
-      {p.stale && (
-        <span className="border-line-soft text-muted-foreground rounded-md border px-1.5 py-px text-[11.5px]">
-          stale
-        </span>
-      )}
-      <span className="text-muted-foreground w-[86px] shrink-0 text-right text-[12.5px] tabular-nums">
-        {p.lastAt ? ago(p.lastAt) : "no dated mail"}
       </span>
     </button>
   );
@@ -132,11 +136,11 @@ export function ContactPanel({
 }) {
   const series = [
     {
-      label: "received",
+      label: "from them",
       points: days.map((d) => ({ ts: `${d.day}T00:00:00Z`, value: d.received })),
     },
     {
-      label: "sent",
+      label: "from you",
       points: days.map((d) => ({ ts: `${d.day}T00:00:00Z`, value: d.sent })),
     },
   ];
@@ -144,21 +148,21 @@ export function ContactPanel({
   return (
     <div className="border-line-soft bg-card/40 border-t px-4 py-3.5">
       <div className="mb-3 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4">
-        <Figure label="last heard from" value={p.lastReceived ? ago(p.lastReceived) : "—"} />
-        <Figure label="last written to" value={p.lastSent ? ago(p.lastSent) : "—"} />
+        <Figure label="They last wrote" value={p.lastReceived ? ago(p.lastReceived) : "—"} />
+        <Figure label="You last wrote" value={p.lastSent ? ago(p.lastSent) : "—"} />
         <Figure
-          label="usual gap"
+          label="Usually every"
           value={p.cadenceDays === null ? "—" : `${p.cadenceDays} days`}
           note={
             p.cadenceDays === null
-              ? `${p.cadenceGaps} measurable gaps — not enough to claim a rhythm`
-              : `median over ${p.cadenceGaps} gaps, ${p.contactDays} days of contact`
+              ? "not enough emails yet to tell"
+              : `based on ${p.contactDays} days of emails`
           }
         />
         <Figure
-          label="temperature"
-          value={tempWord(p.temperature)}
-          note={p.ratio === null ? undefined : `${p.ratio}× their usual gap`}
+          label="Status"
+          value={temperatureLabel(p.temperature).label}
+          note={p.ratio === null ? undefined : `${p.ratio}× longer than usual`}
         />
       </div>
 
@@ -170,13 +174,13 @@ export function ContactPanel({
         <Chart
           series={series}
           unit="count"
-          caption="Messages a day, each direction. Only days with mail appear."
+          caption="Emails a day, from them and from you."
         />
       ) : (
         <p className="text-muted-foreground text-[12.5px]">
           {days.length
-            ? "One day of contact — there is no shape to draw yet."
-            : "No day series: a chart is kept only for contacts that met the minimum each way."}
+            ? "Only one day of emails so far."
+            : "No chart for this person yet — they aren't a regular contact."}
         </p>
       )}
     </div>
@@ -220,56 +224,52 @@ export function CommitmentRow({
   busy: boolean;
   onDecide: (action: "done" | "dismiss" | "reopen") => void;
 }) {
-  const overdue =
-    c.status === "open" && c.due !== null && c.due < new Date().toISOString().slice(0, 10);
+  const due = dueLabel(c.due, c.dueText, c.status === "open");
+  const who = c.toName ?? c.to;
   return (
-    <div className="border-line-soft border-b px-3 py-2.5 last:border-b-0">
-      <div className="flex items-start gap-3">
+    <div className="border-line-soft flex flex-col gap-2 border-b px-3 py-3 last:border-b-0 sm:flex-row sm:items-start sm:gap-3 sm:px-4">
+      <div className="flex min-w-0 flex-1 items-start gap-3">
+        <Avatar name={who} address={c.to} size={32} className="mt-0.5" />
         <div className="min-w-0 flex-1">
-          <div className="text-[14.5px]">{c.what}</div>
+          <div className={cn("text-[14.5px] leading-snug", c.status !== "open" && "text-muted-foreground line-through decoration-1")}>
+            {c.what}
+          </div>
           <blockquote className="border-line-soft text-muted-foreground mt-1 border-l-2 pl-2 text-[13px] italic">
             “{c.sentence}”
           </blockquote>
-          <div className="text-muted-foreground mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12.5px]">
-            <span>to {c.toName ?? c.to}</span>
-            {c.subject && <span className="truncate">· {c.subject}</span>}
-            <span>· {c.sentAt ? ago(c.sentAt) : "no date on the message"}</span>
-            <span
-              className={cn(
-                "border-line-soft rounded-md border px-1.5 py-px",
-                overdue && "text-destructive",
-              )}
-            >
-              {c.dueText
-                ? `he said “${c.dueText}”${c.due ? ` — ${c.due}` : " — no date this can resolve"}`
-                : "no date stated"}
+          <div className="text-muted-foreground mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px]">
+            <ToneChip tone={due.overdue ? "bad" : c.due ? "warn" : "muted"}>{due.label}</ToneChip>
+            <span>
+              to {who} · {c.sentAt ? mailTime(c.sentAt) : "undated"}
             </span>
-            {c.status !== "open" && (
-              <span className="border-line-soft rounded-md border px-1.5 py-px">{c.status}</span>
+            {c.subject && (
+              <Link
+                className="min-w-0 truncate underline"
+                to={`/mail/inbox?thread=${encodeURIComponent(c.threadId)}`}
+                title="Open the email"
+              >
+                {c.subject}
+              </Link>
             )}
+            {c.status !== "open" && <ToneChip tone="muted">{c.status === "done" ? "Done" : "Dismissed"}</ToneChip>}
           </div>
         </div>
-        <div className="flex shrink-0 gap-1">
-          {c.status === "open" ? (
-            <>
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => onDecide("done")}>
-                Done
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={busy}
-                onClick={() => onDecide("dismiss")}
-              >
-                Dismiss
-              </Button>
-            </>
-          ) : (
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => onDecide("reopen")}>
-              Reopen
+      </div>
+      <div className="flex shrink-0 gap-1 pl-11 sm:pl-0">
+        {c.status === "open" ? (
+          <>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => onDecide("done")}>
+              <Check /> Done
             </Button>
-          )}
-        </div>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => onDecide("dismiss")} title="Not really a promise">
+              Dismiss
+            </Button>
+          </>
+        ) : (
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => onDecide("reopen")}>
+            <Undo2 /> Reopen
+          </Button>
+        )}
       </div>
     </div>
   );

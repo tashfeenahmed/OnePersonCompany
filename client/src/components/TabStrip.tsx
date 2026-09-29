@@ -182,6 +182,9 @@ export type SubTab = {
   /** The hover sentence. A tab whose name is a noun the reader has not met
    *  yet is worth explaining before they press it. */
   title?: string;
+  /** Draw the count as a filled pill — for a count of things waiting on the
+   *  reader (unanswered mail, unapproved drafts) rather than a plain tally. */
+  countPill?: boolean;
 };
 
 /**
@@ -233,9 +236,14 @@ export function SubTabs({
           <>
             {Icon && <Icon className="size-3.5" strokeWidth={1.6} />}
             {t.label}
-            {t.count !== undefined && (
-              <span className="text-muted-foreground text-[12px]">{t.count}</span>
-            )}
+            {t.count !== undefined &&
+              (t.countPill ? (
+                <span className="bg-destructive/12 text-destructive min-w-[1.25rem] rounded-full px-1.5 text-center text-[11.5px] font-medium tabular-nums">
+                  {t.count}
+                </span>
+              ) : (
+                <span className="text-muted-foreground text-[12px]">{t.count}</span>
+              ))}
           </>
         );
         const shape = cn(tabItemClass(active), "flex shrink-0 items-center gap-[7px]");
