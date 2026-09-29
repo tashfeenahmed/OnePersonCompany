@@ -27,6 +27,7 @@ import type {
   DonutSlice,
   DumbbellRow,
   FeedItem,
+  GalleryItem,
   Meter,
   ProfileFigure,
   ProportionPart,
@@ -1112,10 +1113,10 @@ export function DailyBars({
   const splitOn = hasParts && tab === "split";
 
   /* The window's top six parts, in size order, with their marks. */
-  const sums = new Map<string, { value: number; mark?: string | null }>();
+  const sums = new Map<string, { value: number; mark?: string | null; host?: string | null }>();
   for (const d of days)
     for (const p of d.parts ?? []) {
-      const cur = sums.get(p.label) ?? { value: 0, mark: p.mark };
+      const cur = sums.get(p.label) ?? { value: 0, mark: p.mark, host: p.host };
       cur.value += p.value;
       sums.set(p.label, cur);
     }
@@ -1124,8 +1125,8 @@ export function DailyBars({
   const index = new Map(named.map(([label], i) => [label, i]));
   const hasOther = ranked.length > named.length;
   const legend = [
-    ...named.map(([label, v], i) => ({ label, mark: v.mark, colour: PART_COLOURS[i]! })),
-    ...(hasOther ? [{ label: OTHER, mark: null, colour: "var(--border)" }] : []),
+    ...named.map(([label, v], i) => ({ label, mark: v.mark, host: v.host, colour: PART_COLOURS[i]! })),
+    ...(hasOther ? [{ label: OTHER, mark: null, host: null, colour: "var(--border)" }] : []),
   ];
 
   /* Each day's stack, in legend order, so the colours sit in the same place. */
@@ -1248,6 +1249,7 @@ export function DailyBars({
             <span key={l.label} className="inline-flex items-center gap-1.5">
               <i aria-hidden className="size-2 rounded-[2px]" style={{ background: l.colour }} />
               {l.mark && <ModelMark name={l.mark} size={12} />}
+              {l.host && <HostMark host={l.host} size={12} />}
               {l.label}
             </span>
           ))}
@@ -2087,6 +2089,10 @@ export function Figures({
                   className={cn(
                     "border-line-soft/60 border-b py-1 whitespace-nowrap",
                     i === 0 ? "pr-3 text-left" : "pl-3 text-right tabular-nums",
+                    /* A checklist cell reads by colour as well as by glyph. */
+                    i > 0 && cell === "✓" && "text-ok font-medium",
+                    i > 0 && cell === "✗" && "text-destructive font-medium",
+                    i > 0 && cell === "p=none" && "text-warn",
                   )}
                 >
                   {i === 0 && hosts?.[ri] ? (
@@ -2460,6 +2466,84 @@ export function Feed({ items, caption }: { items: FeedItem[]; caption?: string }
       ))}
       {caption && <p className="text-muted-foreground mt-2 text-[12px] leading-snug">{caption}</p>}
     </div>
+  );
+}
+
+/**
+ * PICTURES WITH ONE FIGURE EACH — the `gallery` kind.
+ *
+ * A grid of thumbnails, the ranking figure set large on a dark scrim at the
+ * foot of each, the name under it. For "which video did best" a cover you
+ * recognise beats a caption you have to read. The grid reflows by width, so
+ * a two-column card shows four across and a full-width one eight.
+ */
+export function Gallery({
+  items,
+  shape = "portrait",
+  caption,
+}: {
+  items: GalleryItem[];
+  shape?: "portrait" | "square";
+  caption?: string;
+}) {
+  return (
+    <div className="mt-1">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2.5">
+        {items.map((item, i) => (
+          <GalleryTile key={`${item.href ?? item.title}-${i}`} item={item} shape={shape} />
+        ))}
+      </div>
+      {caption && <p className="text-muted-foreground mt-2 text-[12px] leading-snug">{caption}</p>}
+    </div>
+  );
+}
+
+function GalleryTile({ item, shape }: { item: GalleryItem; shape: "portrait" | "square" }) {
+  const [broken, setBroken] = useState(false);
+  const body = (
+    <>
+      <div
+        className={cn(
+          "bg-muted border-line-soft relative overflow-hidden rounded-[10px] border",
+          shape === "portrait" ? "aspect-[3/4]" : "aspect-square",
+        )}
+      >
+        {item.image && !broken && (
+          <img
+            src={item.image}
+            alt={item.title}
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            onError={() => setBroken(true)}
+            className="absolute inset-0 size-full object-cover"
+          />
+        )}
+        {item.badge && (
+          <span className="absolute top-1.5 left-1.5 rounded-full bg-black/65 px-1.5 py-px text-[10.5px] font-medium text-white">
+            {item.badge}
+          </span>
+        )}
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 via-black/35 to-transparent px-2 pt-6 pb-1.5 text-white">
+          <div className="text-[19px] leading-none font-semibold tracking-[-0.02em] tabular-nums">{item.value}</div>
+          {item.unit && <div className="mt-0.5 text-[10.5px] leading-none opacity-85">{item.unit}</div>}
+        </div>
+      </div>
+      <div className="mt-1 truncate text-[12px] leading-tight font-medium">{item.title}</div>
+      {item.sub && <div className="text-muted-foreground truncate text-[11px] leading-tight">{item.sub}</div>}
+    </>
+  );
+  return item.href ? (
+    <a
+      href={item.href}
+      target="_blank"
+      rel="noreferrer"
+      className="block min-w-0 hover:opacity-90"
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      {body}
+    </a>
+  ) : (
+    <div className="min-w-0">{body}</div>
   );
 }
 

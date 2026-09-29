@@ -195,9 +195,12 @@ export type TrafficRow = {
   s3xx: number | null;
   s4xx: number | null;
   s5xx: number | null;
-  /** Which field set answered: "full", "noStatus" or "minimal". It is what
-   *  tells a null threats count apart from a genuine zero. */
+  /** Which field set answered: "geo", "full", "noStatus" or "minimal". It is
+   *  what tells a null threats count apart from a genuine zero. */
   fields: string;
+  /** Requests and threats by ISO country code, from `countryMap`. Null when
+   *  the field set that answered did not ask for it. */
+  countries: Record<string, [number, number]> | null;
 };
 
 /** A domain registered AT Cloudflare. Empty is the ordinary answer here. */
@@ -522,6 +525,16 @@ export function emailFlags(records: RawRecord[], zoneName: string): EmailFlags {
  * zero. Which profile answered travels with every row for exactly that reason.
  */
 const PROFILES: { name: string; fields: string }[] = [
+  /* The widest: everything "full" asks plus where the requests came from. Tried
+     first and dropped whole if Cloudflare ever refuses countryMap, so the
+     status split behind it keeps flowing either way. */
+  {
+    name: "geo",
+    fields:
+      "sum { requests cachedRequests bytes threats pageViews " +
+      "responseStatusMap { edgeResponseStatus requests } " +
+      "countryMap { clientCountryName requests threats } } uniq { uniques }",
+  },
   {
     name: "full",
     fields:
@@ -557,6 +570,7 @@ type GqlDay = {
     threats?: number;
     pageViews?: number;
     responseStatusMap?: { edgeResponseStatus?: number; requests?: number }[];
+    countryMap?: { clientCountryName?: string; requests?: number; threats?: number }[];
   };
   uniq?: { uniques?: number };
 };
@@ -650,6 +664,15 @@ function absorb(zone: GqlZone, profile: string, out: TrafficRow[]) {
         else if (bucket === 5) s5xx += n;
       }
     }
+    let countries: Record<string, [number, number]> | null = null;
+    if (sum.countryMap) {
+      countries = {};
+      for (const entry of sum.countryMap) {
+        const code = (entry.clientCountryName ?? "").trim().toUpperCase() || "XX";
+        const had = countries[code] ?? [0, 0];
+        countries[code] = [had[0] + int(entry.requests), had[1] + int(entry.threats)];
+      }
+    }
     out.push({
       zoneId,
       day: date,
@@ -664,6 +687,7 @@ function absorb(zone: GqlZone, profile: string, out: TrafficRow[]) {
       s4xx,
       s5xx,
       fields: profile,
+      countries,
     });
   }
 }

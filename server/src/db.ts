@@ -2856,6 +2856,19 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       ALTER TABLE stripe_subscriptions ADD COLUMN comment TEXT;
     `,
   },
+  {
+    name: "530_cloudflare_countries",
+    sql: `
+      -- WHERE EACH ZONE'S REQUESTS CAME FROM, per day. Cloudflare's daily
+      -- rollup carries a countryMap beside the status map; stored as JSON,
+      -- {"US":[requests,threats],…}, because it is only ever read whole and
+      -- summed over a window. NULL on rows written before this step and on
+      -- rows whose field set could not ask — never an empty map, which would
+      -- claim nobody came from anywhere. Every run re-reads thirty days, so
+      -- the first collection after this fills the whole window.
+      ALTER TABLE cloudflare_traffic ADD COLUMN countries TEXT;
+    `,
+  },
 /* SORTED BY NAME, NOT BY POSITION IN THIS FILE. The prefix is the order, and
    it was not: this array ran 017 before 015, and the integration blocks
    concatenated after it ran one area's 3xx steps ahead of another's 1xx. The
@@ -5185,6 +5198,8 @@ export type CloudflareTrafficRow = {
   s4xx: number | null;
   s5xx: number | null;
   fields: string;
+  /** JSON {"US":[requests,threats]} — null where it was never asked for. */
+  countries: string | null;
 };
 
 /** A `domains` row that came from the Cloudflare collector, in the shape the
@@ -5308,6 +5323,7 @@ export function writeCloudflareTraffic(
     s4xx: number | null;
     s5xx: number | null;
     fields: string;
+    countries?: Record<string, [number, number]> | null;
   }[],
 ) {
   if (!rows.length) return 0;
@@ -5317,13 +5333,14 @@ export function writeCloudflareTraffic(
     const ins = db.prepare(
       `INSERT OR REPLACE INTO cloudflare_traffic
          (zone_id, day, requests, cached, bytes, threats, page_views, uniques,
-          s2xx, s3xx, s4xx, s5xx, fields, seen_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          s2xx, s3xx, s4xx, s5xx, fields, seen_at, countries)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     );
     for (const r of rows)
       ins.run(
         r.zoneId, r.day, r.requests, r.cached, r.bytes, r.threats, r.pageViews,
         r.uniques, r.s2xx, r.s3xx, r.s4xx, r.s5xx, r.fields, seen,
+        r.countries ? JSON.stringify(r.countries) : null,
       );
     db.exec("COMMIT");
   } catch (err) {
@@ -5423,7 +5440,7 @@ export function cloudflareTraffic(days: number): CloudflareTrafficRow[] {
   return db
     .prepare(
       `SELECT zone_id, day, requests, cached, bytes, threats, page_views,
-              uniques, s2xx, s3xx, s4xx, s5xx, fields
+              uniques, s2xx, s3xx, s4xx, s5xx, fields, countries
          FROM cloudflare_traffic
         WHERE day >= ?
         ORDER BY day ASC`,

@@ -61,6 +61,7 @@ import { adsboard, type AdsBoardDocs } from "@/lib/api/adsboard";
 import { mobilehealthboard, type MobileHealthDocs } from "@/lib/api/mobilehealthboard";
 import { appsApi, type AppsDoc } from "@/lib/api/apps";
 import { devInsightsApi, type DevInsights } from "@/lib/api/devInsights";
+import { tiktokApi, type TiktokReport } from "@/lib/api/tiktok";
 import { webanalyticsboard, type WebAnalyticsDocs } from "@/lib/api/webanalyticsboard";
 import {
   LIVE_BUILDERS,
@@ -292,6 +293,9 @@ export type LiveData = {
   apps: AppsDoc | null;
   /** Stars by day, release downloads, per-repo traffic — the Development board. */
   devInsights: DevInsights | null;
+  /** Public TikTok: watched accounts, their videos, search suggestions and
+   *  the Discover page. Gated on the `tiktok-public` plugin. */
+  tiktok: TiktokReport | null;
   /** Who the visitors were, what a bot heuristic would take off, and what the
    *  custom events recorded. Gated on Umami, whose rows it reads. */
   webAnalytics: WebAnalyticsDocs | null;
@@ -362,6 +366,7 @@ const LiveContext = createContext<LiveData>({
   mobileHealth: null,
   apps: null,
   devInsights: null,
+  tiktok: null,
   webAnalytics: null,
   window: DEFAULT_WINDOW,
   sourceStates: {}, sourceErrors: {},
@@ -451,6 +456,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [mobileHealth, setMobileHealth] = useState<MobileHealthDocs | null>(null);
   const [apps, setApps] = useState<AppsDoc | null>(null);
   const [devInsights, setDevInsights] = useState<DevInsights | null>(null);
+  const [tiktok, setTiktok] = useState<TiktokReport | null>(null);
   const [webAnalytics, setWebAnalytics] = useState<WebAnalyticsDocs | null>(null);
   const [tick, setTick] = useState(0);
   const [sourceStates, setSourceStates] = useState<LiveData["sourceStates"]>({});
@@ -517,6 +523,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     let needsMobileHealth = false;
     let needsApps = false;
     let needsDevInsights = false;
+    let needsTiktok = false;
     let needsWebAnalytics = false;
     for (const w of Object.values(WIDGETS)) {
       if (w.live?.metric) series.add(w.live.metric);
@@ -566,6 +573,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       if (w.live?.mobileHealth) needsMobileHealth = true;
       if (w.live?.apps) needsApps = true;
       if (w.live?.devInsights) needsDevInsights = true;
+      if (w.live?.tiktok) needsTiktok = true;
       if (w.live?.webAnalytics) needsWebAnalytics = true;
     }
     return {
@@ -616,6 +624,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       needsMobileHealth,
       needsApps,
       needsDevInsights,
+      needsTiktok,
       needsWebAnalytics,
     };
   }, []);
@@ -672,7 +681,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       setInsights(null);
       setProfit(null);
       setCapture(null);
-      setSocial(null); setUsers(null); setMobileHealth(null); setApps(null); setDevInsights(null); setWebAnalytics(null);
+      setSocial(null); setUsers(null); setMobileHealth(null); setApps(null); setDevInsights(null); setTiktok(null); setWebAnalytics(null);
     }
     const clearSource: Record<string, () => void> = {
       summary: () => setHetzner(null), fleet: () => setFleet([]), load: () => setLoad(null), volumes: () => setVolumes([]),
@@ -718,6 +727,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       mobileHealth: () => setMobileHealth(null),
       apps: () => setApps(null),
       devInsights: () => setDevInsights(null),
+      tiktok: () => setTiktok(null),
       webAnalytics: () => setWebAnalytics(null),
     };
     const clearError = (source: string) => setSourceErrors(s => { const next = {...s}; delete next[source]; return next; });
@@ -1131,6 +1141,12 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         "devInsights",
       );
       tryFetch(
+        connected.has("tiktok-public") && wanted.needsTiktok,
+        () => tiktokApi.report(daysFor(selected, 400)),
+        setTiktok,
+        "tiktok",
+      );
+      tryFetch(
         connected.has("umami") && wanted.needsWebAnalytics,
         () => webanalyticsboard.docs(selected === 7 ? 7 : 30),
         setWebAnalytics,
@@ -1224,6 +1240,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         mobileHealth,
         apps,
         devInsights,
+        tiktok,
         webAnalytics,
         window: readingWindow,
       });
@@ -1278,6 +1295,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       mobileHealth,
       apps,
       devInsights,
+      tiktok,
       webAnalytics,
       window: readingWindow,
       sourceStates, sourceErrors, loading, error, liveTypes,
@@ -1334,6 +1352,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     mobileHealth,
     apps,
     devInsights,
+    tiktok,
     webAnalytics,
   ]);
 
@@ -1722,6 +1741,17 @@ export function collectedAt(src: string, live: LiveData): string | null {
     */
     case "apps":
       return live.apps?.generatedAt ?? null;
+    /* The newest profile read — the handles are read in one pass. */
+    case "tiktok":
+      return (
+        live.tiktok?.handles
+          .map((h) => h.lastOkAt)
+          .filter((at): at is string => !!at)
+          .sort()
+          .at(-1) ??
+        live.tiktok?.discover.lastReadAt ??
+        null
+      );
     case "mobilehealth":
       return (
         live.mobileHealth?.readiness?.lastCollected

@@ -817,11 +817,11 @@ const SEED: StoreState = {
       TRAFFIC & DNS. What the edge actually served, and whether the names in
       front of it point where they should.
 
-      The pairing card gets the full width because it is the one thing on this
-      board neither Cloudflare's console nor a registrar's can show: it is a
-      JOIN, and it needs both sides connected. Seven zones here are registered
-      somewhere this dashboard cannot read, and five registered names have no
-      zone at all — findings that are invisible from either end alone.
+      Drawn rather than written: four figures with their own lines, every day
+      as a stack of sites, every site ranked beside its favicon, response codes
+      and cache as proportion bars, and DNS and mail as a checklist of ticks.
+      The registrar join stays — as the delegation card — because it is the one
+      thing neither Cloudflare's console nor a registrar's can show.
     */
     {
       id: "d-traffic",
@@ -829,20 +829,20 @@ const SEED: StoreState = {
       name: "Traffic & DNS",
       widgets: [
         { id: "tr1", type: "cf.total", w: 1 },
-        { id: "tr2", type: "cf.zones", w: 1 },
+        { id: "tr16", type: "traffic.pageViews", w: 1 },
         { id: "tr3", type: "cf.bandwidth", w: 1 },
         { id: "tr4", type: "cf.threats", w: 1 },
-        { id: "tr5", type: "cf.daily", w: 4 },
-        { id: "tr6", type: "cf.visitors", w: 4 },
-        { id: "tr7", type: "cf.requests", w: 2 },
-        { id: "tr8", type: "cf.responses", w: 2 },
-        { id: "tr9", type: "cf.unmatched", w: 4 },
-        { id: "tr10", type: "cf.dns", w: 2 },
-        { id: "tr11", type: "cf.email", w: 2 },
-        { id: "tr12", type: "cf.cacheRatio", w: 1 },
-        { id: "tr13", type: "cf.records", w: 1 },
-        { id: "tr14", type: "cf.cannot", w: 2 },
-        { id: "tr15", type: "cf.table", w: 4 },
+        { id: "tr17", type: "traffic.daily", w: 4 },
+        { id: "tr18", type: "traffic.sites", w: 2 },
+        { id: "tr19", type: "traffic.visitors", w: 2 },
+        { id: "tr20", type: "traffic.status", w: 2 },
+        { id: "tr21", type: "traffic.countries", w: 2 },
+        { id: "tr22", type: "traffic.cache", w: 2 },
+        { id: "tr23", type: "traffic.threatsBySite", w: 2 },
+        { id: "tr24", type: "traffic.dnsHealth", w: 4 },
+        { id: "tr25", type: "traffic.email", w: 2 },
+        { id: "tr26", type: "traffic.delegation", w: 2 },
+        { id: "tr27", type: "traffic.table", w: 4 },
       ],
     },
     {
@@ -972,63 +972,46 @@ const SEED: StoreState = {
       name: "Social",
       widgets: [
         /*
-          RE-SEEDED IN SEED_VERSION 19 TO FOLLOW WORKDASH'S SOCIAL PAGE TOP TO
-          BOTTOM, AND THE THING IT FOLLOWS IS THE POSTS.
+          RE-SEEDED 2026-09-29 TO BE READ AT A GLANCE, AND WITH TIKTOK.
 
-          The seven cards below kept their ids and their places relative to
-          each other; what changed is that a board about publishing now shows
-          what was published. The timeline reader has been storing the words,
-          the pictures and the permalinks for every mapped Page since the
-          socialfeed area shipped, and nothing on any board read them.
+          Pictures before sentences: the audience tiles, then posts per day by
+          network, then views by account with each product's own icon. The
+          TikTok section is the videos themselves as thumbnails, views gained
+          per day, the accounts and what viewers did. Then what is trending on
+          TikTok — search suggestions around the owner's phrases, Discover's
+          hashtags and creators. The Facebook/Instagram posts and the
+          publishing queue follow, and the collector's own state closes it.
 
-          THE ORDER IS WORKDASH'S QUESTION ORDER. How many people could see
-          it, how many did, and how long since anybody was given the chance —
-          then the rate that qualifies the middle one. Then the Pages: which
-          was seen, which was answered, the habit over time, and the table
-          with the collector's own state on the end. Then WHAT WORKED and WHAT
-          WENT OUT LATELY, which are two lists on purpose: one is what to make
-          more of and the other is whether the habit is alive, and a single
-          reverse-chronological feed answers the second while hiding the
-          first. Then a feed per network, because "is Facebook alive" and "is
-          anything alive" stop being the same question the moment a second
-          network starts publishing.
-
-          THE PIPELINE COMES AFTER THE PUBLISHED WORK and before the per-
-          project pair, because it is the only part of this board that is
-          about the future: a draft nobody approved is why next fortnight's
-          feeds will be empty.
-
-          IT STILL ENDS ON THE REFUSALS. `social.coverage` says what this box
-          is even asking for — only Pages the owner mapped — and `meta.cannot`
-          says what the token will not answer. A social board that quietly
-          omitted organic Page reach would be read as the whole picture.
+          Per-network feeds, the Meta refusals card and the per-project pair
+          left the seed (they are still in the palette): on this account most
+          of them were empty cards explaining why they were empty.
         */
+        { id: "so30", type: "social.headAudience", w: 4 },
+        { id: "so31", type: "tiktok.followers", w: 1 },
         { id: "so8", type: "social.followers", w: 1 },
+        { id: "so32", type: "tiktok.views", w: 1 },
         { id: "so9", type: "social.views", w: 1 },
+        { id: "so33", type: "social.postsDaily", w: 4 },
+        { id: "so34", type: "social.byAccount", w: 2 },
+        { id: "so35", type: "social.networks", w: 1 },
         { id: "so10", type: "social.quiet", w: 1 },
-        { id: "so11", type: "social.perPost", w: 1 },
-        { id: "so1", type: "meta.pages", w: 2 },
-        { id: "so12", type: "social.viewsByPage", w: 2 },
-        { id: "so13", type: "social.engagementByPage", w: 2 },
-        { id: "so14", type: "social.cadence", w: 4 },
-        { id: "so15", type: "social.viewsTrend", w: 4 },
-        { id: "so16", type: "social.accounts", w: 4 },
+        { id: "so36", type: "social.headTiktok", w: 4 },
+        { id: "so37", type: "tiktok.top", w: 4 },
+        { id: "so38", type: "tiktok.gained", w: 2 },
+        { id: "so39", type: "tiktok.accounts", w: 2 },
+        { id: "so40", type: "tiktok.latest", w: 2 },
+        { id: "so41", type: "tiktok.actions", w: 2 },
+        { id: "so42", type: "social.headTrends", w: 4 },
+        { id: "so43", type: "tiktok.searches", w: 2 },
+        { id: "so44", type: "tiktok.hashtags", w: 2 },
+        { id: "so45", type: "tiktok.creators", w: 4 },
+        { id: "so46", type: "social.headPosts", w: 4 },
         { id: "so17", type: "social.top", w: 2 },
         { id: "so18", type: "social.latest", w: 2 },
-        { id: "so19", type: "social.facebook", w: 2 },
-        { id: "so2", type: "instagram.followers", w: 2 },
-        { id: "so20", type: "social.instagram", w: 2 },
-        { id: "so3", type: "bluesky.followers", w: 1 },
-        { id: "so4", type: "meta.reach", w: 1 },
-        { id: "so5", type: "bluesky.engagement", w: 2 },
-        { id: "so21", type: "social.bluesky", w: 2 },
-        { id: "so6", type: "bluesky.handles", w: 4 },
-        { id: "so22", type: "social.published", w: 2 },
         { id: "so23", type: "social.queue", w: 2 },
-        { id: "so24", type: "social.project", w: 2 },
-        { id: "so25", type: "social.projectStats", w: 2 },
-        { id: "so26", type: "social.coverage", w: 2 },
-        { id: "so7", type: "meta.cannot", w: 2 },
+        { id: "so22", type: "social.published", w: 2 },
+        { id: "so16", type: "social.accounts", w: 4 },
+        { id: "so26", type: "social.coverage", w: 4 },
       ],
     },
     /*
@@ -1397,7 +1380,7 @@ export function defaultWidth(type: string): 1 | 2 | 4 {
   const kind = WIDGETS[type]?.kind;
   if (kind === "metric") return 1;
   /* A section heading runs across the whole board. */
-  if (kind === "heading" || kind === "daily" || kind === "appfilter" || kind === "appgrid" || kind === "threads" || kind === "adgallery" || kind === "sitegrid") return 4;
+  if (kind === "heading" || kind === "daily" || kind === "appfilter" || kind === "appgrid" || kind === "threads" || kind === "gallery" || kind === "adgallery" || kind === "sitegrid") return 4;
   if (kind === "chart" || kind === "table" || kind === "runway") return 4;
   /* A feed carries a picture, three lines of copy and a strip of figures per
      row: at two columns the copy wraps to six lines and the figures stack. */

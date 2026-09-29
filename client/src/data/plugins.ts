@@ -546,6 +546,22 @@ export const PLUGINS: Plugin[] = [
     ],
   },
   {
+    id: "tiktok-public",
+    name: "TikTok (public)",
+    icon: "tiktok",
+    cat: "social",
+    connected: false,
+    secret: null,
+    desc: "Followers, likes and every video's views for the accounts you watch, plus what TikTok search and Discover are showing. No key.",
+    help: "NO CREDENTIAL: tiktok.com's public profile page and its video grid answer anybody. Set the handles to watch and, optionally, search phrases below. Profiles and videos are read every six hours; search suggestions and the Discover page twice a day. A video's counts are TikTok's running totals, so views gained per day come from this box's own daily snapshots and start after the second day. Search suggestions are ranked, never counted — TikTok publishes no search volumes. Discover is served for this box's region. Unofficial endpoints: when TikTok changes one, the card says so rather than showing zeroes.",
+    docs: "https://www.tiktok.com/",
+    fields: [],
+    usedBy: [
+      "collect tiktok-public (profiles, videos, daily snapshots, search suggestions, Discover)",
+      "GET /api/tiktok-public — per handle, never a combined follower count across networks",
+    ],
+  },
+  {
     id: "hetzner",
     name: "Hetzner Cloud",
     icon: "hetzner",
