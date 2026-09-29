@@ -42,6 +42,7 @@ import {
 } from "../db.ts";
 import * as accounts from "../accounts.ts";
 import { MAX_REPOS, TRAFFIC_DAYS } from "../providers/github.ts";
+import { collectInsights, insightsDoc } from "../providers/githubInsights.ts";
 
 export const githubRoutes = new Hono();
 
@@ -421,3 +422,14 @@ githubRoutes.get("/", (c) => {
 });
 
 type Popular = { name: string; title: string | null; count: number; uniques: number };
+
+/** Stars by day, release downloads and per-repo daily traffic — the
+ *  Development board's second document. See providers/githubInsights.ts. */
+githubRoutes.get("/insights", (c) => {
+  const raw = Number(c.req.query("days") ?? 30);
+  const days = Number.isFinite(raw) ? Math.min(400, Math.max(1, Math.round(raw))) : 30;
+  return c.json(insightsDoc(days));
+});
+
+/** Read stars and releases now rather than at the next traffic run. */
+githubRoutes.post("/insights/collect", async (c) => c.json(await collectInsights()));
