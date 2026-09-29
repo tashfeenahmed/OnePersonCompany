@@ -181,6 +181,9 @@ export type RankedRow = {
   venture?: string;
   /** An app, for its store icon beside the label (Apps board). */
   app?: Pick<AppEntry, "icon" | "name" | "ventureId">;
+  /** A hostname or URL, for its venture's favicon beside the label (see
+   *  components/HostMark) — "freellmapi.co", "sc-domain:planintel.ie". */
+  host?: string | null;
   /** A SUB-AGENT ROLE (`researcher`, `seo`, …), for its artwork beside the
    *  label — see components/org/RoleIcon. */
   role?: string;
@@ -638,6 +641,9 @@ export type Widget = {
   /** Where this card's figures are set — drawn as a small link at the right
    *  of the header, e.g. "Set rate & machines" → /finance/power. */
   configLink?: { label: string; to: string };
+  /** table / rows — a hostname or URL per row, for its venture's favicon
+   *  before the first cell (see components/HostMark). */
+  rowHosts?: (string | null)[];
   /** adgallery — the advertisements, as cards. */
   adCards?: AdCard[];
   /** threads — the conversations, as cards. */
