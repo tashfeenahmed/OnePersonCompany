@@ -1018,6 +1018,19 @@ function configureHermes(s: Spec, pl: Plan) {
     `  max_tokens: ${OUTPUT_TOKENS_CEILING}`,
     "",
     ...hermesAuxiliaryYaml(pl.timeoutMs, pl.pointed.provider),
+    /* LET A SLOW MODEL FINISH. Hermes gives up on a stream that has sent
+       nothing for 180s by default, and a local 27B prefilling a long context
+       sends nothing for many minutes — runs died "Stream stale for 900s".
+       The stall timer stays (a dead box still has to end) but at an hour;
+       the per-request timeout follows the provider's own policy; the turn
+       cap is Hermes' documented default rather than anything tighter. */
+    "agent:",
+    "  max_turns: 500",
+    "providers:",
+    "  custom:",
+    `    request_timeout_seconds: ${Math.max(600, Math.round(pl.timeoutMs / 1000))}`,
+    "    stale_timeout_seconds: 3600",
+    "",
     "# This dashboard's own data reaches the agent through the `opc` command on",
     "# the terminal's PATH and the skill packs under skills/ that teach it. No",
     "# mcp_servers block, on purpose: the terminal is the tool.",

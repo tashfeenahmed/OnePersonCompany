@@ -57,6 +57,11 @@ export async function runAgentBlock(block: WorkflowBlock, ctx: StageContext, io:
       if (result.status !== 201) { counts.failed++; continue; }
       id = (result.json as { run: { id: string } }).run.id;
       db.prepare("INSERT INTO pipeline_block_jobs(run_id,block_id,venture_id,agent_run_id,created_at) VALUES(?,?,?,?,?)").run(ctx.runId,block.id,v.id,id,now());
+      /* THE NIGHT'S OWN JOBS GO FIRST. The queue drains one job at a time,
+         and a backlog queued by hand the evening before kept every nightly
+         specialist waiting until it was cancelled (16–29 Sep 2026). Ahead of
+         everything waiting, behind whatever is already running. */
+      db.prepare("UPDATE agent_runs SET queue_priority = 1000000 WHERE id = ? AND status = 'queued'").run(id);
       counts.dispatched++;
     }
     try {

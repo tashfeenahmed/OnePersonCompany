@@ -110,7 +110,7 @@ export async function researchRun(opts: {
      writer on a slow box needs ten to fifteen minutes, and a repair costs the
      same again. Twenty-five calls is the brief's own upper number. */
   const investigation = researchInvestigationShape({
-    minutes: Math.max(5, Math.min(60, Math.round(opts.runSeconds / 120))),
+    minutes: opts.runSeconds > 0 ? Math.max(5, Math.min(60, Math.round(opts.runSeconds / 120))) : 60,
     calls: 25,
   });
   const notes = hasTools ? await opts.step("Investigating the product, market and economics", async () => (await opts.turn([

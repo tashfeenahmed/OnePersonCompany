@@ -20,7 +20,7 @@ export function workflowStages(registered: Stage[]): Stage[] {
   return doc.definition.blocks.map(b => ({
     id: b.id, area: b.kind === "agent" ? "subagents" : "workflow", title: b.title, about: BLOCK_DESCRIPTIONS[b.kind],
     deps: b.dependsOn, requireSuccess: b.requireSuccess, definition: b, defaultEnabled: b.enabled, defaultCadence: b.cadence,
-    defaultWindow: null, budget: { maxMinutes: b.maxMinutes },
+    defaultWindow: null, budget: { maxMinutes: b.maxMinutes > 0 ? b.maxMinutes : undefined },
     run: async ctx => {
       if (ctx.dry && b.kind !== "agent") return { outcome: "completed", note: `Would run ${b.title}. No work or model calls were started.` };
       const execute = executors.get(b.kind);

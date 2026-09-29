@@ -1,4 +1,4 @@
-import { budgets, budgeted, runContext, queuePaused, assertMeterable } from "../../runtime/budgets.ts";
+import { budgets, budgeted, runContext, queuePaused, assertMeterable, runLimitMs, MAX_TIMER_MS } from "../../runtime/budgets.ts";
 import { runThreadPage } from "../subagents/store.ts";
 /**
  * THE EXECUTOR — one piece of long work at a time, on whatever will answer.
@@ -426,8 +426,10 @@ export function pump() {
      cancelled", which nobody had done and which named no setting to change. */
   let outOfTime = false;
   const runSeconds = budgets().runSeconds;
-  const timeout = setTimeout(() => { outOfTime = true; abort.abort(new Error("Job runtime budget exceeded.")); }, runSeconds * 1000);
-  timeout.unref();
+  /* `runSeconds: 0` is no time limit — see runLimitMs. */
+  const limitMs = runLimitMs();
+  const timeout = limitMs ? setTimeout(() => { outOfTime = true; abort.abort(new Error("Job runtime budget exceeded.")); }, limitMs) : null;
+  timeout?.unref();
   const parent = db.prepare("SELECT parent_session_id AS id FROM agent_runs WHERE id=?").get(row.id) as {id: string | null} | undefined;
   void runContext.run({ id: row.id, venture: row.venture_id, automation: parent?.id === "rounds" || parent?.id === "pipeline", signal: abort.signal, sequence: 0, resume: !!row.resume_checkpoints }, async () => {
     assertMeterable(row.kind);
@@ -503,7 +505,7 @@ export function pump() {
       reportToParent(row.id, Date.now() - started);
     })
     .finally(() => {
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
       live = null;
       /* Straight on to the next one rather than waiting for the tick: a queue
          of three should not take fifteen seconds of nothing between them. */
@@ -599,7 +601,7 @@ async function runCli(): Promise<string | null> {
  *  up to ten minutes and sends nothing meanwhile, and a fetch to a slow host
  *  can take a minute or two. Twelve minutes outlasts both; the run's own
  *  budget still bounds the whole job. */
-const RUN_IDLE_MS = 720_000;
+const RUN_IDLE_MS = 1_800_000;
 
 /** What a run's turn may ask for. `document` reaches the raw provider only —
  *  see `CompleteOptions.document` — an agent has its own output and thinking
@@ -715,7 +717,7 @@ async function agentTurn(s: Session, turns: ChatTurn[], opts: TurnOpts): Promise
          ended every slow-model run at 600s whatever `runSeconds` said.
          `idleMs` is a run's too — see AskOptions.idleMs for the tool that
          waited on approval for longer than a chat's ninety seconds. */
-      backend.stream(turns, { channel: "run", sessionId: `run:${s.id}`, signal, maxMs: budgets().runSeconds * 1000, idleMs: RUN_IDLE_MS }),
+      backend.stream(turns, { channel: "run", sessionId: `run:${s.id}`, signal, maxMs: runLimitMs() ?? MAX_TIMER_MS, idleMs: RUN_IDLE_MS }),
       {
         delta: (text) => {
           if (opts.toOutput) s.append(text);

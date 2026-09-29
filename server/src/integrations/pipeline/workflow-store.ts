@@ -29,7 +29,7 @@ export function validateWorkflow(raw: unknown): WorkflowDefinition {
     if (typeof b.title !== "string" || !b.title.trim() || b.title.length > 120) return reject("Each block needs a title of up to 120 characters.");
     if (typeof b.enabled !== "boolean" || typeof b.requireSuccess !== "boolean") return reject("Block switches must be true or false.");
     if (!["daily", "weekly", "monthly"].includes(b.cadence)) return reject("Choose a daily, weekly or monthly cadence.");
-    if (!Number.isInteger(b.maxMinutes) || b.maxMinutes < 1 || b.maxMinutes > 240) return reject("Block time limits must be 1–240 minutes.");
+    if (!Number.isInteger(b.maxMinutes) || b.maxMinutes < 0 || b.maxMinutes > 1440) return reject("Block time limits must be 0 (no limit) to 1440 minutes.");
     if (!strings(b.dependsOn) || b.dependsOn.some(id => !ids.has(id))) return reject(`${b.title}: dependencies must appear before this block. Move its prerequisites first.`);
     if (b.kind === "agent") {
       const a = b.agent;

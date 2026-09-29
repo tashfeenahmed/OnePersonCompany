@@ -84,7 +84,7 @@ export function WorkflowEditor({ onSaved, currentStage }: { onSaved: () => void;
           <button className="min-w-0 flex-1 text-left" onClick={() => setEditing(b.id)} aria-label={`Edit ${b.title}`}>
             <span className="mb-1 block text-sm font-medium">{b.title}{active && <span className="ml-2 text-xs text-blue-400">Running…</span>}</span>
             <span className="block text-xs leading-relaxed text-muted-foreground">{b.kind === "agent" ? `${b.agent!.limit} ventures · ${b.agent!.daysBetween}d between reviews · ${data.roles.find(r => r.id === b.agent!.role)?.title ?? b.agent!.role}` : BLOCK_DESCRIPTIONS[b.kind]}</span>
-            <span className="mt-1 block text-[11px] text-muted-foreground">{i + 1 < 10 ? `0${i+1}` : i+1} · {b.cadence} · Up to {b.maxMinutes} min</span>
+            <span className="mt-1 block text-[11px] text-muted-foreground">{i + 1 < 10 ? `0${i+1}` : i+1} · {b.cadence} · {b.maxMinutes > 0 ? `Up to ${b.maxMinutes} min` : "no time limit"}</span>
           </button>
           <Switch aria-label={`Enable ${b.title}`} checked={b.enabled} onCheckedChange={enabled => patch(b.id,{ enabled })} />
           <button className="hidden rounded-lg p-2 text-muted-foreground hover:bg-muted sm:block" aria-label={`Configure ${b.title}`} onClick={() => setEditing(b.id)}><Settings2 className="size-4" /></button>
@@ -104,7 +104,7 @@ export function WorkflowEditor({ onSaved, currentStage }: { onSaved: () => void;
       {selected && <div className="space-y-4">
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <Field label="Block name"><Input value={selected.title} onChange={e => patch(selected.id,{ title:e.target.value })} /></Field>
-        <div className="grid grid-cols-2 gap-3"><Field label="Run cadence"><SelectField aria-label="Run cadence" className={control} value={selected.cadence} onValueChange={(value) => patch(selected.id,{ cadence:value as WorkflowBlock["cadence"] })}>{["daily","weekly","monthly"].map(c => <SelectOption key={c} value={c}>{c}</SelectOption>)}</SelectField></Field><Field label="Time limit (minutes)"><Input type="number" min={1} max={240} value={selected.maxMinutes} onChange={e => patch(selected.id,{ maxMinutes:Number(e.target.value) })} /></Field></div>
+        <div className="grid grid-cols-2 gap-3"><Field label="Run cadence"><SelectField aria-label="Run cadence" className={control} value={selected.cadence} onValueChange={(value) => patch(selected.id,{ cadence:value as WorkflowBlock["cadence"] })}>{["daily","weekly","monthly"].map(c => <SelectOption key={c} value={c}>{c}</SelectOption>)}</SelectField></Field><Field label="Time limit (minutes, 0 = no limit)"><Input type="number" min={0} max={1440} value={selected.maxMinutes} onChange={e => patch(selected.id,{ maxMinutes:Number(e.target.value) })} /></Field></div>
         {selected.agent && <>
           <Field label="Sub-agent role"><SelectField aria-label="Sub-agent role" className={control} value={selected.agent.role} onValueChange={(value) => patch(selected.id,{ agent:{ ...selected.agent!,role:value } })}>{data.roles.map(r => <SelectOption value={r.id} key={r.id}>{r.title}</SelectOption>)}</SelectField></Field>
           <Field label="Instructions"><Textarea rows={4} value={selected.agent.instructions} onChange={e => patch(selected.id,{ agent:{ ...selected.agent!,instructions:e.target.value } })} /></Field>

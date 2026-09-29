@@ -54,7 +54,7 @@ export const POLICY_LIMITS = {
   /** Five seconds is below any real completion; ten minutes is longer than a
    *  local model warming up a 30B on a laptop, which is the slowest thing this
    *  is ever pointed at. Outside that range the number is a typo. */
-  timeoutMs: { min: 5_000, max: 600_000 },
+  timeoutMs: { min: 5_000, max: 7_200_000 },
 } as const;
 
 export const MODES = ["series", "parallel"] as const;
