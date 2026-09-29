@@ -329,8 +329,33 @@ export type Creatives = {
 
 /* ------------------------------------------------------------------- api */
 
+/* --------------------------------------------------------------- overview */
+
+/** One site's segments, trimmed for a board — see the server's `overviewOf`.
+ *  Per site and never summed; `total` is the whole block's sum and `more`
+ *  how many values the trim left out. */
+export type SiteOverview = {
+  websiteId: string;
+  name: string | null;
+  domain: string | null;
+  readAt: string | null;
+  raw: Segments["raw"];
+  adjusted: { value: number | null; excluded: number; heuristic: string | null };
+  segments: (Omit<SegmentBlock, "values" | "gapReason"> & {
+    values: { value: string; count: number }[];
+    more: number;
+  })[];
+};
+
+export type Overview = {
+  windowDays: number;
+  sites: SiteOverview[];
+  notes: string[];
+};
+
 export const webAnalytics = {
   sites: () => call<Sites>("/webanalytics/sites"),
+  overview: (days: 7 | 30) => call<Overview>(`/webanalytics/overview?days=${days}`),
   segments: (websiteId: string, days: 7 | 30) =>
     call<Segments>(`/webanalytics/segments/${encodeURIComponent(websiteId)}?days=${days}`),
   events: (websiteId?: string) =>

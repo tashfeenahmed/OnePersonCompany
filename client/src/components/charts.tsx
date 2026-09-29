@@ -1099,17 +1099,20 @@ export function DailyBars({
   unit,
   caption,
   split,
+  open,
 }: {
   days: DailyBar[];
   unit: ChartUnit;
   caption?: string;
   split?: string;
+  /** Start on the split tab — for a card whose point is the split. */
+  open?: "split";
 }) {
   const [host, w] = useMeasuredWidth<HTMLDivElement>();
   const { tip, show, hide } = useTip();
   const [hot, setHot] = useState<number | null>(null);
   const hasParts = !!split && days.some((d) => d.parts?.length);
-  const [tab, setTab] = useState<"total" | "split">("total");
+  const [tab, setTab] = useState<"total" | "split">(open ?? "total");
   const splitOn = hasParts && tab === "split";
 
   /* The window's top six parts, in size order, with their marks. */

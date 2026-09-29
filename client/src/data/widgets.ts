@@ -730,6 +730,9 @@ export type Widget = {
   daily?: DailyBar[];
   /** daily — the split tab's name: "By model", "By source". */
   dailySplit?: string;
+  /** daily — open on the split tab rather than the total, for a card whose
+   *  whole point is the split (pageviews by site). */
+  dailyOpen?: "split";
   /** metric */
   value?: string;
   /** Colours the reading and puts a word beside it — "watch", "act". Only for
@@ -3211,7 +3214,7 @@ export const WIDGETS: Record<string, Widget> = {
   },
   "umami.visitors": {
     src: "umami",
-    name: "Visitors · 30d",
+    name: "Visitors, largest site · 30d",
     kind: "metric",
     live: { umami: true },
   },
@@ -3224,40 +3227,116 @@ export const WIDGETS: Record<string, Widget> = {
   },
   "umami.avgVisit": {
     src: "umami",
-    name: "Average visit",
+    name: "Average visit · 30d",
     kind: "metric",
     live: { umami: true },
   },
   "umami.daily": {
     src: "umami",
-    name: "Pageviews and visits",
-    kind: "chart",
+    name: "Pageviews per day",
+    window: "selected",
+    kind: "daily",
     live: { umami: true },
     unit: "count",
   },
   "umami.sites": {
     src: "umami",
-    name: "Every website",
+    name: "Every website · 30d",
     kind: "table",
     live: { umami: true },
-    headers: ["Site", "Pageviews", "Visitors", "Visits", "Bounce", "Avg visit"],
+    headers: ["Site", "Pageviews", "Change", "Visitors", "Bounce", "Avg visit"],
   },
   "umami.pages": {
     src: "umami",
-    name: "Top pages",
-    kind: "rows",
+    name: "Top pages · 30d",
+    kind: "ranked",
     live: { umami: true },
   },
   "umami.referrers": {
     src: "umami",
-    name: "Top referrers",
-    kind: "rows",
+    name: "Top referrers · 30d",
+    kind: "ranked",
     live: { umami: true },
   },
   "umami.events": {
     src: "umami",
-    name: "Top events",
-    kind: "rows",
+    name: "Top events · 30d",
+    kind: "ranked",
+    live: { umami: true },
+  },
+
+  /* -------------------------------------------------------------- analytics
+     THE ANALYTICS BOARD'S OWN CARDS — every site at once, as pictures.
+     Pageviews and visits follow the picker off each site's daily line;
+     bounce and visit length are Umami's own thirty days; countries, devices
+     and browsers are the web-analytics rotation's thirty-day rows for every
+     site, summed site by site (so site-visitors, not people — each card says
+     so in its one line).
+  */
+  "analytics.visits": {
+    src: "umami",
+    name: "Visits",
+    window: "selected",
+    kind: "metric",
+    live: { umami: true },
+  },
+  "analytics.dailyRest": {
+    src: "umami",
+    name: "Pageviews per day, the smaller sites",
+    window: "selected",
+    kind: "daily",
+    live: { umami: true },
+    unit: "count",
+  },
+  "analytics.sites": {
+    src: "umami",
+    name: "Every site",
+    window: "selected",
+    kind: "ranked",
+    live: { umami: true },
+  },
+  "analytics.movers": {
+    src: "umami",
+    name: "What moved",
+    window: "selected",
+    kind: "ranked",
+    live: { umami: true },
+  },
+  "analytics.countries": {
+    src: "webanalytics",
+    name: "Countries · 30d",
+    kind: "ranked",
+    live: { umami: true, webAnalytics: true },
+  },
+  "analytics.devices": {
+    src: "webanalytics",
+    name: "Devices · 30d",
+    kind: "proportion",
+    live: { umami: true, webAnalytics: true },
+  },
+  "analytics.browsers": {
+    src: "webanalytics",
+    name: "Browsers · 30d",
+    kind: "ranked",
+    live: { umami: true, webAnalytics: true },
+  },
+  "analytics.sources": {
+    src: "umami",
+    name: "Where the links came from · 30d",
+    kind: "proportion",
+    live: { umami: true },
+  },
+  "analytics.bounceSites": {
+    src: "umami",
+    name: "Bounce rate by site · 30d",
+    kind: "ranked",
+    live: { umami: true },
+    invert: true,
+  },
+  "analytics.durationSites": {
+    src: "umami",
+    name: "Visit length by site · 30d",
+    kind: "ranked",
     live: { umami: true },
   },
 
