@@ -4162,16 +4162,6 @@ Object.assign(LIVE_BUILDERS, {
  *   take them for a world figure or for Google's.
  */
 
-/** A movement, said as a phrase rather than as a bare percent. `null` when
- *  the window before was empty: going from nothing to eight impressions is not
- *  an infinite improvement, and a card that says so is a card nobody trusts
- *  twice. */
-function movedBy(delta: number | null, days: number): string {
-  if (delta === null) return "no comparable window before it";
-  const rounded = Math.abs(delta) >= 10 ? Math.round(delta) : Number(delta.toFixed(1));
-  return `${rounded > 0 ? "+" : ""}${rounded}% on the previous ${days}d`;
-}
-
 /** A rank, at one decimal and never as a percentage. */
 const place = (n: number | null | undefined) =>
   n === null || n === undefined ? "—" : n.toFixed(1);
@@ -4187,6 +4177,74 @@ function pathOf(url: string): string {
   }
 }
 
+/** A tile's movement in three words — "+49% vs prior" — or nothing when
+ *  there was no window before to compare with (never a zero). */
+function tileMove(delta: number | null): string {
+  if (delta === null) return "";
+  const rounded = Math.abs(delta) >= 10 ? Math.round(delta) : Number(delta.toFixed(1));
+  return `${rounded > 0 ? "+" : ""}${rounded}% vs prior`;
+}
+
+/**
+ * GOOGLE'S DAYS AS BARS, split by site. The total is the portfolio's own
+ * daily figure; the split tab stacks each property's own rows for the day
+ * (the busiest six named, with their favicons, the rest as Other). A day
+ * is one bar, so a quiet day is visibly quiet.
+ */
+function gscDaily(G: GscReport | null | undefined, by: "clicks" | "impressions"): Partial<Widget> | null {
+  if (!G || G.series.length < 2) return null;
+  const perDay = new Map<string, { label: string; host: string; value: number }[]>();
+  let sites = 0;
+  for (const p of G.properties) {
+    let any = false;
+    for (const d of p.series ?? []) {
+      if (!d[by]) continue;
+      any = true;
+      const list = perDay.get(d.day) ?? [];
+      list.push({ label: p.label, host: p.property, value: d[by] });
+      perDay.set(d.day, list);
+    }
+    if (any) sites += 1;
+  }
+  const split = sites > 1;
+  return {
+    daily: G.series.map((d) => ({ day: d.day, total: d[by], parts: split ? (perDay.get(d.day) ?? []) : undefined })),
+    dailySplit: split ? "By site" : undefined,
+    unit: "count" as const,
+    caption: G.window.end ? `To ${dayShort(G.window.end)} · Google takes 3 days to finalise a day` : undefined,
+  };
+}
+
+/** Bing's days as bars, split by site — its own engine, never added to
+ *  Google's. Bing's route is always read over 90 days, so the bars are cut
+ *  to the board's window here. */
+function bingDaily(B: BingReport | null | undefined, W: LiveInputs["window"], by: "clicks" | "impressions"): Partial<Widget> | null {
+  if (!B || B.series.length < 2) return null;
+  const keep = W === "all" || !W ? B.series.length : W;
+  const series = B.series.slice(-keep);
+  const from = series[0]!.day;
+  const perDay = new Map<string, { label: string; host: string; value: number }[]>();
+  let sites = 0;
+  for (const s of B.sites) {
+    let any = false;
+    for (const d of s.series ?? []) {
+      if (d.day < from || !d[by]) continue;
+      any = true;
+      const list = perDay.get(d.day) ?? [];
+      list.push({ label: s.label, host: s.site, value: d[by] });
+      perDay.set(d.day, list);
+    }
+    if (any) sites += 1;
+  }
+  const split = sites > 1;
+  return {
+    daily: series.map((d) => ({ day: d.day, total: d[by], parts: split ? (perDay.get(d.day) ?? []) : undefined })),
+    dailySplit: split ? "By site" : undefined,
+    unit: "count" as const,
+    caption: B.window.end ? `To ${dayShort(B.window.end)} · every verified site` : undefined,
+  };
+}
+
 Object.assign(LIVE_BUILDERS, {
   /* --------------------------------------------------- search console */
 
@@ -4200,13 +4258,7 @@ Object.assign(LIVE_BUILDERS, {
         finished the ones after that. Naming the day is the difference between
         a reader seeing a lag and a reader seeing a decline.
       */
-      sub: also(
-        also(
-          `${G.totals.properties} of ${G.properties.length} properties with traffic`,
-          movedBy(G.delta.impressions, G.window.days),
-        ),
-        `${G.window.days}d to ${dayShort(G.window.end)}`,
-      ),
+      sub: also(tileMove(G.delta.impressions), `${G.window.days}d to ${dayShort(G.window.end)}`),
       series: G.series.length > 1 ? G.series.map((d) => d.impressions) : undefined,
       seriesAt: G.series.length > 1 ? G.series.map((d) => at(d.day)) : undefined,
     };
@@ -4219,13 +4271,7 @@ Object.assign(LIVE_BUILDERS, {
       /* CTR is clicks over impressions across the whole window, never the mean
          of the daily rates — a quiet Sunday and a launch day are not equal
          halves of anything. */
-      sub: also(
-        also(
-          G.totals.ctr === null ? "" : `CTR ${percent(G.totals.ctr, 2)} of ${count(G.totals.impressions)} impressions`,
-          movedBy(G.delta.clicks, G.window.days),
-        ),
-        `${G.window.days}d to ${dayShort(G.window.end)}`,
-      ),
+      sub: also(tileMove(G.delta.clicks), `${G.window.days}d to ${dayShort(G.window.end)}`),
       series: G.series.length > 1 ? G.series.map((d) => d.clicks) : undefined,
       seriesAt: G.series.length > 1 ? G.series.map((d) => at(d.day)) : undefined,
     };
@@ -4241,9 +4287,11 @@ Object.assign(LIVE_BUILDERS, {
     */
     const moved = G.delta.position;
     const drift =
-      moved === null || moved === 0
-        ? "no change on the previous window"
-        : `${Math.abs(moved).toFixed(1)} ${moved > 0 ? "worse" : "better"} than the previous ${G.window.days}d`;
+      moved === null
+        ? ""
+        : moved === 0
+          ? "no change"
+          : `${Math.abs(moved).toFixed(1)} places ${moved > 0 ? "worse" : "better"}`;
     /*
       THE DAILY LINE IS WEIGHTED THE SAME WAY THE HEADLINE IS. The portfolio
       series on the wire carries no position — a day's rank across properties
@@ -4265,10 +4313,7 @@ Object.assign(LIVE_BUILDERS, {
       .map(([day, e]) => ({ day, position: Number((e.weighted / e.impressions).toFixed(1)) }));
     return {
       value: place(G.totals.position),
-      sub: also(
-        `impression-weighted across ${G.totals.properties} properties`,
-        drift,
-      ),
+      sub: also(drift, `${G.window.days}d · lower is better`),
       series: line.length > 1 ? line.map((d) => d.position) : undefined,
       seriesAt: line.length > 1 ? line.map((d) => at(d.day)) : undefined,
     };
@@ -4276,9 +4321,8 @@ Object.assign(LIVE_BUILDERS, {
 
   "gsc.queries": ({ gsc: G }: LiveInputs) => {
     if (!G?.connected || !G.queries.length) return null;
-    const rows: [string, string][] = G.queries
-      .slice(0, 6)
-      .map((q) => [q.query, `${count(q.clicks)} clicks · #${place(q.position)}`]);
+    const top = G.queries.slice(0, 6);
+    const rows: [string, string][] = top.map((q) => [q.query, `${count(q.clicks)} clicks · #${place(q.position)}`]);
     /*
       THE LAST ROW IS THE POINT OF THE CARD. Google withholds queries too rare
       to keep a searcher anonymous and caps the rows it will return at all, so
@@ -4292,15 +4336,15 @@ Object.assign(LIVE_BUILDERS, {
         ? "an unknown share of impressions"
         : `${percent(G.coverage.pct)} of impressions`,
     ]);
-    return { rows };
+    return { rows, rowHosts: [...top.map((q) => q.property), null] };
   },
 
   "gsc.pages": ({ gsc: G }: LiveInputs) => {
     if (!G?.connected || !G.pages.length) return null;
+    const top = G.pages.slice(0, 6);
     return {
-      rows: G.pages
-        .slice(0, 6)
-        .map((p) => [pathOf(p.page), `${count(p.clicks)} clicks`] as [string, string]),
+      rows: top.map((p) => [pathOf(p.page), `${count(p.clicks)} clicks`] as [string, string]),
+      rowHosts: top.map((p) => p.page),
     };
   },
 
@@ -4341,55 +4385,49 @@ Object.assign(LIVE_BUILDERS, {
     return {
       headers: ["Property", "Impressions", "Clicks", "CTR", "Position", "Δ impressions"],
       table,
+      rowHosts: [...shown.map((p) => p.property), ...(rest.length ? [null] : [])],
     };
   },
 
   "gsc.movers": ({ gsc: G }: LiveInputs) => {
     /*
-      A MOVER NEEDS A BASE WORTH MOVING FROM. Eleven impressions becoming
-      thirty-three is a 200% rise and is noise; without a floor this card is a
-      list of the quietest properties on the account, every time. Fifty
-      impressions in the window before is the floor, and the card says so.
+      WHAT MOVED, IN CLICKS AND NOT IN PERCENT. Eleven clicks becoming
+      thirty-three is +200% and is noise; the bar is the number of clicks
+      gained or lost against the 28 days before, so the property that really
+      moved is the longest bar. A property needs 50+ impressions in the
+      window before to be listed at all — below that there is nothing to
+      move from. Nothing is listed when the window before was not measured.
     */
-    const moved = (G?.properties ?? [])
-      .filter((p) => p.delta.impressions !== null && p.previous.impressions >= 50)
-      .sort((a, b) => Math.abs(b.delta.impressions!) - Math.abs(a.delta.impressions!))
-      .slice(0, 5);
+    if (!G?.connected) return null;
+    const moved = G.properties
+      .filter((p) => p.previous.clicks !== null && p.previous.clicks !== undefined && (p.previous.impressions ?? 0) >= 50)
+      .map((p) => ({ p, by: p.clicks - p.previous.clicks! }))
+      .filter((m) => m.by !== 0)
+      .sort((a, b) => Math.abs(b.by) - Math.abs(a.by))
+      .slice(0, 8);
     if (!moved.length) return null;
-    const rows: [string, string][] = moved.map((p) => [
-      p.label,
-      `${p.delta.impressions! > 0 ? "+" : ""}${Math.round(p.delta.impressions!)}% · ${count(p.impressions)} impr`,
-    ]);
-    rows.push(["Floor", `50+ impressions in the previous ${G!.window.days}d`]);
-    return { rows };
-  },
-
-  "gsc.trend": ({ gsc: G, window: W }: LiveInputs) => {
-    if (!G || G.series.length < 2) return null;
     return {
-      /* "PORTFOLIO" ON THE CARD — Workdash's "Portfolio impressions per
-         day" — unless the document was narrowed to one property, in which
-         case the property's name is the honest word; see `portfolioLine`. */
-      name: `Impressions a day · ${portfolioWord(G)} · ${windowLabel(W ?? G.seriesDays)}`,
-      chart: [
-        {
-          label: "impressions",
-          points: G.series.map((d) => ({ ts: at(d.day), value: d.impressions })),
-        },
-      ],
-      unit: "count" as const,
-      /* Clicks are NOT drawn beside this. They run about forty times smaller on
-         this portfolio, and on a shared axis starting at zero they would be a
-         flat line along the bottom pretending to be a measurement. */
-      caption: portfolioLine(G),
+      name: `What moved · ${G.window.days}d`,
+      ranked: moved.map(({ p, by }) => ({
+        label: p.label,
+        host: p.property,
+        value: Math.abs(by),
+        text: `${by > 0 ? "+" : "−"}${count(Math.abs(by))} clicks`,
+        sub: also(
+          p.delta.clicks === null ? "" : `${p.delta.clicks > 0 ? "+" : ""}${Math.round(p.delta.clicks)}%`,
+          `${compact(p.clicks)} now`,
+        ),
+      })),
+      caption: `Clicks gained or lost against the ${G.window.days} days before`,
     };
   },
 
+  "gsc.trend": ({ gsc: G }: LiveInputs) => gscDaily(G, "impressions"),
+
   "gsc.striking": ({ gsc: G }: LiveInputs) => {
     if (!G?.connected || !G.striking.length) return null;
-    const rows: [string, string][] = G.striking
-      .slice(0, 6)
-      .map((q) => [q.query, `#${place(q.position)} · ${count(q.impressions)} impr`]);
+    const top = G.striking.slice(0, 6);
+    const rows: [string, string][] = top.map((q) => [q.query, `#${place(q.position)} · ${count(q.impressions)} impr`]);
     /*
       THE CAVEAT IS PART OF THE CARD BECAUSE IT IS PART OF THE MEASUREMENT.
       Google returns these rows ordered by CLICKS and offers no other order, so
@@ -4397,7 +4435,7 @@ Object.assign(LIVE_BUILDERS, {
       this card exists to surface — can be missing entirely.
     */
     rows.push(["Drawn from", "Google's clicks-ordered rows, so some are missing"]);
-    return { rows };
+    return { rows, rowHosts: [...top.map((q) => q.property), null] };
   },
 
   "gsc.coverage": ({ gsc: G }: LiveInputs) => {
@@ -4453,10 +4491,7 @@ Object.assign(LIVE_BUILDERS, {
     if (!B?.connected || !B.window.end) return null;
     return {
       value: count(B.totals.impressions),
-      sub: also(
-        `${B.totals.verified} verified site${B.totals.verified === 1 ? "" : "s"}`,
-        `${B.window.days}d to ${dayShort(B.window.end)}`,
-      ),
+      sub: `${B.window.days}d to ${dayShort(B.window.end)}`,
       series: B.series.length > 1 ? B.series.map((d) => d.impressions) : undefined,
       seriesAt: B.series.length > 1 ? B.series.map((d) => at(d.day)) : undefined,
     };
@@ -4467,9 +4502,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       value: count(B.totals.clicks),
       sub: also(
-        B.totals.ctr === null
-          ? ""
-          : `CTR ${percent(B.totals.ctr, 2)} of ${count(B.totals.impressions)} impressions`,
+        B.totals.ctr === null ? "" : `${percent(B.totals.ctr, 1)} CTR`,
         `${B.window.days}d to ${dayShort(B.window.end)}`,
       ),
       series: B.series.length > 1 ? B.series.map((d) => d.clicks) : undefined,
@@ -4484,10 +4517,7 @@ Object.assign(LIVE_BUILDERS, {
       /* Pages HELD, not pages submitted. The sitemap figure on the Google side
          of this board is the other one, and they are not comparable: one is
          what we asked a crawler to look at, this is what a crawler kept. */
-      sub: also(
-        `pages Bing is holding across ${B.totals.sites} site${B.totals.sites === 1 ? "" : "s"}`,
-        `crawled ${count(B.index.crawledPages)} on ${dayShort(B.index.day)}`,
-      ),
+      sub: `${B.totals.sites} site${B.totals.sites === 1 ? "" : "s"} · as of ${dayShort(B.index.day)}`,
     };
   },
 
@@ -4505,25 +4535,27 @@ Object.assign(LIVE_BUILDERS, {
   },
 
   "bing.queries": ({ bing: B }: LiveInputs) => {
+    /* Bing's own query report — a rear-view mirror on a different engine
+       from Google's, and never added to it. The bar is clicks. */
     if (!B?.connected || !B.queries.length) return null;
-    const rows: [string, string][] = B.queries
-      .slice(0, 6)
-      .map((q) => [q.query, `${count(q.impressions)} impr · #${place(q.position)}`]);
-    /*
-      NAMED AS BING'S OWN REPORT, because the card next to it is Google's and
-      the two lists disagree — that is the interesting part and it stops being
-      interesting the moment a reader assumes they measure the same thing.
-      This is still a rear-view mirror: it can only contain phrases a page of
-      ours already ranks for. The keyword card is the other question.
-    */
-    rows.push(["From", `Bing's own query report · ${B.window.days}d`]);
-    return { rows };
+    const top = [...B.queries].sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions).slice(0, 8);
+    return {
+      name: `Top queries · ${B.window.days}d · Bing`,
+      ranked: top.map((q) => ({
+        label: q.query,
+        host: q.site,
+        value: q.clicks,
+        text: clicksWord(q.clicks),
+        sub: also(`${compact(q.impressions)} impr`, q.position === null ? "" : `#${place(q.position)}`),
+      })),
+    };
   },
 
   "bing.sites": ({ bing: B }: LiveInputs) => {
     if (!B?.sites.length) return null;
     return {
       headers: ["Site", "Impressions", "Clicks", "CTR", "In index", "Inbound links"],
+      rowHosts: B.sites.map((s) => s.site),
       table: B.sites.map((s) => [
         s.label,
         count(s.impressions),
@@ -4535,21 +4567,7 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "bing.trend": ({ bing: B }: LiveInputs) => {
-    if (!B || B.series.length < 2) return null;
-    return {
-      chart: [
-        {
-          label: "impressions",
-          points: B.series.map((d) => ({ ts: at(d.day), value: d.impressions })),
-        },
-      ],
-      unit: "count" as const,
-      caption: B.window.end
-        ? `daily, every verified site summed · Bing's own newest day is ${dayShort(B.window.end)}`
-        : "daily, every verified site summed",
-    };
-  },
+  "bing.trend": ({ bing: B, window: W }: LiveInputs) => bingDaily(B, W, "impressions"),
 
   "bing.backlinks": ({ bing: B }: LiveInputs) => {
     if (!B?.connected || !B.sites.length) return null;
@@ -4567,12 +4585,13 @@ Object.assign(LIVE_BUILDERS, {
       s.label,
       `${count(s.inLinks)} inbound`,
     ]);
+    const rowHosts: (string | null)[] = B.sites.map((s) => s.site);
     rows.push([
       "Linking pages Bing will name",
       B.links.namedPages === 0 ? "none, on any site" : count(B.links.namedPages),
     ]);
     rows.push(["Referring domains", "not answerable — the link list is empty"]);
-    return { rows };
+    return { rows, rowHosts };
   },
 
   "bing.keywords": ({ bing: B }: LiveInputs) => {
@@ -5904,8 +5923,9 @@ Object.assign(LIVE_BUILDERS, {
    Self-hosted analytics. Two refusals travel through every builder below and
    both are the route's own: there is NO portfolio visitor count, because Umami
    de-duplicates per website and no endpoint joins identity across them; and
-   the top-N lists are RANKINGS of a list Umami already truncated, so nothing
-   here totals them or presents them as a share of anything.
+   the top-N lists are RANKINGS of a list Umami already truncated, so no card
+   presents them as a share of the site's traffic. Referrers are the one list
+   added across sites — they count views, and views add.
 */
 
 /** The name a site is known by on a card: its domain first, because that is
@@ -5920,34 +5940,6 @@ function secs(n: number | null): string {
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
   return m < 60 ? `${m}m ${s % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`;
-}
-
-/**
- * The top N of a set of per-site rankings, merged.
- *
- * MERGED AND NOT ADDED, which is the whole care in this function. Each row
- * belongs to exactly one website — a path is a path on one site — so putting
- * two sites' rows in one list and ordering by count is a legitimate ranking of
- * rows. What would not be legitimate is summing rows that share a name across
- * sites: "/pricing" on two different products is two different pages, so the
- * site is prefixed onto the label rather than being collapsed away.
- */
-function mergedTop(
-  websites: UmamiWebsite[],
-  pick: (w: UmamiWebsite) => { name: string; count: number }[],
-  limit = 8,
-): [string, string][] {
-  const many = websites.length > 1;
-  return websites
-    .flatMap((w) =>
-      pick(w).map((r) => ({
-        label: many ? `${siteName(w)} ${r.name}` : r.name,
-        count: r.count,
-      })),
-    )
-    .sort((a, b) => b.count - a.count)
-    .slice(0, limit)
-    .map((r) => [r.label, count(r.count)] as [string, string]);
 }
 
 /** The last N complete days of a daily line, and the N before them where
@@ -5975,61 +5967,134 @@ const delta = (now: number, before: number) =>
 const umamiFixed = (days: number, w: WindowValue | undefined) =>
   w === undefined || w === days ? "" : `Umami's own ${days} complete days — the picker does not move this one`;
 
+/* ------------------------------------------------ the window over the line --
+   THE ANALYTICS BOARD READS THE PICKER OFF EACH SITE'S DAILY LINE. Pageviews
+   and visits ADD across days and across sites, so any span the picker names
+   is a sum over the line — and the fetch asks for twice the span, so the span
+   before it is there to compare with. Visitors, bounce and visit length do
+   not add across days and stay at Umami's own thirty, saying so.
+
+   A SITE WITH NO ROW FOR A DAY HAD NO VIEWS THAT DAY. The collector stores
+   what Umami's pageview series answered, and Umami leaves quiet days out;
+   the grid below is the portfolio's own days, so a zero is only ever drawn
+   on a day some site was counted.
+*/
+
+type SiteSpan = {
+  site: UmamiWebsite;
+  host: string;
+  /** Pageviews and visits per grid day, zero where Umami held no row. */
+  views: number[];
+  visits: number[];
+  now: { views: number; visits: number };
+  /** The same length of window before it, or null when the line is short. */
+  before: { views: number; visits: number } | null;
+};
+
+/** The grid of complete days the picker spans, the one before it, and each
+ *  site's sums over both. Null when the line is too short to say anything. */
+function siteSpans(U: UmamiReport | null | undefined, W: WindowValue | undefined) {
+  if (!U) return null;
+  const cut = umamiCut(U.portfolio.days, W);
+  if (!cut) return null;
+  const grid = cut.now.map((d) => d.day);
+  const prior = cut.before?.map((d) => d.day) ?? null;
+  const sum = (m: Map<string, { pageviews: number; sessions: number }>, days: string[]) =>
+    days.reduce(
+      (acc, d) => {
+        const r = m.get(d);
+        return { views: acc.views + (r?.pageviews ?? 0), visits: acc.visits + (r?.sessions ?? 0) };
+      },
+      { views: 0, visits: 0 },
+    );
+  const sites: SiteSpan[] = U.websites.map((w) => {
+    const m = new Map(w.days.map((d) => [d.day, d]));
+    return {
+      site: w,
+      host: siteName(w),
+      views: grid.map((d) => m.get(d)?.pageviews ?? 0),
+      visits: grid.map((d) => m.get(d)?.sessions ?? 0),
+      now: sum(m, grid),
+      before: prior ? sum(m, prior) : null,
+    };
+  });
+  return { grid, prior, sites };
+}
+
+/** "+48%", "−72%", "new" — a change a reader takes in at a glance. */
+function changeWord(now: number, before: number | null): string {
+  if (before === null) return "";
+  if (before === 0) return now > 0 ? "new" : "";
+  const d = ((now - before) / before) * 100;
+  const r = Math.abs(d) >= 10 ? Math.round(d) : Number(d.toFixed(1));
+  return r === 0 ? "flat" : `${r > 0 ? "+" : "−"}${Math.abs(r)}%`;
+}
+
+/** The biggest rows first, at most `per` from any one site — so one site
+ *  with most of the traffic cannot fill the whole list by itself. */
+function spread<T extends { host: string; n: number }>(rows: T[], limit = 10, per = 3): T[] {
+  const taken = new Map<string, number>();
+  const out: T[] = [];
+  for (const r of [...rows].sort((a, b) => b.n - a.n)) {
+    if (out.length >= limit) break;
+    if ((taken.get(r.host) ?? 0) >= per) continue;
+    taken.set(r.host, (taken.get(r.host) ?? 0) + 1);
+    out.push(r);
+  }
+  return out;
+}
+
+/** Bars per day split by site, for the `daily` kind. */
+function siteDaily(grid: string[], sites: SiteSpan[], pick: (s: SiteSpan) => number[]) {
+  return grid.map((day, i) => {
+    const parts = sites
+      .map((s) => ({ label: s.host, value: pick(s)[i]!, host: s.host }))
+      .filter((p) => p.value > 0);
+    return { day, total: parts.reduce((n, p) => n + p.value, 0), parts };
+  });
+}
+
+/** The busiest day on a grid, said as a date. */
+function busiestOf(days: { day: string; total: number }[]): string {
+  const top = days.reduce<{ day: string; total: number } | null>((b, d) => (!b || d.total > b.total ? d : b), null);
+  return top && top.total > 0 ? `busiest ${dayShort(top.day)} at ${count(top.total)}` : "";
+}
+
+/** Headline sums over the picker's span, for the two tiles that follow it. */
+function headline(U: UmamiReport | null | undefined, W: WindowValue | undefined, key: "views" | "visits") {
+  const s = siteSpans(U, W);
+  if (!s || !s.grid.length) return null;
+  const now = s.sites.reduce((n, x) => n + x.now[key], 0);
+  const before = s.prior ? s.sites.reduce((n, x) => n + (x.before?.[key] ?? 0), 0) : null;
+  const series = s.grid.map((_, i) => s.sites.reduce((n, x) => n + (key === "views" ? x.views[i]! : x.visits[i]!), 0));
+  const lead = [...s.sites].sort((a, b) => b.now[key] - a.now[key])[0];
+  return { s, now, before, series, lead };
+}
+
 Object.assign(LIVE_BUILDERS, {
   "umami.pageviews": ({ umami: U, window: W }: LiveInputs) => {
-    const p = U?.portfolio;
-    if (!p?.answering || p.window.pageviews === null) return null;
-    /*
-      THE HEADLINE FOLLOWS THE PICKER OFF THE DAILY LINE. The route's own
-      window is the collector's thirty complete days, whatever `days` it was
-      asked; the line beside it is up to ninety days and pageviews ADD across
-      days, so any other span is a sum over the line — the last N complete
-      days against the N before them where the line holds both. At thirty the
-      route's figure is used as it always was. Visitors do not add and stay
-      on their own card, at Umami's window, saying so.
-    */
-    const cut = umamiCut(p.days, W);
-    if (W !== undefined && W !== p.window.days && cut) {
-      return {
-        value: count(cut.now.reduce((n, d) => n + d.pageviews, 0)),
-        sub: also(
-          also(
-            `${p.answering} of ${p.websites} site${p.websites === 1 ? "" : "s"} answering`,
-            heldDays(W, W === "all" ? cut.now.length : W, cut.now.length, "Umami's daily line"),
-          ),
-          cut.before
-            ? movedBy(
-                delta(cut.now.reduce((n, d) => n + d.pageviews, 0), cut.before.reduce((n, d) => n + d.pageviews, 0)),
-                cut.now.length,
-              )
-            : isAll(W) ? "no previous window to compare with" : "no comparable window before it",
-        ),
-        series: cut.now.length > 1 ? cut.now.map((d) => d.pageviews) : undefined,
-        seriesAt: cut.now.length > 1 ? cut.now.map((d) => at(d.day)) : undefined,
-      };
-    }
+    const h = headline(U, W, "views");
+    if (!h) return null;
+    const share = h.lead && h.now > 0 ? h.lead.now.views / h.now : null;
     return {
-      value: count(p.window.pageviews),
-      sub: also(
-        `${p.answering} of ${p.websites} site${p.websites === 1 ? "" : "s"} answering`,
-        movedBy(p.deltas.pageviews, p.window.days),
-      ),
-      series: p.days.length > 1 ? p.days.map((d) => d.pageviews) : undefined,
-      seriesAt: p.days.length > 1 ? p.days.map((d) => at(d.day)) : undefined,
+      value: count(h.now),
+      delta: h.before ? (delta(h.now, h.before) ?? undefined) : undefined,
+      sub:
+        share !== null && share >= 0.5
+          ? `${pct(share, { digits: 0 })} on ${h.lead!.host}`
+          : `across ${h.s.sites.filter((x) => x.now.views > 0).length} sites`,
+      series: h.series.length > 1 ? h.series : undefined,
+      seriesAt: h.series.length > 1 ? h.s.grid.map(at) : undefined,
     };
   },
 
   /*
-    THE CARD THAT REFUSES TO ADD, and keeps its key while doing it.
-
-    Umami counts a visitor once per website per window. Two sites' figures are
-    therefore two answers about overlapping populations, and the only honest
-    portfolio total is the one that exists when there is a single site — where
-    "the portfolio" and "the site" are the same thing. With more than one, the
-    card stops being a number and says which figures it is holding instead;
-    every one of them is on `umami.sites` a row below. The same move
-    `meta.roas` makes, for the same reason: a key a saved board points at is
-    worth more than a card, and a wrong number is worth less than neither.
+    THE CARD THAT REFUSES TO ADD, and keeps its key while doing it. Umami
+    counts a visitor once per website, so with more than one site there is no
+    portfolio figure; the card names the largest site's instead and the
+    per-site ranking carries the rest. Not on the Analytics board any more —
+    `analytics.visits` is, because visits DO add — but a saved board may
+    still point at it.
   */
   "umami.visitors": ({ umami: U, window: W }: LiveInputs) => {
     const p = U?.portfolio;
@@ -6040,96 +6105,442 @@ Object.assign(LIVE_BUILDERS, {
       const only = sites[0]!;
       return {
         value: count(only.visitors),
-        /* Visitors are de-duplicated inside Umami's own window and cannot be
-           re-cut from a daily line, so this stays at thirty whatever the
-           picker says — and says so when they disagree. */
-        sub: also(
-          `${only.domain ?? only.entity} · de-duplicated over ${p.window.days} days`,
-          umamiFixed(p.window.days, W),
-        ),
+        sub: also(`${only.domain ?? only.entity}`, umamiFixed(p.window.days, W)),
       };
     }
     const biggest = [...sites].sort((a, b) => (b.visitors ?? 0) - (a.visitors ?? 0))[0]!;
     return {
-      value: "—",
-      sub:
-        `not added across ${sites.length} sites — one reader of two of them is ` +
-        `one person, and no Umami endpoint can say so. Largest is ` +
-        `${biggest.domain ?? biggest.entity} at ${count(biggest.visitors)}`,
+      value: count(biggest.visitors),
+      sub: `on ${biggest.domain ?? biggest.entity} · never added across ${sites.length} sites`,
     };
   },
 
-  "umami.bounce": ({ umami: U, window: W }: LiveInputs) => {
+  "umami.bounce": ({ umami: U }: LiveInputs) => {
     const w = U?.portfolio.window;
     if (!w || w.bounceRate === null) return null;
+    /* The window before, from the same SUMS — never an average of rates. */
+    const prev = (U?.websites ?? []).filter((s) => s.previous?.visits);
+    const pb = prev.reduce((n, s) => n + (s.previous!.bounces ?? 0), 0);
+    const pv = prev.reduce((n, s) => n + (s.previous!.visits ?? 0), 0);
     return {
       value: percent(w.bounceRate),
-      /* Computed from the SUMS rather than averaged across sites: an average
-         of two percentages weights four visits like four thousand. */
-      sub: also(
-        `a visit with one pageview, Umami's own definition · ${count(w.bounces)} of ${count(w.visits)} visits`,
-        umamiFixed(w.days, W),
+      sub: pv ? `left after one page · was ${percent((pb / pv) * 100)}` : "left after one page",
+    };
+  },
+
+  "umami.avgVisit": ({ umami: U }: LiveInputs) => {
+    const w = U?.portfolio.window;
+    if (!w || w.avgVisitSeconds === null) return null;
+    const prev = (U?.websites ?? []).filter((s) => s.previous?.visits);
+    const pt = prev.reduce((n, s) => n + (s.previous!.totaltime ?? 0), 0);
+    const pv = prev.reduce((n, s) => n + (s.previous!.visits ?? 0), 0);
+    return {
+      value: secs(w.avgVisitSeconds),
+      sub: pv ? `per visit · was ${secs(pt / pv)}` : "per visit",
+    };
+  },
+
+  "umami.daily": ({ umami: U, window: W }: LiveInputs) => {
+    const s = siteSpans(U, W);
+    if (!s || s.grid.length < 2) return null;
+    const daily = siteDaily(s.grid, s.sites, (x) => x.views);
+    return {
+      daily,
+      dailySplit: "By site",
+      dailyOpen: "split" as const,
+      unit: "count" as const,
+      caption: also(busiestOf(daily), "Umami's own days"),
+    };
+  },
+
+  /* Every website as one table — kept for boards that place it. The
+     Analytics board draws `analytics.sites` instead. */
+  "umami.sites": ({ umami: U }: LiveInputs) => {
+    const sites = U?.websites.filter((w) => w.window) ?? [];
+    if (!sites.length) return null;
+    const sorted = [...sites].sort((a, b) => (b.window!.pageviews ?? 0) - (a.window!.pageviews ?? 0));
+    return {
+      headers: ["Site", "Pageviews", "Change", "Visitors", "Bounce", "Avg visit"],
+      rowHosts: sorted.map(siteName),
+      table: sorted.map((w) => [
+        siteName(w),
+        count(w.window!.pageviews),
+        changeWord(w.window!.pageviews ?? 0, w.previous?.pageviews ?? null) || DASH,
+        count(w.window!.visitors),
+        percent(w.window!.bounceRate),
+        secs(w.window!.avgVisitSeconds),
+      ]),
+    };
+  },
+
+  /*
+    THE PAGES, EACH WEARING ITS SITE. A path is a path on one site, so rows
+    are ranked side by side and never merged; the label is the address
+    without its scheme, which is unique and reads as itself. At most three
+    per site, so the biggest site cannot be the whole list.
+  */
+  "umami.pages": ({ umami: U }: LiveInputs) => {
+    const rows = spread((U?.websites ?? []).flatMap((w) => w.top.pages.map((p) => ({ host: siteName(w), path: p.name, n: p.count }))));
+    if (!rows.length) return null;
+    return {
+      ranked: rows.map((r) => ({
+        label: `${r.host}${r.path === "/" ? "" : r.path}`,
+        value: r.n,
+        text: count(r.n),
+        host: r.host,
+      })),
+    };
+  },
+
+  /*
+    REFERRERS ADD ACROSS SITES, because they count VIEWS: github.com sending
+    a view to two sites sent two views. The row wears the referrer's favicon
+    only when the referrer is one of ours (HostMark draws nothing otherwise),
+    and says where most of it went.
+  */
+  "umami.referrers": ({ umami: U }: LiveInputs) => {
+    const by = new Map<string, { n: number; to: Map<string, number> }>();
+    for (const w of U?.websites ?? [])
+      for (const r of w.top.referrers) {
+        const k = r.name.replace(/^www\./, "");
+        const e = by.get(k) ?? { n: 0, to: new Map<string, number>() };
+        e.n += r.count;
+        e.to.set(siteName(w), (e.to.get(siteName(w)) ?? 0) + r.count);
+        by.set(k, e);
+      }
+    const rows = [...by.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 10);
+    if (!rows.length) return null;
+    return {
+      ranked: rows.map(([name, e]) => {
+        const dest = [...e.to.entries()].sort((a, b) => b[1] - a[1]);
+        return {
+          label: name,
+          value: e.n,
+          text: count(e.n),
+          host: name,
+          sub: dest.length > 1 ? `${dest.length} sites` : `→ ${dest[0]![0]}`,
+        };
+      }),
+    };
+  },
+
+  "umami.events": ({ umami: U }: LiveInputs) => {
+    const seen = new Set<string>();
+    const rows = spread((U?.websites ?? []).flatMap((w) => w.top.events.map((e) => ({ host: siteName(w), name: e.name, n: e.count }))));
+    if (!rows.length) return null;
+    return {
+      ranked: rows.map((r) => {
+        const label = seen.has(r.name) ? `${r.name} · ${r.host}` : r.name;
+        seen.add(r.name);
+        return { label, value: r.n, text: count(r.n), host: r.host, sub: r.host };
+      }),
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ============================================================ analytics ==
+   THE ANALYTICS BOARD'S OWN CARDS — the picture of every site at once.
+
+   Pageviews and visits come off each site's daily line and follow the
+   picker. Bounce and visit length are Umami's own thirty days. Countries,
+   devices and browsers are the web-analytics rotation's thirty-day rows for
+   EVERY site, summed site by site: Umami counts a visitor once per website,
+   so these are site-visitors — one person on two sites is two — and every
+   card that adds them says so in its one line. Shares are always of what was
+   drawn from, never of a total nobody measured.
+*/
+
+/** The overview's sites, narrowed to the Umami sites this board can see —
+ *  a venture board hands in a narrowed Umami report and gets its own rows. */
+function overviewSites(W: WebAnalyticsDocs | null | undefined, U: UmamiReport | null | undefined) {
+  const all = W?.overview?.sites ?? [];
+  if (!U) return all;
+  const ids = new Set(U.websites.map((w) => w.websiteId));
+  return all.filter((s) => ids.has(s.websiteId));
+}
+
+/** One dimension summed across sites: value → site-visitors, the sum of the
+ *  blocks' own totals, and what no value accounted for. */
+function acrossSites(W: WebAnalyticsDocs | null | undefined, U: UmamiReport | null | undefined, dimension: string) {
+  const sites = overviewSites(W, U);
+  const by = new Map<string, number>();
+  let total = 0;
+  let siteTotal = 0;
+  let unattributed = 0;
+  let reported = 0;
+  for (const s of sites) {
+    const b = s.segments.find((x) => x.dimension === dimension);
+    if (!b) continue;
+    reported++;
+    total += b.total;
+    if (b.siteTotal !== null) siteTotal += b.siteTotal;
+    if (b.unattributed !== null && b.unattributed > 0) unattributed += b.unattributed;
+    for (const v of b.values) by.set(v.value, (by.get(v.value) ?? 0) + v.count);
+  }
+  if (!reported || total <= 0) return null;
+  return { rows: [...by.entries()].sort((a, b) => b[1] - a[1]), total, siteTotal, unattributed, reported };
+}
+
+const BROWSERS: Record<string, string> = {
+  chrome: "Chrome",
+  "edge-chromium": "Edge",
+  edge: "Edge (legacy)",
+  firefox: "Firefox",
+  ios: "Safari · iPhone",
+  safari: "Safari",
+  crios: "Chrome · iPhone",
+  fxios: "Firefox · iPhone",
+  "chromium-webview": "Android in-app",
+  "ios-webview": "iPhone in-app",
+  opera: "Opera",
+  yandexbrowser: "Yandex",
+  samsung: "Samsung Internet",
+  instagram: "Instagram in-app",
+  facebook: "Facebook in-app",
+  silk: "Silk",
+  miui: "Xiaomi",
+  "edge-ios": "Edge · iPhone",
+};
+const DEVICES: Record<string, string> = {
+  laptop: "Laptop",
+  desktop: "Desktop",
+  mobile: "Phone",
+  tablet: "Tablet",
+};
+
+/** The ten sites with the most visits that have the figure — a rate over a
+ *  handful of visits is noise, and a list of twenty-four is a wall. */
+function busiestSites(U: UmamiReport | null | undefined, pick: (w: UmamiWebsite) => number | null | undefined) {
+  return (U?.websites ?? [])
+    .filter((w) => pick(w) !== null && pick(w) !== undefined && (w.window?.visits ?? 0) >= 30)
+    .sort((a, b) => (b.window!.visits ?? 0) - (a.window!.visits ?? 0))
+    .slice(0, 10);
+}
+
+/** Which kind of place a referrer is. A guess from the hostname, said as a
+ *  guess: the card's line calls these "kinds", not sources of truth. */
+function referrerKind(host: string, ours: Set<string>): string {
+  const h = host.toLowerCase().replace(/^www\./, "");
+  const is = (...names: string[]) => names.some((n) => h === n || h.endsWith(`.${n}`) || h.startsWith(`${n}.`));
+  if (ours.has(h) || [...ours].some((o) => h.endsWith(`.${o}`))) return "Our own sites";
+  if (is("chatgpt.com", "chat.openai.com", "perplexity.ai", "claude.ai", "gemini.google.com", "copilot.microsoft.com", "chat.deepseek.com", "grok.com", "you.com", "phind.com", "kagi.com"))
+    return "AI assistants";
+  if (/(^|\.)(google|bing|duckduckgo|yandex|baidu|yahoo|ecosia|qwant|naver|seznam|sogou|so|startpage)\.[a-z.]+$/.test(h) || is("search.brave.com"))
+    return "Search";
+  if (is("github.com", "gitlab.com", "github.io", "stackoverflow.com", "npmjs.com", "pypi.org", "huggingface.co", "dev.to"))
+    return "Developer sites";
+  if (is("t.co", "x.com", "twitter.com", "reddit.com", "news.ycombinator.com", "linkedin.com", "lnkd.in", "facebook.com", "instagram.com", "youtube.com", "bsky.app", "threads.net", "tiktok.com", "producthunt.com", "discord.com", "telegram.org", "t.me", "medium.com", "substack.com", "pinterest.com", "quora.com"))
+    return "Social";
+  return "Other";
+}
+
+Object.assign(LIVE_BUILDERS, {
+  "analytics.visits": ({ umami: U, window: W }: LiveInputs) => {
+    const h = headline(U, W, "visits");
+    if (!h) return null;
+    const views = h.s.sites.reduce((n, x) => n + x.now.views, 0);
+    return {
+      value: count(h.now),
+      delta: h.before ? (delta(h.now, h.before) ?? undefined) : undefined,
+      sub: h.now > 0 ? `${(views / h.now).toFixed(1)} pages per visit` : "",
+      series: h.series.length > 1 ? h.series : undefined,
+      seriesAt: h.series.length > 1 ? h.s.grid.map(at) : undefined,
+    };
+  },
+
+  /*
+    EVERYTHING BUT THE LARGEST SITE, per day. When one site carries most of
+    the portfolio its bars flatten every other site to a line; this is the
+    same chart with that one taken out, named in the title.
+  */
+  "analytics.dailyRest": ({ umami: U, window: W }: LiveInputs) => {
+    const s = siteSpans(U, W);
+    if (!s || s.grid.length < 2) return null;
+    const ranked = [...s.sites].sort((a, b) => b.now.views - a.now.views);
+    const lead = ranked[0];
+    if (!lead || ranked.length < 2) return null;
+    const rest = ranked.slice(1);
+    const daily = siteDaily(s.grid, rest, (x) => x.views);
+    return {
+      name: `Pageviews per day without ${lead.host} · ${windowLabel(W ?? 30)}`,
+      daily,
+      dailySplit: "By site",
+      dailyOpen: "split" as const,
+      unit: "count" as const,
+      caption: also(`${count(rest.reduce((n, x) => n + x.now.views, 0))} views on ${rest.filter((x) => x.now.views > 0).length} sites`, busiestOf(daily)),
+    };
+  },
+
+  /* Every site, biggest first, with its own line and its change. */
+  "analytics.sites": ({ umami: U, window: W }: LiveInputs) => {
+    const s = siteSpans(U, W);
+    if (!s) return null;
+    const live = s.sites.filter((x) => x.now.views > 0).sort((a, b) => b.now.views - a.now.views);
+    if (!live.length) return null;
+    const shown = live.slice(0, 12);
+    const hidden = live.slice(12);
+    const quiet = s.sites.length - live.length;
+    return {
+      ranked: shown.map((x) => ({
+        label: x.host,
+        value: x.now.views,
+        text: count(x.now.views),
+        host: x.host,
+        spark: x.views.length > 1 ? x.views : undefined,
+        sub: changeWord(x.now.views, x.before?.views ?? null) || undefined,
+      })),
+      caption: also(
+        hidden.length ? `${hidden.length} more with ${count(hidden.reduce((n, x) => n + x.now.views, 0))} views` : "",
+        quiet ? `${quiet} with none` : "",
       ),
     };
   },
 
-  "umami.avgVisit": ({ umami: U, window: W }: LiveInputs) => {
-    const w = U?.portfolio.window;
-    if (!w || w.avgVisitSeconds === null) return null;
+  /* The sites whose views moved most against the span before, up or down. */
+  "analytics.movers": ({ umami: U, window: W }: LiveInputs) => {
+    const s = siteSpans(U, W);
+    if (!s) return null;
+    if (!s.prior) return { ranked: [], caption: isAll(W) ? "No earlier window to compare with" : "Not enough history for the window before" };
+    const moved = s.sites
+      .filter((x) => x.before && x.now.views + x.before.views >= 20 && x.now.views !== x.before.views)
+      .map((x) => ({ x, diff: x.now.views - x.before!.views }))
+      .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
+      .slice(0, 8);
+    if (!moved.length) return { ranked: [], caption: "No site moved" };
+    /* ORDERED BY HOW MANY VIEWS MOVED, DRAWN BY HOW FAR. One site gaining a
+       hundred thousand views would otherwise flatten every other bar to a
+       pixel; the length is the percentage (capped at 200%), the order is
+       the size of the change, and both figures are printed. */
     return {
-      value: secs(w.avgVisitSeconds),
-      sub: also(`total time ÷ ${count(w.visits)} visits, over ${w.days} days`, umamiFixed(w.days, W)),
+      ranked: moved.map(({ x, diff }) => {
+        const was = x.before!.views;
+        const rel = was > 0 ? Math.abs(diff) / was : null;
+        return {
+          label: x.host,
+          value: rel === null ? 2 : Math.min(rel, 2),
+          text: `${diff > 0 ? "▲" : "▼"} ${rel === null ? "new" : `${diff > 0 ? "+" : "−"}${pct(rel, { digits: 0 })}`}`,
+          host: x.host,
+          sub: `${count(was)} → ${count(x.now.views)}`,
+        };
+      }),
+      rankedMax: 2,
+      caption: `Views against the ${s.prior.length} days before`,
     };
   },
 
-  "umami.daily": ({ umami: U }: LiveInputs) => {
-    const days = U?.portfolio.days ?? [];
-    if (days.length < 2) return null;
+  "analytics.countries": ({ webAnalytics: WA, umami: U }: LiveInputs) => {
+    const a = acrossSites(WA, U, "country");
+    if (!a) return null;
+    const rows = a.rows.filter(([code]) => /^[A-Za-z]{2}$/.test(code)).slice(0, 10);
+    const missing = a.siteTotal > 0 ? a.unattributed / a.siteTotal : 0;
     return {
-      chart: [
-        { label: "Pageviews", points: days.map((d) => ({ ts: at(d.day), value: d.pageviews })) },
-        { label: "Visits", points: days.map((d) => ({ ts: at(d.day), value: d.sessions })) },
+      ranked: rows.map(([code, n]) => ({
+        label: countryName(code),
+        value: n,
+        text: count(n),
+        sub: pct(n / a.total, { digits: 0 }),
+      })),
+      caption: also(
+        "Visitors, counted site by site",
+        missing >= 0.05 ? `${pct(missing, { digits: 0 })} of visitors had no country` : "",
+      ),
+    };
+  },
+
+  "analytics.devices": ({ webAnalytics: WA, umami: U }: LiveInputs) => {
+    const a = acrossSites(WA, U, "device");
+    if (!a) return null;
+    const named = a.rows.filter(([v]) => DEVICES[v]);
+    const other = a.rows.filter(([v]) => !DEVICES[v]).reduce((n, [, c]) => n + c, 0);
+    const phone = (a.rows.find(([v]) => v === "mobile")?.[1] ?? 0) + (a.rows.find(([v]) => v === "tablet")?.[1] ?? 0);
+    return {
+      value: pct(phone / a.total, { digits: 0 }),
+      sub: "on a phone or tablet",
+      parts: [
+        ...named.map(([v, n]) => ({ label: DEVICES[v]!, value: n, text: pct(n / a.total, { digits: 0 }) })),
+        ...(other ? [{ label: "Other", value: other, text: pct(other / a.total, { digits: 1 }) }] : []),
       ],
-      unit: "count" as const,
-      caption:
-        `${days.length} days across ${U!.portfolio.websites} site` +
-        `${U!.portfolio.websites === 1 ? "" : "s"} · bucketed in the INSTANCE's ` +
-        `timezone, which this browser does not know — so these are not UTC days ` +
-        `and are never lined up against another integration's`,
+      partsLabel: "Visitors by screen, site by site",
     };
   },
 
-  "umami.sites": ({ umami: U }: LiveInputs) => {
-    const sites = U?.websites.filter((w) => w.window) ?? [];
-    if (!sites.length) return null;
+  "analytics.browsers": ({ webAnalytics: WA, umami: U }: LiveInputs) => {
+    const a = acrossSites(WA, U, "browser");
+    if (!a) return null;
+    const merged = new Map<string, number>();
+    for (const [v, n] of a.rows) {
+      const name = BROWSERS[v] ?? v;
+      merged.set(name, (merged.get(name) ?? 0) + n);
+    }
+    const rows = [...merged.entries()].sort((x, y) => y[1] - x[1]).slice(0, 6);
     return {
-      headers: ["Site", "Pageviews", "Visitors", "Visits", "Bounce", "Avg visit"],
-      table: [...sites]
-        .sort((a, b) => (b.window!.pageviews ?? 0) - (a.window!.pageviews ?? 0))
-        .map((w) => [
-          siteName(w),
-          count(w.window!.pageviews),
-          count(w.window!.visitors),
-          count(w.window!.visits),
-          percent(w.window!.bounceRate),
-          secs(w.window!.avgVisitSeconds),
-        ]),
+      ranked: rows.map(([name, n]) => ({
+        label: name,
+        value: n,
+        text: pct(n / a.total, { digits: 0 }),
+      })),
     };
   },
 
-  "umami.pages": ({ umami: U }: LiveInputs) => {
-    const rows = mergedTop(U?.websites ?? [], (w) => w.top.pages);
-    return rows.length ? { rows } : null;
+  /*
+    WHAT KIND OF PLACE SENT THE VIEWS — search, AI assistants, developer
+    sites, social, our own sites. Views add across sites, so this is a real
+    split of the referred views; a view with no referrer is not in it.
+  */
+  "analytics.sources": ({ umami: U }: LiveInputs) => {
+    const sites = U?.websites ?? [];
+    const ours = new Set(sites.map((w) => (w.domain ?? "").toLowerCase().replace(/^www\./, "")).filter(Boolean));
+    const by = new Map<string, number>();
+    let total = 0;
+    for (const w of sites)
+      for (const r of w.top.referrers) {
+        const k = referrerKind(r.name, ours);
+        by.set(k, (by.get(k) ?? 0) + r.count);
+        total += r.count;
+      }
+    if (!total) return null;
+    const parts = [...by.entries()].sort((a, b) => b[1] - a[1]);
+    const lead = parts[0]!;
+    return {
+      value: pct(lead[1] / total, { digits: 0 }),
+      sub: `of referred views came from ${lead[0].toLowerCase()}`,
+      parts: parts.map(([label, n]) => ({ label, value: n, text: count(n) })),
+      partsLabel: `${count(total)} views that arrived from a link`,
+    };
   },
 
-  "umami.referrers": ({ umami: U }: LiveInputs) => {
-    const rows = mergedTop(U?.websites ?? [], (w) => w.top.referrers);
-    return rows.length ? { rows } : null;
+  /* Bounce per site, worst first — the busiest sites, where a rate means something. */
+  "analytics.bounceSites": ({ umami: U }: LiveInputs) => {
+    const sites = busiestSites(U, (w) => w.window?.bounceRate);
+    if (!sites.length) return null;
+    const rows = [...sites].sort((a, b) => b.window!.bounceRate! - a.window!.bounceRate!);
+    return {
+      ranked: rows.map((w) => ({
+        label: siteName(w),
+        value: w.window!.bounceRate!,
+        text: percent(w.window!.bounceRate, 0),
+        host: siteName(w),
+        sub: `${count(w.window!.visits)} visits`,
+      })),
+      rankedMax: 100,
+      caption: "The ten busiest sites, worst first",
+    };
   },
 
-  "umami.events": ({ umami: U }: LiveInputs) => {
-    const rows = mergedTop(U?.websites ?? [], (w) => w.top.events);
-    return rows.length ? { rows } : null;
+  "analytics.durationSites": ({ umami: U }: LiveInputs) => {
+    const sites = busiestSites(U, (w) => w.window?.avgVisitSeconds);
+    if (!sites.length) return null;
+    const rows = [...sites].sort((a, b) => b.window!.avgVisitSeconds! - a.window!.avgVisitSeconds!);
+    return {
+      ranked: rows.map((w) => ({
+        label: siteName(w),
+        value: w.window!.avgVisitSeconds!,
+        text: secs(w.window!.avgVisitSeconds),
+        host: siteName(w),
+        sub: w.window!.visits ? `${(w.window!.pageviews! / w.window!.visits).toFixed(1)} pages` : undefined,
+      })),
+      caption: "The ten busiest sites, longest first",
+    };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
 
@@ -8675,19 +9086,14 @@ Object.assign(LIVE_BUILDERS, {
     /* POINTS, NOT PERCENT OF A PERCENT. A CTR that went from 3.3% to 3.8%
        moved half a point; "+15%" over it is a figure in no unit. */
     const moved =
-      prev === null
-        ? "no comparable window before it"
-        : `${G.totals.ctr - prev >= 0 ? "+" : ""}${(G.totals.ctr - prev).toFixed(2)} pts on the previous ${G.window.days}d`;
+      prev === null ? "" : `${G.totals.ctr - prev >= 0 ? "+" : ""}${(G.totals.ctr - prev).toFixed(1)} pts`;
     return {
       /* NO TAG ON THIS TILE OR THE ONE BELOW: its siblings carry none, and a
          one-column tile has room for a name or a tag, not both. What kind of
          number it is — measured, weighted — is in the sentence under it. */
-      name: `CTR · Google · ${G.window.days}d`,
-      value: percent(G.totals.ctr, 2),
-      sub: also(
-        also(`${count(G.totals.clicks)} clicks of ${count(G.totals.impressions)} impressions, weighted across properties`, moved),
-        gscEnds(G),
-      ),
+      name: `CTR · Google`,
+      value: percent(G.totals.ctr, 1),
+      sub: also(moved, gscEnds(G)),
     };
   },
 
@@ -8716,20 +9122,13 @@ Object.assign(LIVE_BUILDERS, {
        nobody yet is not a broken one, and a card that listed it in red would
        send somebody to fix a thing that only needs time. */
     rows.push(["Data accumulates over time", "quiet is not broken"]);
-    return { name: `No search data yet · ${G.window.days}d`, rows };
+    const rowHosts = [...quiet.slice(0, 8).map((p) => p.property)];
+    return { name: `No search data yet · ${G.window.days}d`, rows, rowHosts };
   },
 
   /* ----------------------------------------------------- daily lines */
 
-  "gsc.clicksTrend": ({ gsc: G, window: W }: LiveInputs) => {
-    if (!G || G.series.length < 2) return null;
-    return {
-      name: `Clicks a day · ${portfolioWord(G)} · ${windowLabel(W ?? G.seriesDays)}`,
-      chart: [{ label: "clicks", points: G.series.map((d) => ({ ts: at(d.day), value: d.clicks })) }],
-      unit: "count" as const,
-      caption: portfolioLine(G),
-    };
-  },
+  "gsc.clicksTrend": ({ gsc: G }: LiveInputs) => gscDaily(G, "clicks"),
 
   "gsc.propertyClicks": ({ gsc: G }: LiveInputs) => {
     if (!G) return null;
@@ -8745,10 +9144,7 @@ Object.assign(LIVE_BUILDERS, {
       /* WHAT IS NOT DRAWN IS SAID. Four lines is what the eye can follow;
          the other properties are on the table beside this, not folded into
          a fifth line called "other". */
-      caption: also(
-        `${drawn.length} of ${of} properties drawn, busiest by clicks in the ${gscEnds(G)} · the rest are on the property table, not summed`,
-        G.window.end ? `ends ${dayShort(G.window.end)}` : "",
-      ),
+      caption: `Busiest ${drawn.length} of ${of} sites by clicks`,
     };
   },
 
@@ -8763,10 +9159,7 @@ Object.assign(LIVE_BUILDERS, {
         points: (p.series ?? []).map((d) => ({ ts: at(d.day), value: d.impressions })),
       })),
       unit: "count" as const,
-      caption: also(
-        `${drawn.length} of ${of} properties drawn, busiest by impressions in the ${gscEnds(G)} · the rest are on the property table, not summed`,
-        G.window.end ? `ends ${dayShort(G.window.end)}` : "",
-      ),
+      caption: `Busiest ${drawn.length} of ${of} sites by impressions`,
     };
   },
 
@@ -8791,7 +9184,7 @@ Object.assign(LIVE_BUILDERS, {
       dumbbell: rows,
       names: ["Clicks", "Impressions"] as [string, string],
       log: true,
-      caption: `${rows.length} properties with impressions, most first · ${gscEnds(G)} · the axis is in decades, so a step is tenfold, and a property with no clicks is parked at the floor`,
+      caption: `${rows.length} sites · log scale, each step is tenfold`,
     };
   },
 
@@ -8803,16 +9196,17 @@ Object.assign(LIVE_BUILDERS, {
       name: `Top queries · ${G.window.days}d · Google`,
       ranked: G.queries.slice(0, 8).map((q) => ({
         label: q.query,
+        host: q.property,
         value: q.clicks,
         text: `${count(q.clicks)} clicks`,
-        sub: `${q.property} · ${count(q.impressions)} impr · #${place(q.position)}`,
+        sub: `${compact(q.impressions)} impr · #${place(q.position)}`,
       })),
-      /* THE CAPTION IS THE POINT OF THE CARD, as it is on `gsc.queries`:
-         these rows sit inside a fifth of the impressions the properties had. */
+      /* A SAMPLE, SAID IN ONE LINE: Google withholds rare queries and caps
+         the rows, so these never sum to the property totals. */
       caption:
         G.coverage.pct === null
-          ? "Google's clicks-ordered rows — a sample of the impressions, never all of them"
-          : `these rows cover ${percent(G.coverage.pct)} of impressions — Google withholds rare queries and caps the rows`,
+          ? "A sample — Google hides rare queries"
+          : `These cover ${percent(G.coverage.pct, 0)} of impressions — Google hides rare queries`,
     };
   },
 
@@ -8822,11 +9216,11 @@ Object.assign(LIVE_BUILDERS, {
       name: `Top pages · ${G.window.days}d · Google`,
       ranked: G.pages.slice(0, 8).map((p) => ({
         label: pageLabel(p.page),
+        host: p.page,
         value: p.clicks,
         text: `${count(p.clicks)} clicks`,
-        sub: `${count(p.impressions)} impr · #${place(p.position)}`,
+        sub: `${compact(p.impressions)} impr · #${place(p.position)}`,
       })),
-      caption: "landing pages from search, by clicks · Google's own capped page rows",
     };
   },
 
@@ -8835,14 +9229,14 @@ Object.assign(LIVE_BUILDERS, {
     return {
       ranked: G.striking.slice(0, 8).map((q) => ({
         label: q.query,
+        host: q.property,
         /* THE BAR IS IMPRESSIONS, not the rank: what is at stake is how often
            the page is one push from a click, and a rank is not a length. */
         value: q.impressions,
         text: `${count(q.impressions)} impr`,
-        sub: `${q.property} · #${place(q.position)} · ${count(q.clicks)} click${q.clicks === 1 ? "" : "s"}`,
+        sub: `#${place(q.position)} · ${clicksWord(q.clicks)}`,
       })),
-      caption:
-        "position 5–20 with 3+ impressions, most impressions first · drawn from Google's clicks-ordered rows, so a high-impression query with no clicks can be missing",
+      caption: "Ranking 5–20 — a push onto page one's top spots",
     };
   },
 
@@ -8873,6 +9267,7 @@ Object.assign(LIVE_BUILDERS, {
     if (seen.length > shown.length)
       table.push([`+${seen.length - shown.length} smaller properties`, "—", "—", "—", "—", "—"]);
     return {
+      rowHosts: shown.map((p) => p.property),
       name: `Top query, every property · ${G.window.days}d`,
       headers: ["Property", "Top query", "Clicks", "Impressions", "Position", "Rows cover"],
       table,
@@ -8895,6 +9290,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       headers: ["Property", "Query", "Position", "Impressions", "Clicks"],
       table,
+      rowHosts: rows.slice(0, 12).map((p) => p.property),
     };
   },
 
@@ -8904,8 +9300,8 @@ Object.assign(LIVE_BUILDERS, {
        one that submitted nothing is the row after it. */
     const order = (p: GscProperty) =>
       p.sitemaps.state === "reported" ? -((p.sitemaps.errors ?? 0) * 1000 + (p.sitemaps.warnings ?? 0)) : p.sitemaps.state === "none" ? 1 : 2;
-    const table = [...G.properties]
-      .sort((a, b) => order(a) - order(b) || b.impressions - a.impressions)
+    const sorted = [...G.properties].sort((a, b) => order(a) - order(b) || b.impressions - a.impressions);
+    const table = sorted
       .map((p) => {
         const s = p.sitemaps;
         if (s.state === "reported")
@@ -8924,6 +9320,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       headers: ["Property", "Sitemaps", "URLs submitted", "Errors", "Warnings", "Last read"],
       table,
+      rowHosts: sorted.map((p) => p.property),
     };
   },
 
@@ -8937,12 +9334,13 @@ Object.assign(LIVE_BUILDERS, {
     const rows: [string, string][] = pages
       .slice(0, 6)
       .map((z) => [pageLabel(z.page), `${count(z.impressions)} impr · never clicked`]);
+    const rowHosts = pages.slice(0, 6).map((z) => z.page);
     if (!pages.length) rows.push(["No page shown and never clicked", "within the rows Google returned"]);
     else if (total > rows.length) rows.push([`${count(total)} such pages in all`, `${rows.length} drawn`]);
     /* A FLOOR, AND TAGGED AS ONE: only the pages Google's capped page rows
        returned could be counted, and a page past the cap is unmeasured. */
     rows.push(["Within Google's top pages per property", "a floor, not a total"]);
-    return { name: `Zero-click pages · ${G.window.days}d`, tag: "floor", rows };
+    return { name: `Zero-click pages · ${G.window.days}d`, tag: "floor", rows, rowHosts };
   },
 
   "gsc.cannot": ({ gsc: G }: LiveInputs) => {
@@ -8973,15 +9371,17 @@ Object.assign(LIVE_BUILDERS, {
     return {
       ranked: worst.slice(0, 10).map((v) => ({
         label: v.name,
+        /* The venture's favicon beside its name (SEO board, 2026-09-29). */
+        venture: v.id,
         value: v.issues.error,
         text: v.issues.error ? `${count(v.issues.error)} error${v.issues.error === 1 ? "" : "s"}` : "clean",
         /* Warnings ride beside the name and are NEVER in the bar: forty
            notices must not outweigh a dead homepage. */
-        sub: `${count(v.pages)} page${v.pages === 1 ? "" : "s"} · ${count(v.issues.warning)} warn`,
+        sub: `${count(v.issues.warning)} warn · ${count(v.pages)} page${v.pages === 1 ? "" : "s"}`,
       })),
       caption: also(
-        "errors, worst first — there is no score by design",
-        never ? `${never} venture${never === 1 ? "" : "s"} never crawled, not drawn` : "",
+        "Worst first",
+        never ? `${never} never audited` : "",
       ),
     };
   },
@@ -9159,26 +9559,6 @@ Object.assign(LIVE_BUILDERS, {
    "Search · Example App 1" saying why.
 */
 
-/** "portfolio", or the one property's name when the document holds only
- *  one — a venture board with a single property, where "portfolio" would
- *  be a word for something that is not there. */
-function portfolioWord(G: GscReport): string {
-  return G.properties.length === 1 ? G.properties[0]!.label : "portfolio";
-}
-
-/** The caption under a summed daily line: how many properties are in the
- *  sum, how many days landed, and why it stops short of today. */
-function portfolioLine(G: GscReport): string {
-  const n = G.properties.length;
-  const who = n === 1 ? "one property" : `${n} properties summed, ${G.totals.properties} of them with traffic`;
-  return also(
-    `daily · ${who} · ${G.series.length} days drawn`,
-    G.window.end
-      ? `ends ${dayShort(G.window.end)} — the last three days are missing because Google has not finalised them`
-      : "",
-  );
-}
-
 /** A movement in the short form a tile's small print has room for. Null is
  *  "no window before it", never a zero. */
 function movedShort(delta: number | null): string {
@@ -9224,6 +9604,7 @@ Object.assign(LIVE_BUILDERS, {
       tag: "measured",
       ranked: seen.map((p) => ({
         label: p.label,
+        host: p.property,
         /* THE BAR IS CLICKS, against the busiest property rather than the
            sum — Workdash's rail asks "how does this one compare with the
            busiest", and a share of the total draws eighteen invisible bars
@@ -9239,8 +9620,8 @@ Object.assign(LIVE_BUILDERS, {
         spark: p.series.length > 1 ? p.series.map((d) => d.clicks) : undefined,
       })),
       caption: also(
-        `${seen.length} propert${seen.length === 1 ? "y" : "ies"} with impressions in the ${gscEnds(G)}, busiest first · the line beside each name is its own clicks a day over ${G.seriesDays}d`,
-        quiet ? `${quiet} quiet, listed on "No search data yet"` : "",
+        `${seen.length} site${seen.length === 1 ? "" : "s"} with impressions · line = clicks a day`,
+        quiet ? `${quiet} quiet` : "",
       ),
     };
   },
@@ -9546,6 +9927,127 @@ Object.assign(LIVE_BUILDERS, {
     if (F.baselines.length > rows.length) rows.push([`+${F.baselines.length - rows.length} more`, "tracked"]);
     rows.push(["Verdicts are arithmetic", "correlation, not cause"]);
     return { tag: "measured", rows };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ============================================ the search board, at a glance
+   ADDED 2026-09-29 when the Search board was reworked to read at a glance:
+   every site as a small card with its favicon, Bing's clicks as bars, Bing's
+   own page-two list and its crawl errors. Google and Bing stay apart — no
+   card here reads both documents.
+*/
+
+/** "+42%" with the way it went, or null when there was no window before. */
+function tileChange(delta: number | null): { text: string; good: boolean | null } | null {
+  if (delta === null) return null;
+  const rounded = Math.abs(delta) >= 10 ? Math.round(delta) : Number(delta.toFixed(1));
+  return { text: `${rounded > 0 ? "+" : ""}${rounded}%`, good: rounded === 0 ? null : rounded > 0 };
+}
+
+Object.assign(LIVE_BUILDERS, {
+  "search.googleSites": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.properties.length) return null;
+    const seen = G.properties
+      .filter((p) => p.impressions > 0)
+      .sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions);
+    if (!seen.length) return null;
+    const shown = seen.slice(0, 12);
+    const rest = seen.length - shown.length;
+    return {
+      name: `Every site on Google · ${G.window.days}d`,
+      sites: shown.map((p) => ({
+        label: p.label,
+        host: p.property,
+        value: count(p.clicks),
+        unit: p.clicks === 1 ? "click" : "clicks",
+        change: tileChange(p.delta.clicks),
+        bars: (p.series?.length ?? 0) > 1 ? p.series.map((d) => d.clicks) : undefined,
+        figures: [
+          ["Impr.", compact(p.impressions)],
+          ["CTR", p.ctr === null ? DASH : percent(p.ctr, 1)],
+          ["Position", place(p.position)],
+        ] as [string, string][],
+      })),
+      caption: also(
+        rest ? `+${rest} smaller site${rest === 1 ? "" : "s"}` : "",
+        `bars are clicks a day · ${gscEnds(G)}`,
+      ),
+    };
+  },
+
+  "search.bingSites": ({ bing: B }: LiveInputs) => {
+    if (!B?.connected || !B.sites.length) return null;
+    /* A site Bing showed fewer than five times is a row of zeroes here;
+       it is counted in the caption instead of drawn. */
+    const seen = B.sites
+      .filter((s) => s.clicks > 0 || s.impressions >= 5)
+      .sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions);
+    if (!seen.length) return null;
+    const shown = seen.slice(0, 12);
+    const quiet = B.sites.length - seen.length;
+    return {
+      name: `Every site on Bing · ${B.window.days}d`,
+      sites: shown.map((s) => ({
+        label: s.label,
+        host: s.site,
+        value: count(s.clicks),
+        unit: s.clicks === 1 ? "click" : "clicks",
+        bars: (s.series?.length ?? 0) > 1 ? s.series.map((d) => d.clicks) : undefined,
+        figures: [
+          ["Impr.", compact(s.impressions)],
+          ["CTR", s.ctr === null ? DASH : percent(s.ctr, 1)],
+          ["Indexed", s.index.inIndex === null ? DASH : compact(s.index.inIndex)],
+        ] as [string, string][],
+      })),
+      caption: also(
+        seen.length > shown.length ? `+${seen.length - shown.length} smaller` : "",
+        also(quiet ? `${quiet} barely seen on Bing` : "", "bars are clicks a day"),
+      ),
+    };
+  },
+
+  "search.bingDaily": ({ bing: B, window: W }: LiveInputs) => bingDaily(B, W, "clicks"),
+
+  "search.bingStriking": ({ bing: B }: LiveInputs) => {
+    /* The same band as Google's page-two list — position 5 to 20 with a few
+       impressions — cut from Bing's own query report. */
+    if (!B?.connected || !B.queries.length) return null;
+    const near = B.queries
+      .filter((q) => q.position !== null && q.position >= 5 && q.position <= 20 && q.impressions >= 3)
+      .sort((a, b) => b.impressions - a.impressions)
+      .slice(0, 8);
+    if (!near.length) return null;
+    return {
+      name: `Page-two opportunities · Bing`,
+      ranked: near.map((q) => ({
+        label: q.query,
+        host: q.site,
+        value: q.impressions,
+        text: `${count(q.impressions)} impr`,
+        sub: `#${place(q.position)} · ${clicksWord(q.clicks)}`,
+      })),
+      caption: "Ranking 5–20 on Bing — a push onto page one's top spots",
+    };
+  },
+
+  "search.bingCrawl": ({ bing: B }: LiveInputs) => {
+    if (!B?.connected || !B.index.day) return null;
+    const line = B.index.series.slice(-28);
+    const before = line.slice(0, -1).slice(-14).map((d) => d.errors).sort((a, b) => a - b);
+    const usual = before.length ? before[Math.floor(before.length / 2)]! : null;
+    /* A SPIKE, NOT A LIMIT: flagged when the latest day is more than three
+       times the usual day of the fortnight before it. */
+    const spike = usual !== null && B.index.crawlErrors > 100 && B.index.crawlErrors > usual * 3;
+    return {
+      value: count(B.index.crawlErrors),
+      tone: spike ? ("warn" as StatusTone) : undefined,
+      sub: also(
+        usual !== null ? `usually ~${count(usual)}` : "",
+        `${compact(B.index.blockedByRobots)} blocked by robots · ${dayShort(B.index.day)}`,
+      ),
+      series: line.length > 1 ? line.map((d) => d.errors) : undefined,
+      seriesAt: line.length > 1 ? line.map((d) => at(d.day)) : undefined,
+    };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
 
@@ -15647,6 +16149,960 @@ Object.assign(LIVE_BUILDERS, {
         { label: "paused", value: by.paused, text: count(by.paused) },
       ],
       partsLabel: "The ads in the account",
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ================================================================== seo
+   THE SEO BOARD, REWORKED 2026-09-29 — "more visuals, less text, favicons
+   where you can". Every site as a small card (audit grade, clicks and their
+   line, pages in Bing's index, inbound links, AI mentions), then what moved,
+   what to fix first, and the lists as bars with the site's favicon.
+
+   THE GRADE IS A RULE, NOT A SCORE: A no errors or warnings, B warnings
+   only, C one or two errors, D three or more. Nothing is weighted, and a site
+   never audited has no letter rather than an A.
+
+   "WHAT MOVED" IS THE WINDOW'S SECOND HALF AGAINST ITS FIRST, from each
+   property's own daily rows — Search Console's previous-window figures are
+   not always collected, and the halves are always there.
+   ======================================================================== */
+
+/** "sc-domain:x.com", "https://www.x.com/", "x.com" → "x.com". */
+function seoHost(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const v = value.replace(/^sc-domain:/i, "");
+  try {
+    return new URL(v.includes("://") ? v : `https://${v}`).hostname.toLowerCase().replace(/^www\./, "") || null;
+  } catch {
+    return null;
+  }
+}
+
+type SeoGrade = "A" | "B" | "C" | "D";
+const seoGrade = (i: { error: number; warning: number } | null): SeoGrade | null =>
+  !i ? null : i.error >= 3 ? "D" : i.error >= 1 ? "C" : i.warning > 0 ? "B" : "A";
+const seoPlural = (n: number, word: string) => `${count(n)} ${word}${n === 1 ? "" : "s"}`;
+
+/** A property's clicks (or impressions) in the window's two halves, on the
+ *  portfolio's own day grid. Null when the property's rows do not cover the
+ *  grid — a property added mid-window has no first half to compare. */
+function seoHalves(G: GscReport, p: GscProperty | null, pick: "clicks" | "impressions" = "clicks") {
+  const grid = G.series.map((d) => d.day);
+  if (grid.length < 4) return null;
+  const half = Math.floor(grid.length / 2);
+  let rows: number[];
+  if (p) {
+    const by = new Map(p.series.map((d) => [d.day, d[pick]]));
+    if (!grid.every((d) => by.has(d))) return null;
+    rows = grid.map((d) => by.get(d)!);
+  } else rows = G.series.map((d) => d[pick]);
+  const prev = rows.slice(0, half).reduce((n, v) => n + v, 0);
+  const last = rows.slice(-half).reduce((n, v) => n + v, 0);
+  return { prev, last, days: half, change: prev >= 10 ? (last - prev) / prev : null };
+}
+
+const seoChangeText = (h: ReturnType<typeof seoHalves>) =>
+  !h || h.change === null
+    ? ""
+    : `${h.change >= 0 ? "▲" : "▼"} ${pct(Math.abs(h.change), { digits: 0 })} in the last ${h.days} days`;
+
+/** Every site the SEO sources know, joined on the hostname. */
+function seoSites(I: LiveInputs) {
+  type Site = {
+    host: string;
+    name: string;
+    venture: string | null;
+    audit: NonNullable<LiveInputs["audit"]>["ventures"][number] | null;
+    gsc: GscProperty | null;
+    bing: NonNullable<LiveInputs["bing"]>["sites"][number] | null;
+    ai: { asked: number; mentioned: number } | null;
+  };
+  const by = new Map<string, Site>();
+  const get = (host: string, name?: string) => {
+    let s = by.get(host);
+    if (!s) {
+      s = { host, name: name ?? host, venture: null, audit: null, gsc: null, bing: null, ai: null };
+      by.set(host, s);
+    }
+    return s;
+  };
+  for (const v of I.audit?.ventures ?? []) {
+    const h = seoHost(v.host);
+    if (!h) continue;
+    const s = get(h, v.name);
+    s.name = v.name;
+    s.venture = v.id;
+    s.audit = v;
+  }
+  if (I.gsc?.connected) for (const p of I.gsc.properties) {
+    const h = seoHost(p.property) ?? seoHost(p.label);
+    if (h) get(h).gsc = p;
+  }
+  for (const b of I.bing?.sites ?? []) {
+    const h = seoHost(b.site) ?? seoHost(b.label);
+    if (h) get(h).bing = b;
+  }
+  const byVenture = new Map([...by.values()].filter((s) => s.venture).map((s) => [s.venture!, s]));
+  for (const a of I.seo?.geo?.answers ?? []) {
+    if (a.kind !== "generic") continue;
+    const s = byVenture.get(a.ventureId);
+    if (!s) continue;
+    s.ai ??= { asked: 0, mentioned: 0 };
+    s.ai.asked += 1;
+    if (a.mentioned) s.ai.mentioned += 1;
+  }
+  return [...by.values()];
+}
+
+Object.assign(LIVE_BUILDERS, {
+  "seo.clicks": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.window.end) return null;
+    const h = seoHalves(G, null);
+    return {
+      value: count(G.totals.clicks),
+      sub: seoChangeText(h) || `${G.window.days} days to ${dayShort(G.window.end)}`,
+      series: G.series.length > 1 ? G.series.map((d) => d.clicks) : undefined,
+      seriesAt: G.series.length > 1 ? G.series.map((d) => at(d.day)) : undefined,
+      unit: "count" as const,
+    };
+  },
+
+  "seo.impressions": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.window.end) return null;
+    const h = seoHalves(G, null, "impressions");
+    return {
+      value: compact(G.totals.impressions),
+      sub: also(seoChangeText(h), G.totals.ctr === null ? "" : `${percent(G.totals.ctr)} clicked`),
+      series: G.series.length > 1 ? G.series.map((d) => d.impressions) : undefined,
+      seriesAt: G.series.length > 1 ? G.series.map((d) => at(d.day)) : undefined,
+      unit: "count" as const,
+    };
+  },
+
+  "seo.needsFix": ({ audit: A }: LiveInputs) => {
+    const rows = audited(A);
+    if (!rows.length) return null;
+    const bad = rows.filter((v) => v.issues.error > 0);
+    const errors = bad.reduce((n, v) => n + v.issues.error, 0);
+    return {
+      value: `${count(bad.length)} of ${count(rows.length)}`,
+      tone: bad.length ? ("warn" as StatusTone) : undefined,
+      sub: bad.length ? `${seoPlural(errors, "error")} to fix` : "no audit errors anywhere",
+    };
+  },
+
+  "seo.aiFound": ({ seo }: LiveInputs) => {
+    const asked = (seo?.geo?.answers ?? []).filter((a) => a.kind === "generic");
+    if (!asked.length) return null;
+    const named = asked.filter((a) => a.mentioned);
+    const sites = new Set(named.map((a) => a.ventureId));
+    return {
+      value: pct(named.length / asked.length, { digits: 0 }),
+      sub: `${count(named.length)} of ${count(asked.length)} questions named one of ours · ${seoPlural(sites.size, "site")}`,
+    };
+  },
+
+  "seo.sites": (I: LiveInputs) => {
+    const G = I.gsc?.connected ? I.gsc : null;
+    const all = seoSites(I);
+    if (!all.length || (!I.audit && !G)) return null;
+    const clicks = (s: (typeof all)[number]) => s.gsc?.clicks ?? -1;
+    const sorted = all.sort(
+      (a, b) => clicks(b) - clicks(a) || (b.gsc?.impressions ?? 0) - (a.gsc?.impressions ?? 0) || a.name.localeCompare(b.name),
+    );
+    const isQuiet = (s: (typeof all)[number]) => (s.gsc?.clicks ?? 0) === 0 && (s.gsc?.impressions ?? 0) < 50 && (s.bing?.clicks ?? 0) === 0;
+    const cards = sorted.filter((s) => !isQuiet(s));
+    const quiet = sorted.filter(isQuiet);
+    return {
+      siteCards: cards.map((s) => {
+        const i = s.audit?.ts ? s.audit.issues : null;
+        const grade = seoGrade(i);
+        const h = G && s.gsc ? seoHalves(G, s.gsc) : null;
+        return {
+          host: s.host,
+          name: s.name,
+          venture: s.venture,
+          grade,
+          gradeNote: !i
+            ? "not audited"
+            : i.error
+              ? also(seoPlural(i.error, "error"), i.warning ? seoPlural(i.warning, "warning") : "")
+              : i.warning
+                ? seoPlural(i.warning, "warning")
+                : "clean audit",
+          clicks: s.gsc ? compact(s.gsc.clicks) : DASH,
+          change: h?.change ?? null,
+          spark: s.gsc && s.gsc.series.length > 1 ? s.gsc.series.map((d) => d.clicks) : null,
+          stats: [
+            ["in Bing", s.bing?.index.inIndex == null ? DASH : compact(s.bing.index.inIndex)],
+            ["links in", s.bing?.inLinks == null ? DASH : compact(s.bing.inLinks)],
+            ["AI found", s.ai ? `${s.ai.mentioned}/${s.ai.asked}` : DASH],
+          ] as [string, string][],
+        };
+      }),
+      quietSites: quiet.map((s) => ({ name: s.name, host: s.host, venture: s.venture })),
+      caption: also(
+        G ? `Google clicks over ${G.window.days} days, busiest first` : "",
+        "grade: A clean · B warnings only · C 1–2 errors · D 3+ errors",
+      ),
+    };
+  },
+
+  "seo.clicksDaily": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || G.series.length < 2) return null;
+    const top = [...G.properties].filter((p) => p.clicks > 0).sort((a, b) => b.clicks - a.clicks).slice(0, 6);
+    const days = G.series.map((d) => {
+      const parts = top.map((p) => ({ label: p.label, value: p.series.find((x) => x.day === d.day)?.clicks ?? 0 }));
+      const rest = d.clicks - parts.reduce((n, x) => n + x.value, 0);
+      if (rest > 0) parts.push({ label: "Other sites", value: rest });
+      return { day: d.day, total: d.clicks, parts };
+    });
+    const peak = days.reduce((b, d) => (d.total > b.total ? d : b), days[0]!);
+    return {
+      daily: days,
+      dailySplit: "By site",
+      unit: "count" as const,
+      caption: `Best day ${dayShort(peak.day)} with ${count(peak.total)} · Google`,
+    };
+  },
+
+  "seo.movers": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected) return null;
+    const rows = G.properties
+      .map((p) => ({ p, h: seoHalves(G, p) }))
+      .filter((r): r is { p: GscProperty; h: NonNullable<ReturnType<typeof seoHalves>> } => !!r.h && Math.abs(r.h.last - r.h.prev) >= 3)
+      .sort((a, b) => Math.abs(b.h.last - b.h.prev) - Math.abs(a.h.last - a.h.prev))
+      .slice(0, 8);
+    if (!rows.length) return null;
+    return {
+      ranked: rows.map(({ p, h }) => {
+        const d = h.last - h.prev;
+        return {
+          label: p.label,
+          host: p.property,
+          value: Math.abs(d),
+          text: `${d > 0 ? "▲" : "▼"} ${count(Math.abs(d))} clicks`,
+          sub: `${count(h.prev)} → ${count(h.last)}`,
+        };
+      }),
+      caption: `Clicks in the last ${rows[0]!.h.days} days against the ${rows[0]!.h.days} before`,
+    };
+  },
+
+  "seo.fixFirst": (I: LiveInputs) => {
+    const sites = seoSites(I);
+    if (!sites.length || !I.audit) return null;
+    const G = I.gsc?.connected ? I.gsc : null;
+    /* [what, figure, host] — worst first: errors on sites people visit,
+       then traffic falling, then what stops a crawler, then the gaps. */
+    const out: [string, string, string | null][] = [];
+    const busy = (s: (typeof sites)[number]) => s.gsc?.clicks ?? 0;
+    const withErrors = sites.filter((s) => s.audit?.ts && s.audit.issues && s.audit.issues.error > 0).sort((a, b) => busy(b) - busy(a));
+    for (const s of withErrors.slice(0, 3)) out.push([`${s.host} · audit errors`, count(s.audit!.issues!.error), s.host]);
+    if (withErrors.length > 3) out.push([`${withErrors.length - 3} more sites · audit errors`, count(withErrors.slice(3).reduce((n, s) => n + s.audit!.issues!.error, 0)), null]);
+    if (G)
+      for (const s of sites) {
+        const h = s.gsc ? seoHalves(G, s.gsc) : null;
+        if (h && h.change !== null && h.change <= -0.3 && h.prev >= 20) out.push([`${s.host} · clicks falling`, `▼ ${pct(-h.change, { digits: 0 })}`, s.host]);
+      }
+    for (const s of sites) {
+      const e = s.bing?.index.crawlErrors ?? 0;
+      if (e >= 100) out.push([`${s.host} · Bing crawl errors`, compact(e), s.host]);
+    }
+    for (const x of I.seo?.indexing?.hosts ?? [])
+      if (x.dryRun > 0 && x.received === 0) out.push([`${x.host} · IndexNow key missing`, `${count(x.dryRun)} unsent`, x.host]);
+      else if (x.refused > 0) out.push([`${x.host} · IndexNow refused`, count(x.refused), x.host]);
+    for (const s of sites)
+      if ((s.gsc?.sitemaps.errors ?? 0) > 0) out.push([`${s.host} · sitemap errors`, count(s.gsc!.sitemaps.errors!), s.host]);
+    for (const s of sites) {
+      const ts = s.audit?.ts;
+      if (ts && busy(s) >= 50 && Date.now() - Date.parse(ts) > 21 * 86_400_000)
+        out.push([`${s.host} · audit is old`, dayShort(ts.slice(0, 10)), s.host]);
+    }
+    const never = sites.filter((s) => s.audit && !s.audit.ts);
+    if (never.length) out.push([`${seoPlural(never.length, "site")} · never audited`, count(never.length), null]);
+    const unindexed = sites.filter((s) => s.bing && s.bing.index.inIndex === 0);
+    if (unindexed.length) out.push([`${seoPlural(unindexed.length, "site")} · nothing in Bing's index`, count(unindexed.length), null]);
+    if (!out.length) return { rows: [["Nothing urgent", "✓"]] as [string, string][] };
+    const shown = out.slice(0, 10);
+    return {
+      rows: shown.map(([k, v]) => [k, v] as [string, string]),
+      rowHosts: shown.map(([, , h]) => h),
+    };
+  },
+
+  "seo.queries": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.queries.length) return null;
+    return {
+      ranked: G.queries.slice(0, 8).map((q) => ({
+        label: q.query,
+        host: q.property,
+        value: q.clicks,
+        text: clicksWord(q.clicks),
+        sub: q.position === null ? undefined : `#${place(q.position)}`,
+      })),
+      caption: `Google · ${G.window.days} days · #average position`,
+    };
+  },
+
+  "seo.striking": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.striking.length) return null;
+    return {
+      ranked: G.striking.slice(0, 8).map((q) => ({
+        label: q.query,
+        host: q.property,
+        value: q.impressions,
+        text: `${count(q.impressions)} impr`,
+        sub: q.position === null ? undefined : `#${place(q.position)}`,
+      })),
+      caption: "Ranking 5th–20th: a push from the top of page one",
+    };
+  },
+
+  "seo.grades": ({ audit: A }: LiveInputs) => {
+    if (!A?.ventures.length) return null;
+    const n = { A: 0, B: 0, C: 0, D: 0, none: 0 };
+    for (const v of A.ventures) {
+      const g = seoGrade(v.ts ? v.issues : null);
+      if (g) n[g]++;
+      else n.none++;
+    }
+    const audited = A.ventures.length - n.none;
+    if (!audited) return null;
+    return {
+      value: `${count(n.A)} of ${count(audited)}`,
+      sub: "audited sites with a clean bill",
+      parts: [
+        { label: "A · clean", value: n.A, text: count(n.A), tone: "ok" as StatusTone },
+        { label: "B · warnings", value: n.B, text: count(n.B) },
+        { label: "C · 1–2 errors", value: n.C, text: count(n.C), tone: "warn" as StatusTone },
+        { label: "D · 3+ errors", value: n.D, text: count(n.D), tone: "bad" as StatusTone },
+        ...(n.none ? [{ label: "not audited", value: n.none, text: count(n.none) }] : []),
+      ].filter((p) => p.value > 0),
+    };
+  },
+
+  "seo.ai": ({ seo }: LiveInputs) => {
+    const answers = seo?.geo?.answers ?? [];
+    if (!answers.length) return null;
+    const by = new Map<string, { name: string; asked: number; named: number; direct: number; right: number }>();
+    for (const a of answers) {
+      const e = by.get(a.ventureId) ?? { name: a.ventureName ?? a.ventureId, asked: 0, named: 0, direct: 0, right: 0 };
+      if (a.kind === "generic") {
+        e.asked += 1;
+        if (a.mentioned) e.named += 1;
+      } else if (a.kind === "direct" && a.accurate !== null) {
+        e.direct += 1;
+        if (a.accurate) e.right += 1;
+      }
+      by.set(a.ventureId, e);
+    }
+    const rows = [...by.entries()]
+      .filter(([, e]) => e.asked > 0)
+      .sort(([, a], [, b]) => b.named / b.asked - a.named / a.asked || (b.direct ? b.right / b.direct : 0) - (a.direct ? a.right / a.direct : 0))
+      .slice(0, 10);
+    if (!rows.length) return null;
+    return {
+      ranked: rows.map(([id, e]) => ({
+        label: e.name,
+        venture: id,
+        value: Math.round((e.named / e.asked) * 100),
+        text: `found ${e.named}/${e.asked}`,
+        sub: e.direct ? `knows it ${e.right}/${e.direct}` : undefined,
+      })),
+      rankedMax: 100,
+      caption: "Found: named when a stranger asks for a tool like it · knows it: described right when asked by name",
+    };
+  },
+
+  "seo.indexed": ({ bing: B }: LiveInputs) => {
+    if (!B?.sites.length) return null;
+    const rows = B.sites.filter((s) => (s.index.inIndex ?? 0) > 0).sort((a, b) => b.index.inIndex! - a.index.inIndex!);
+    if (!rows.length) return null;
+    const none = B.sites.filter((s) => s.index.inIndex === 0).length;
+    return {
+      ranked: rows.slice(0, 10).map((s) => ({
+        label: s.label,
+        host: s.site,
+        value: s.index.inIndex!,
+        text: `${count(s.index.inIndex!)} pages`,
+        sub: s.index.crawlErrors ? seoPlural(s.index.crawlErrors, "crawl error") : undefined,
+      })),
+      caption: none ? `${seoPlural(none, "site")} with none yet` : undefined,
+    };
+  },
+
+  "seo.links": ({ bing: B }: LiveInputs) => {
+    if (!B?.sites.length) return null;
+    const rows = B.sites.filter((s) => (s.inLinks ?? 0) > 0).sort((a, b) => b.inLinks! - a.inLinks!);
+    if (!rows.length) return null;
+    return {
+      ranked: rows.slice(0, 10).map((s) => ({ label: s.label, host: s.site, value: s.inLinks!, text: count(s.inLinks!) })),
+      caption: "Links Bing has seen pointing in — pages, not distinct sites",
+    };
+  },
+
+  "seo.listed": ({ presence: P }: LiveInputs) => {
+    if (!P?.products.length) return null;
+    const rows = P.products
+      .map((p) => ({ p, on: p.sources.filter((s) => s.status === "present").map((s) => s.label), of: p.summary.of - p.summary.blocked - p.summary.unchecked }))
+      .filter((r) => r.of > 0)
+      .sort((a, b) => b.on.length - a.on.length || a.p.product.localeCompare(b.p.product));
+    if (!rows.length) return null;
+    return {
+      ranked: rows.slice(0, 10).map((r) => ({
+        label: r.p.product,
+        host: r.p.host,
+        value: r.on.length,
+        text: `${r.on.length} of ${r.of}`,
+        sub: r.on.length ? r.on.join(", ") : undefined,
+      })),
+      rankedMax: Math.max(...rows.map((r) => r.of)),
+      caption: "Wikipedia, GitHub, Product Hunt, app stores and the like",
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ============================================================ domains board
+   THE DOMAINS BOARD, DRAWN. What is owned, what renews when and for how much,
+   what is at risk, and which names actually serve a site — one registrar read
+   joined with three documents that already exist:
+
+   - PRICES come from the finance ledger's `domain` rows (one per name, seeded
+     from Dynadot's own renewal list; Spaceship names carry an estimate from the
+     same list and say so). A name with no ledger row is unpriced, never $0.
+   - USE comes from Cloudflare (a zone's page views and its 3xx share) and the
+     uptime probe (does the name answer right now). A name neither can see is
+     "not measured", never "parked".
+   - FAVICONS come from the renderer: every row carries its hostname and
+     HostMark finds the venture.
+*/
+
+type DomPrice = { amount: number; currency: string; estimated: boolean };
+
+/** The ledger's yearly renewal price for one name, or null when unpriced. */
+function domPrice(d: Domain, finance: FinanceReport | null | undefined): DomPrice | null {
+  if (!finance) return null;
+  const ref = `${d.source}:${d.name}`;
+  const row =
+    finance.expenses.find((e) => !e.archived && e.category === "domain" && e.sourceRef === ref) ??
+    finance.expenses.find((e) => !e.archived && e.category === "domain" && e.label.toLowerCase() === d.name);
+  if (!row || row.annual === null) return null;
+  return { amount: row.annual, currency: row.currency, estimated: row.confidence === "estimated" };
+}
+
+/** The one currency the portfolio's prices are mostly in — the board sums
+ *  that one and counts the rest apart rather than adding dollars to euros. */
+function domCurrency(prices: (DomPrice | null)[]): string | null {
+  const n = new Map<string, number>();
+  for (const p of prices) if (p) n.set(p.currency, (n.get(p.currency) ?? 0) + 1);
+  return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
+const domMoney = (n: number, currency: string, digits = 2) => money(n, currency, { digits });
+
+const DOM_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** 2026-12-05 → "5 Dec" (or "5 Dec 2026"). Fixed month words, so no locale
+ *  turns September into "Sept". */
+function domDate(iso: string | null, withYear = true): string | null {
+  const m = iso ? /^(\d{4})-(\d{2})-(\d{2})/.exec(iso) : null;
+  if (!m) return null;
+  const month = DOM_MONTHS[Number(m[2]) - 1];
+  if (!month) return null;
+  return `${Number(m[3])} ${month}${withYear ? ` ${m[1]}` : ""}`;
+}
+
+/** "in 67 days · 5 Dec" — the distance and the date together; the year only
+ *  when it is not within the next twelve months. */
+function domWhen(days: number | null, iso: string | null): string {
+  if (days === null || !iso) return "no date";
+  const date = domDate(iso, days > 330);
+  if (!date) return "no date";
+  const n = Math.round(days);
+  const dist =
+    n === 0 ? "today" : n < 0 ? `${-n} day${n === -1 ? "" : "s"} ago` : `in ${n} day${n === 1 ? "" : "s"}`;
+  return `${dist} · ${date}`;
+}
+
+export type DomUse = "live" | "redirect" | "parked" | "down" | "unmeasured";
+
+const DOM_USE_WORD: Record<DomUse, string> = {
+  live: "Live",
+  redirect: "Redirect",
+  parked: "Parked",
+  down: "Down",
+  unmeasured: "—",
+};
+
+/**
+ * Whether a registered name is actually used.
+ *
+ * The uptime probe answering OK is the strongest yes. Without it, Cloudflare's
+ * window decides: mostly 3xx is a redirect, a handful of page views a day is a
+ * live site, fewer is parked. No zone and no probe is "unmeasured" — a name on
+ * somebody else's nameservers may well be live, and this board cannot say so.
+ */
+export function domUse(
+  name: string,
+  cloudflare: CloudflareReport | null | undefined,
+  uptime: UptimeReport | null | undefined,
+): DomUse {
+  name = name.toLowerCase();
+  const probe = uptime?.hosts.find((h) => domHostKey(h.host) === name);
+  if (probe?.current?.ok) return "live";
+  const zone = cloudflare?.zones.find((z) => z.name.toLowerCase() === name);
+  const t = zone?.traffic;
+  if (t && t.requests >= 50) {
+    const s3 = t.status.s3xx;
+    if (s3 !== null && s3 / t.requests >= 0.6) return "redirect";
+    if (t.pageViews !== null && t.days > 0 && t.pageViews / t.days >= 3) return "live";
+    if (probe?.current && !probe.current.ok) return "down";
+    return t.pageViews === null ? "unmeasured" : "parked";
+  }
+  if (probe?.current && !probe.current.ok) return "down";
+  if (t) return "parked";
+  return "unmeasured";
+}
+
+function domHostKey(v: string): string {
+  return v.toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
+}
+
+/** The DNS provider a name delegates to, in a word. */
+function domDnsProvider(ns: string[] | null): string | null {
+  const first = ns?.[0];
+  if (!first) return null;
+  const provider = first.toLowerCase().split(".").slice(-2).join(".");
+  const known: Record<string, string> = {
+    "cloudflare.com": "Cloudflare",
+    "hetzner.com": "Hetzner",
+    "hetzner.de": "Hetzner",
+    "dynadot.com": "Dynadot",
+    "spaceship.net": "Spaceship",
+    "awsdns-00.com": "AWS",
+    "vercel-dns.com": "Vercel",
+    "googledomains.com": "Google",
+  };
+  return known[provider] ?? provider;
+}
+
+const domTick = (v: boolean | null) => (v === null ? "?" : v ? "✓" : "✗");
+
+function domTld(name: string): string {
+  const parts = name.split(".");
+  const two = parts.slice(-2).join(".");
+  return parts.length >= 3 && /^(co|org|com|net|me|ltd|plc|ac)\.[a-z]{2}$/.test(two) ? two : parts.at(-1) ?? name;
+}
+
+type DomAttention = { d: Domain; what: string; rank: number };
+
+/** Every thing on the portfolio that wants a decision, worst first. */
+function domAttention(
+  domains: Domain[],
+  cloudflare: CloudflareReport | null | undefined,
+  uptime: UptimeReport | null | undefined,
+): DomAttention[] {
+  const out: DomAttention[] = [];
+  for (const d of domains) {
+    const days = d.expiresInDays;
+    if (days !== null && days < 0) out.push({ d, what: "Past its date", rank: 0 });
+    else if (days !== null && days <= 30)
+      out.push({
+        d,
+        what: d.autoRenew === false ? "Renew now" : "Renews soon",
+        rank: 1,
+      });
+    else if (d.autoRenew === false)
+      out.push({
+        d,
+        what: (days ?? 999) <= 120 ? "Renew or let go" : "Auto-renew off",
+        rank: (days ?? 999) <= 120 ? 2 : 5,
+      });
+    if (d.expiresAt === null) out.push({ d, what: "No expiry date", rank: 3 });
+    if (d.locked === false) out.push({ d, what: "Unlocked", rank: 3 });
+    if (d.privacy === "off") out.push({ d, what: "No privacy", rank: 4 });
+    const use = domUse(d.name, cloudflare, uptime);
+    if (use === "down") out.push({ d, what: "Not answering", rank: 1 });
+    else if (use === "parked") out.push({ d, what: "Parked", rank: 6 });
+    else if (!d.nameservers?.length && use === "unmeasured")
+      out.push({ d, what: "No DNS", rank: 6 });
+  }
+  const soon = (a: DomAttention) => a.d.expiresInDays ?? 99999;
+  return out.sort((a, b) => a.rank - b.rank || soon(a) - soon(b) || a.d.name.localeCompare(b.d.name));
+}
+
+/** The months from this one to the same month next year, as `YYYY-MM`. */
+function domMonths(now = new Date()): string[] {
+  const out: string[] = [];
+  for (let i = 0; i <= 12; i++) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + i, 1));
+    out.push(d.toISOString().slice(0, 7));
+  }
+  return out;
+}
+
+Object.assign(LIVE_BUILDERS, {
+  "domains.held": ({ domains, domainSummary }: LiveInputs) => {
+    if (!domains.length || !domainSummary) return null;
+    const regs = Object.entries(domainSummary.byRegistrar).sort((a, b) => b[1] - a[1]);
+    return {
+      value: count(domains.length),
+      sub: `across ${regs.length} registrar${regs.length === 1 ? "" : "s"}`,
+      partsLabel: "By registrar",
+      parts: regs.map(([k, n]) => ({ label: k, value: n, text: count(n) })),
+    };
+  },
+
+  "domains.yearly": ({ domains, finance }: LiveInputs) => {
+    if (!domains.length || !finance) return null;
+    const prices = domains.map((d) => domPrice(d, finance));
+    const cur = domCurrency(prices);
+    if (!cur) return null;
+    const byReg = new Map<string, number>();
+    let total = 0;
+    let est = 0;
+    let unpriced = 0;
+    domains.forEach((d, i) => {
+      const p = prices[i];
+      if (!p || p.currency !== cur) {
+        unpriced += 1;
+        return;
+      }
+      total += p.amount;
+      if (p.estimated) est += 1;
+      byReg.set(d.registrar, (byReg.get(d.registrar) ?? 0) + p.amount);
+    });
+    return {
+      value: `${domMoney(total, cur, 0)}/yr`,
+      sub: also(
+        `≈ ${domMoney(total / 12, cur, 0)} a month`,
+        unpriced ? `${unpriced} unpriced` : est ? `${est} estimated` : "",
+      ),
+      partsLabel: "By registrar",
+      parts: [...byReg]
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => ({ label: k, value: v, text: domMoney(v, cur, 0) })),
+    };
+  },
+
+  "domains.next": ({ domains, finance }: LiveInputs) => {
+    const ahead = domains
+      .filter((d) => d.expiresInDays !== null && d.expiresInDays >= 0)
+      .sort(bySoonest);
+    const first = ahead[0];
+    if (!first) return null;
+    const same = ahead.filter((d) => d.expiresAt === first.expiresAt);
+    const prices = same.map((d) => domPrice(d, finance));
+    const priced = prices.every((p) => p && p.currency === prices[0]!.currency);
+    const cost = priced ? prices.reduce((n, p) => n + p!.amount, 0) : null;
+    const days = first.expiresInDays!;
+    const off = same.filter((d) => d.autoRenew === false).length;
+    return {
+      value: `${days} day${days === 1 ? "" : "s"}`,
+      tone: days <= 7 ? ("bad" as StatusTone) : days <= 30 ? ("warn" as StatusTone) : undefined,
+      sub: also(
+        also(domDate(first.expiresAt, days > 330) ?? "", `${first.name}${same.length > 1 ? ` +${same.length - 1}` : ""}`),
+        also(cost !== null ? domMoney(cost, prices[0]!.currency) : "", off ? "auto-renew off" : ""),
+      ),
+    };
+  },
+
+  "domains.inUse": ({ domains, cloudflare, uptime }: LiveInputs) => {
+    if (!domains.length || (!cloudflare && !uptime)) return null;
+    const by: Record<DomUse, number> = { live: 0, redirect: 0, parked: 0, down: 0, unmeasured: 0 };
+    for (const d of domains) by[domUse(d.name, cloudflare, uptime)] += 1;
+    return {
+      value: `${count(by.live)} of ${count(domains.length)}`,
+      tone: by.down ? ("bad" as StatusTone) : undefined,
+      sub: "serve a live site",
+      partsLabel: "What each name does",
+      parts: [
+        { label: "Live", value: by.live, text: count(by.live), tone: "ok" as StatusTone },
+        { label: "Redirect", value: by.redirect, text: count(by.redirect) },
+        { label: "Parked", value: by.parked, text: count(by.parked), tone: "warn" as StatusTone },
+        { label: "Down", value: by.down, text: count(by.down), tone: "bad" as StatusTone },
+        { label: "Not measured", value: by.unmeasured, text: count(by.unmeasured) },
+      ].filter((p) => p.value > 0),
+    };
+  },
+
+  "domains.renewals": ({ domains, finance }: LiveInputs) => {
+    if (!domains.length || !finance) return null;
+    const prices = domains.map((d) => domPrice(d, finance));
+    const cur = domCurrency(prices);
+    if (cur !== "USD") return null; // the daily chart's money axis is USD
+    const months = domMonths();
+    const bucket = new Map(months.map((m) => [m, new Map<string, number>()]));
+    let total = 0;
+    let unpriced = 0;
+    let later = 0;
+    domains.forEach((d, i) => {
+      if (!d.expiresAt || d.expiresInDays === null || d.expiresInDays < 0) return;
+      const m = bucket.get(d.expiresAt.slice(0, 7));
+      if (!m) {
+        later += 1;
+        return;
+      }
+      const p = prices[i];
+      if (!p || p.currency !== cur) {
+        unpriced += 1;
+        return;
+      }
+      m.set(d.registrar, (m.get(d.registrar) ?? 0) + p.amount);
+      total += p.amount;
+    });
+    if (!total) return null;
+    const daily = months.map((m) => {
+      const parts = [...bucket.get(m)!].map(([label, value]) => ({ label, value: Math.round(value * 100) / 100 }));
+      const d = new Date(`${m}-01T00:00:00Z`);
+      return {
+        day: `${m}-01`,
+        total: Math.round(parts.reduce((n, p) => n + p.value, 0) * 100) / 100,
+        parts,
+        label: `${DOM_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`,
+        tick: DOM_MONTHS[d.getUTCMonth()],
+      };
+    });
+    const peak = daily.reduce((b, d) => (d.total > b.total ? d : b), daily[0]!);
+    return {
+      daily,
+      dailySplit: "By registrar",
+      unit: "usd" as const,
+      caption: also(
+        `${domMoney(total, cur)} over the next 12 months · biggest ${peak.label}`,
+        also(unpriced ? `${unpriced} unpriced not drawn` : "", later ? `${later} renew later` : ""),
+      ),
+    };
+  },
+
+  "domains.attention": ({ domains, cloudflare, uptime }: LiveInputs) => {
+    if (!domains.length) return null;
+    /* One row per name, its worst reason first and any others after it. */
+    const byName = new Map<string, { d: Domain; what: string[] }>();
+    for (const a of domAttention(domains, cloudflare, uptime)) {
+      const row = byName.get(a.d.name) ?? { d: a.d, what: [] };
+      row.what.push(a.what);
+      byName.set(a.d.name, row);
+    }
+    const items = [...byName.values()];
+    if (!items.length)
+      return { headers: ["Domain", "To do", "Renews"], table: [], caption: "Nothing needs a decision" };
+    return {
+      headers: ["Domain", "To do", "Renews"],
+      table: items.map((a) => [a.d.name, a.what.join(" · "), domWhen(a.d.expiresInDays, a.d.expiresAt)]),
+      rowHosts: items.map((a) => a.d.name),
+    };
+  },
+
+  "domains.protection": ({ domains, cloudflare }: LiveInputs) => {
+    if (!domains.length) return null;
+    const n = domains.length;
+    const on = domains.filter((d) => d.autoRenew === true).length;
+    const off = domains.filter((d) => d.autoRenew === false).length;
+    const unknown = n - on - off;
+    const share = (k: number, of: number) => `${count(k)} of ${count(of)}`;
+    const locked = domains.filter((d) => d.locked === true).length;
+    const priv = domains.filter((d) => d.privacy !== null && d.privacy !== "off").length;
+    const cfNames = new Set((cloudflare?.zones ?? []).map((z) => z.name.toLowerCase()));
+    const onCf = domains.filter((d) => cfNames.has(d.name)).length;
+    const rows: [string, string][] = [
+      ["Transfer lock", `${locked === n ? "✓ " : ""}${share(locked, n)}`],
+      ["WHOIS privacy", `${priv === n ? "✓ " : ""}${share(priv, n)}`],
+    ];
+    if (cloudflare) rows.push(["Cloudflare zone", `${onCf === n ? "✓ " : ""}${share(onCf, n)}`]);
+    return {
+      value: share(on, n),
+      tone: off ? ("warn" as StatusTone) : undefined,
+      sub: "renew themselves",
+      partsLabel: "Auto-renew",
+      parts: [
+        { label: "On", value: on, text: count(on), tone: "ok" as StatusTone },
+        { label: "Off", value: off, text: count(off), tone: "warn" as StatusTone },
+        ...(unknown ? [{ label: "Not reported", value: unknown, text: count(unknown) }] : []),
+      ],
+      rows,
+    };
+  },
+
+  "domains.grid": ({ domains, finance, cloudflare, uptime }: LiveInputs) => {
+    if (!domains.length) return null;
+    const sorted = [...domains].sort(bySoonest);
+    const headers = ["Domain", "Site", "Renews", "Price", "Auto", "Lock", "Privacy"];
+    return {
+      headers,
+      table: sorted.map((d) => {
+        const p = domPrice(d, finance);
+        return [
+          d.name,
+          DOM_USE_WORD[domUse(d.name, cloudflare, uptime)],
+          domWhen(d.expiresInDays, d.expiresAt),
+          p ? `${p.estimated ? "~" : ""}${domMoney(p.amount, p.currency)}` : DASH,
+          domTick(d.autoRenew),
+          domTick(d.locked),
+          d.privacy === null ? "?" : d.privacy === "off" ? "✗" : "✓",
+        ];
+      }),
+      rowHosts: sorted.map((d) => d.name),
+      caption: finance && sorted.some((d) => domPrice(d, finance)?.estimated) ? "~ estimated from Dynadot's price for the same extension" : undefined,
+    };
+  },
+
+  "domains.traffic": ({ domains, cloudflare: C }: LiveInputs) => {
+    if (!C || !domains.length) return null;
+    const zones = new Map(C.zones.map((z) => [z.name.toLowerCase(), z]));
+    const measured = domains
+      .map((d) => ({ d, t: zones.get(d.name)?.traffic ?? null }))
+      .filter((r): r is { d: Domain; t: NonNullable<CloudflareZone["traffic"]> } => r.t !== null && r.t.pageViews !== null);
+    if (!measured.length) return null;
+    const top = measured.sort((a, b) => b.t.pageViews! - a.t.pageViews!).slice(0, 10);
+    const unseen = domains.filter((d) => !zones.get(d.name)?.traffic).map((d) => d.name);
+    return {
+      ranked: top.map(({ d, t }) => ({
+        label: d.name,
+        host: d.name,
+        value: t.pageViews!,
+        text: compact(t.pageViews!),
+        sub: `${compact(t.requests)} req`,
+      })),
+      caption: also(
+        measured.length > top.length ? `+ ${measured.length - top.length} quieter` : "",
+        unseen.length ? `not on Cloudflare: ${unseen.slice(0, 2).join(", ")}${unseen.length > 2 ? ` +${unseen.length - 2}` : ""}` : "",
+      ) || undefined,
+    };
+  },
+
+  "domains.priciest": ({ domains, finance }: LiveInputs) => {
+    if (!domains.length || !finance) return null;
+    const rows = domains
+      .map((d) => ({ d, p: domPrice(d, finance) }))
+      .filter((r): r is { d: Domain; p: DomPrice } => r.p !== null)
+      .sort((a, b) => b.p.amount - a.p.amount);
+    if (!rows.length) return null;
+    const top = rows.slice(0, 8);
+    return {
+      ranked: top.map(({ d, p }) => ({
+        label: d.name,
+        host: d.name,
+        value: p.amount,
+        text: `${p.estimated ? "~" : ""}${domMoney(p.amount, p.currency)}`,
+        sub: d.registrar,
+      })),
+      caption: rows.length > top.length ? `Top ${top.length} of ${rows.length} priced names` : undefined,
+    };
+  },
+
+  "domains.soonest": ({ domains, domainSummary, finance }: LiveInputs) => {
+    if (!domainSummary) return null;
+    const dated = domains.filter((d) => d.expiresInDays !== null).sort(bySoonest).slice(0, 8);
+    if (!dated.length) return null;
+    return {
+      runway: dated.map((d) => {
+        const p = domPrice(d, finance);
+        return {
+          label: d.name,
+          days: d.expiresInDays!,
+          sub: also(p ? domMoney(p.amount, p.currency) : "", d.autoRenew === false ? "auto-renew off" : d.autoRenew ? "auto" : ""),
+          at: d.expiresAt,
+        };
+      }),
+      thresholds: domainSummary.thresholds,
+    };
+  },
+
+  "domains.byTld": ({ domains, finance }: LiveInputs) => {
+    if (!domains.length || !finance) return null;
+    const prices = domains.map((d) => domPrice(d, finance));
+    const cur = domCurrency(prices);
+    if (!cur) return null;
+    const by = new Map<string, { cost: number; n: number }>();
+    domains.forEach((d, i) => {
+      const p = prices[i];
+      if (!p || p.currency !== cur) return;
+      const k = `.${domTld(d.name)}`;
+      const g = by.get(k) ?? { cost: 0, n: 0 };
+      g.cost += p.amount;
+      g.n += 1;
+      by.set(k, g);
+    });
+    if (!by.size) return null;
+    const total = [...by.values()].reduce((n, g) => n + g.cost, 0);
+    /* Six extensions and the rest together, so the legend stays a legend. */
+    const sorted = [...by].sort((a, b) => b[1].cost - a[1].cost);
+    const shown = sorted.length > 7 ? sorted.slice(0, 6) : sorted;
+    const rest = sorted.slice(shown.length);
+    if (rest.length)
+      shown.push([
+        `${rest.length} others`,
+        { cost: rest.reduce((n, [, g]) => n + g.cost, 0), n: rest.reduce((n, [, g]) => n + g.n, 0) },
+      ]);
+    return {
+      slices: shown
+        .map(([k, g]) => ({
+          label: k,
+          value: g.cost,
+          text: domMoney(g.cost, cur, 0),
+          sub: `${g.n} name${g.n === 1 ? "" : "s"}`,
+        })),
+      center: { value: domMoney(total, cur, 0), note: "a year" },
+    };
+  },
+
+  "domains.dns": ({ domains }: LiveInputs) => {
+    if (!domains.length) return null;
+    const by = new Map<string, string[]>();
+    const silent: string[] = [];
+    for (const d of domains) {
+      const p = domDnsProvider(d.nameservers);
+      if (!p) silent.push(d.name);
+      else by.set(p, [...(by.get(p) ?? []), d.name]);
+    }
+    const ranked = [...by].sort((a, b) => b[1].length - a[1].length);
+    const lead = ranked[0];
+    const rows: [string, string][] = ranked
+      .slice(1)
+      .flatMap(([p, names]) => names.map((n) => [n, p] as [string, string]));
+    for (const n of silent) rows.push([n, "none reported"]);
+    return {
+      value: lead ? `${count(lead[1].length)} of ${count(domains.length)}` : "0",
+      sub: lead ? `point at ${lead[0]}` : "no nameservers reported",
+      partsLabel: "Nameservers",
+      parts: [
+        ...ranked.map(([p, names], i) => ({
+          label: p,
+          value: names.length,
+          text: count(names.length),
+          ...(i === 0 ? { tone: "ok" as StatusTone } : {}),
+        })),
+        ...(silent.length ? [{ label: "Not reported", value: silent.length, text: count(silent.length) }] : []),
+      ],
+      rows: rows.slice(0, 6),
+    };
+  },
+
+  "domains.age": ({ domains }: LiveInputs) => {
+    const dated = domains.filter((d) => d.registeredOn && /^\d{4}/.test(d.registeredOn));
+    if (!dated.length) return null;
+    const years = new Map<string, Domain[]>();
+    for (const d of dated) {
+      const y = d.registeredOn!.slice(0, 4);
+      years.set(y, [...(years.get(y) ?? []), d]);
+    }
+    const undated = domains.length - dated.length;
+    return {
+      ranked: [...years]
+        .sort((a, b) => b[0].localeCompare(a[0]))
+        .map(([y, list]) => {
+          const newest = [...list].sort((a, b) => b.registeredOn!.localeCompare(a.registeredOn!))[0]!;
+          return {
+            label: y,
+            value: list.length,
+            text: count(list.length),
+            sub: list.length === 1 ? newest.name : `newest ${newest.name}`,
+          };
+        }),
+      caption: undated ? `${undated} without a registration date` : undefined,
     };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);

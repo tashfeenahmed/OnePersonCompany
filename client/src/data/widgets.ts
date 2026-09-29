@@ -48,7 +48,12 @@ export type WidgetKind =
    *  faster than a caption. */
   | "gallery"
   /** The advertisements as people saw them: image, words, four numbers. */
-  | "adgallery";
+  | "adgallery"
+  /** One small card per website: favicon, audit grade, clicks, three figures. */
+  | "sitegrid"
+  /** One small card per website: favicon, headline figure, its days as
+   *  bars, three figures under it (the Search board's sites). */
+  | "sitetiles";
 
 export type StatusTone = "ok" | "warn" | "bad";
 
@@ -224,6 +229,29 @@ export type AdCard = {
   stats: [string, string][];
 };
 
+/**
+ * One website on a `sitegrid` card (the SEO board). Every figure is already
+ * formatted, and a null is a source that has nothing for the site — drawn
+ * as a dash, never as a nought.
+ */
+export type SiteCard = {
+  host: string;
+  name: string;
+  /** A venture id, for the venture's own favicon. */
+  venture?: string | null;
+  /** The audit's letter, by a stated rule (see the SEO builders); null when
+   *  the site was never audited. */
+  grade: "A" | "B" | "C" | "D" | null;
+  /** "2 errors", "clean", "not audited" — under the ring. */
+  gradeNote: string;
+  /** Search clicks over the window, and the second half against the first. */
+  clicks: string;
+  change: number | null;
+  spark: number[] | null;
+  /** Up to three small figures — [label, value]. */
+  stats: [string, string][];
+};
+
 /** One conversation on a `threads` card. */
 export type ThreadCard = {
   source: "Reddit" | "Hacker News";
@@ -238,13 +266,34 @@ export type ThreadCard = {
   unanswered: boolean;
 };
 
-/** One day of a `daily` card. `parts` carry a `mark` when they are models. */
+/** One day of a `daily` card. `parts` carry a `mark` when they are models,
+ *  a `host` when they are websites (for the favicon in the key). */
 export type DailyBar = {
   day: string;
   total: number;
-  /** `host` is a hostname for the venture favicon in the legend; `app` an
-   *  app for its store icon. */
+  /** A bar that is not one day — a month of renewals — says what it is:
+   *  `label` ("Dec 2026") in the hover and at the axis ends, `tick` ("Dec")
+   *  under the bar itself when every bar has one. */
+  label?: string;
+  tick?: string;
+  /** `host` is a hostname for the venture favicon in the legend. */
   parts?: { label: string; value: number; mark?: string | null; host?: string | null; app?: Pick<AppEntry, "icon" | "name" | "ventureId"> }[];
+};
+
+/**
+ * One website on a `sitetiles` card: its favicon, one headline figure, its
+ * days as bars and up to three small figures. Everything is formatted by the
+ * builder; `change` is a short movement ("+42%") with the way it went, null
+ * when there was no window before to compare with.
+ */
+export type SiteTile = {
+  label: string;
+  host?: string | null;
+  value: string;
+  unit: string;
+  change?: { text: string; good: boolean | null } | null;
+  bars?: number[];
+  figures?: [string, string][];
 };
 
 /**
@@ -673,14 +722,22 @@ export type Widget = {
   rowHosts?: (string | null)[];
   /** adgallery — the advertisements, as cards. */
   adCards?: AdCard[];
+  /** sitegrid — one card per website, and the quiet ones as chips. */
+  siteCards?: SiteCard[];
+  quietSites?: { name: string; host: string; venture?: string | null }[];
   /** threads — the conversations, as cards. */
   threads?: ThreadCard[];
   /** appfilter / appgrid / reviews — the Apps document (see lib/api/apps). */
   appsDoc?: AppsDoc;
+  /** sitetiles — one small card per website (Search board). */
+  sites?: SiteTile[];
   /** daily — one entry per day: the total and, for the split tab, its parts. */
   daily?: DailyBar[];
   /** daily — the split tab's name: "By model", "By source". */
   dailySplit?: string;
+  /** daily — open on the split tab rather than the total, for a card whose
+   *  whole point is the split (pageviews by site). */
+  dailyOpen?: "split";
   /** metric */
   value?: string;
   /** Colours the reading and puts a word beside it — "watch", "act". Only for
@@ -1634,10 +1691,12 @@ export const WIDGETS: Record<string, Widget> = {
     live: { gsc: true },
     headers: ["Property", "Impressions", "Clicks", "CTR", "Position", "Δ impressions"],
   },
+  /* Clicks gained or lost per site against the window before — a bar per
+     site, so the one that really moved is the longest. */
   "gsc.movers": {
     src: "gsc",
-    name: "Biggest movers · 28d",
-    kind: "rows",
+    name: "What moved",
+    kind: "ranked",
     live: { gsc: true },
   },
   /* "PORTFOLIO" IS IN THE NAME because the line is every property summed —
@@ -1646,8 +1705,9 @@ export const WIDGETS: Record<string, Widget> = {
      instead; the builder renames it. */
   "gsc.trend": {
     src: "gsc",
-    name: "Impressions a day · portfolio",
-    kind: "chart",
+    name: "Impressions per day · Google",
+    window: "selected",
+    kind: "daily",
     live: { gsc: true },
     /* A count, not a percentage: this is a quantity of times a link was shown.
        Clicks are deliberately not a second line — they run about forty times
@@ -1749,7 +1809,7 @@ export const WIDGETS: Record<string, Widget> = {
   "bing.queries": {
     src: "bing",
     name: "Top queries · Bing",
-    kind: "rows",
+    kind: "ranked",
     live: { bing: true },
   },
   "bing.sites": {
@@ -1761,11 +1821,20 @@ export const WIDGETS: Record<string, Widget> = {
   },
   "bing.trend": {
     src: "bing",
-    name: "Impressions a day · Bing",
-    kind: "chart",
+    name: "Impressions per day · Bing",
+    window: "selected",
+    kind: "daily",
     live: { bing: true },
     unit: "count",
   },
+  /* THE SEARCH BOARD AT A GLANCE (2026-09-29): every site as a small card
+     with its favicon, Bing's clicks as bars, Bing's own page-two list and its
+     crawl errors. Google and Bing stay on separate cards. */
+  "search.googleSites": { src: "gsc", name: "Every site on Google", kind: "sitetiles", live: { gsc: true } },
+  "search.bingSites": { src: "bing", name: "Every site on Bing", kind: "sitetiles", live: { bing: true } },
+  "search.bingDaily": { src: "bing", name: "Clicks per day · Bing", window: "selected", kind: "daily", live: { bing: true }, unit: "count" },
+  "search.bingStriking": { src: "bing", name: "Page-two opportunities · Bing", kind: "ranked", live: { bing: true } },
+  "search.bingCrawl": { src: "bing", name: "Crawl errors · Bing", kind: "metric", live: { bing: true }, invert: true },
   /*
     CLOUDFLARE. Two catalog samples became measurements, and both had to change
     what they claim in order to become one.
@@ -2304,6 +2373,49 @@ export const WIDGETS: Record<string, Widget> = {
     kind: "rows",
     live: { domains: true },
   },
+
+  /* THE DOMAINS BOARD'S VISUAL CARDS — the registrar read joined with the
+     finance ledger's renewal prices, Cloudflare's per-zone traffic and the
+     uptime probe. Every row carries its hostname for the venture favicon. */
+  "domains.held": { src: "registrars", name: "Domains held", kind: "proportion", live: { domains: true } },
+  "domains.yearly": { src: "registrars", name: "Renewal cost a year", kind: "proportion", live: { domains: true, finance: true } },
+  "domains.next": { src: "registrars", name: "Next renewal", kind: "metric", live: { domains: true, finance: true } },
+  "domains.inUse": { src: "registrars", name: "Names in use", kind: "proportion", live: { domains: true, cloudflare: true, uptime: true } },
+  "domains.renewals": {
+    src: "registrars",
+    name: "Renewals, next 12 months",
+    kind: "daily",
+    unit: "usd",
+    live: { domains: true, finance: true },
+  },
+  "domains.attention": {
+    src: "registrars",
+    name: "To decide",
+    kind: "table",
+    live: { domains: true, cloudflare: true, uptime: true },
+    headers: ["Domain", "To do", "Renews"],
+  },
+  "domains.protection": { src: "registrars", name: "Auto-renew and protection", kind: "proportion", live: { domains: true, cloudflare: true } },
+  "domains.grid": {
+    src: "registrars",
+    name: "Every domain",
+    kind: "table",
+    live: { domains: true, finance: true, cloudflare: true, uptime: true },
+    headers: ["Domain", "Site", "Renews", "Price", "Auto", "Lock", "Privacy"],
+  },
+  "domains.traffic": { src: "registrars", name: "Page views by domain", window: "selected", kind: "ranked", live: { domains: true, cloudflare: true } },
+  "domains.priciest": { src: "registrars", name: "Dearest to renew", kind: "ranked", live: { domains: true, finance: true } },
+  "domains.soonest": {
+    src: "registrars",
+    name: "Next to renew",
+    kind: "runway",
+    live: { domains: true, finance: true },
+    thresholds: { warn: 30, crit: 7 },
+    cap: 400,
+  },
+  "domains.byTld": { src: "registrars", name: "Yearly cost by extension", kind: "donut", live: { domains: true, finance: true } },
+  "domains.dns": { src: "registrars", name: "Where the names point", kind: "proportion", live: { domains: true } },
+  "domains.age": { src: "registrars", name: "Registered by year", kind: "ranked", live: { domains: true } },
   "spaceship.domains": {
     src: "spaceship",
     name: "Spaceship domains",
@@ -3150,7 +3262,7 @@ export const WIDGETS: Record<string, Widget> = {
   },
   "umami.visitors": {
     src: "umami",
-    name: "Visitors · 30d",
+    name: "Visitors, largest site · 30d",
     kind: "metric",
     live: { umami: true },
   },
@@ -3163,40 +3275,116 @@ export const WIDGETS: Record<string, Widget> = {
   },
   "umami.avgVisit": {
     src: "umami",
-    name: "Average visit",
+    name: "Average visit · 30d",
     kind: "metric",
     live: { umami: true },
   },
   "umami.daily": {
     src: "umami",
-    name: "Pageviews and visits",
-    kind: "chart",
+    name: "Pageviews per day",
+    window: "selected",
+    kind: "daily",
     live: { umami: true },
     unit: "count",
   },
   "umami.sites": {
     src: "umami",
-    name: "Every website",
+    name: "Every website · 30d",
     kind: "table",
     live: { umami: true },
-    headers: ["Site", "Pageviews", "Visitors", "Visits", "Bounce", "Avg visit"],
+    headers: ["Site", "Pageviews", "Change", "Visitors", "Bounce", "Avg visit"],
   },
   "umami.pages": {
     src: "umami",
-    name: "Top pages",
-    kind: "rows",
+    name: "Top pages · 30d",
+    kind: "ranked",
     live: { umami: true },
   },
   "umami.referrers": {
     src: "umami",
-    name: "Top referrers",
-    kind: "rows",
+    name: "Top referrers · 30d",
+    kind: "ranked",
     live: { umami: true },
   },
   "umami.events": {
     src: "umami",
-    name: "Top events",
-    kind: "rows",
+    name: "Top events · 30d",
+    kind: "ranked",
+    live: { umami: true },
+  },
+
+  /* -------------------------------------------------------------- analytics
+     THE ANALYTICS BOARD'S OWN CARDS — every site at once, as pictures.
+     Pageviews and visits follow the picker off each site's daily line;
+     bounce and visit length are Umami's own thirty days; countries, devices
+     and browsers are the web-analytics rotation's thirty-day rows for every
+     site, summed site by site (so site-visitors, not people — each card says
+     so in its one line).
+  */
+  "analytics.visits": {
+    src: "umami",
+    name: "Visits",
+    window: "selected",
+    kind: "metric",
+    live: { umami: true },
+  },
+  "analytics.dailyRest": {
+    src: "umami",
+    name: "Pageviews per day, the smaller sites",
+    window: "selected",
+    kind: "daily",
+    live: { umami: true },
+    unit: "count",
+  },
+  "analytics.sites": {
+    src: "umami",
+    name: "Every site",
+    window: "selected",
+    kind: "ranked",
+    live: { umami: true },
+  },
+  "analytics.movers": {
+    src: "umami",
+    name: "What moved",
+    window: "selected",
+    kind: "ranked",
+    live: { umami: true },
+  },
+  "analytics.countries": {
+    src: "webanalytics",
+    name: "Countries · 30d",
+    kind: "ranked",
+    live: { umami: true, webAnalytics: true },
+  },
+  "analytics.devices": {
+    src: "webanalytics",
+    name: "Devices · 30d",
+    kind: "proportion",
+    live: { umami: true, webAnalytics: true },
+  },
+  "analytics.browsers": {
+    src: "webanalytics",
+    name: "Browsers · 30d",
+    kind: "ranked",
+    live: { umami: true, webAnalytics: true },
+  },
+  "analytics.sources": {
+    src: "umami",
+    name: "Where the links came from · 30d",
+    kind: "proportion",
+    live: { umami: true },
+  },
+  "analytics.bounceSites": {
+    src: "umami",
+    name: "Bounce rate by site · 30d",
+    kind: "ranked",
+    live: { umami: true },
+    invert: true,
+  },
+  "analytics.durationSites": {
+    src: "umami",
+    name: "Visit length by site · 30d",
+    kind: "ranked",
     live: { umami: true },
   },
 
@@ -3542,6 +3730,28 @@ export const WIDGETS: Record<string, Widget> = {
     live: { audit: true },
   },
 
+  /* THE SEO BOARD, REWORKED 2026-09-29 at the owner's word — "more visuals,
+     less text, favicons where you can". Every site as a small card, then what
+     moved, what to fix, and the lists as favicon bars. The audit grade is a
+     stated rule over the error and warning counts (A clean, B warnings only,
+     C one or two errors, D three or more) — never a weighted score. */
+  "seo.clicks": { src: "gsc", name: "Search clicks", kind: "metric", live: { gsc: true } },
+  "seo.impressions": { src: "gsc", name: "Search impressions", kind: "metric", live: { gsc: true } },
+  "seo.needsFix": { src: "audit", name: "Sites with audit errors", kind: "metric", live: { audit: true } },
+  "seo.aiFound": { src: "geo", name: "Found by AI", kind: "metric", live: { seo: true } },
+  "seo.sites": { src: "audit", name: "Every site", kind: "sitegrid", live: { audit: true, gsc: true, bing: true, seo: true } },
+  "seo.clicksDaily": { src: "gsc", name: "Search clicks a day", kind: "daily", live: { gsc: true }, unit: "count" },
+  "seo.movers": { src: "gsc", name: "What moved", kind: "ranked", live: { gsc: true } },
+  "seo.fixFirst": { src: "audit", name: "Fix first", kind: "rows", live: { audit: true, gsc: true, bing: true, seo: true } },
+  "seo.queries": { src: "gsc", name: "Top searches", kind: "ranked", live: { gsc: true } },
+  "seo.striking": { src: "gsc", name: "Almost page one", kind: "ranked", live: { gsc: true } },
+  "seo.grades": { src: "audit", name: "Audit grades", kind: "proportion", live: { audit: true } },
+  "seo.errors": { src: "audit", name: "Audit errors by site", kind: "ranked", live: { audit: true } },
+  "seo.ai": { src: "geo", name: "AI visibility by site", kind: "ranked", live: { seo: true } },
+  "seo.indexed": { src: "bing", name: "Pages in Bing's index", kind: "ranked", live: { bing: true } },
+  "seo.links": { src: "bing", name: "Inbound links · Bing", kind: "ranked", live: { bing: true } },
+  "seo.listed": { src: "presence", name: "Listed on", kind: "ranked", live: { presence: true } },
+
   /* ------------------------------------------------------------------- runs
      WHAT THE AGENT HAS BEEN ASKED TO DO, and how far it got.
 
@@ -3841,8 +4051,9 @@ export const WIDGETS: Record<string, Widget> = {
      theirs: forty times apart, the two cannot share one. */
   "gsc.clicksTrend": {
     src: "gsc",
-    name: "Clicks a day · portfolio",
-    kind: "chart",
+    name: "Clicks per day · Google",
+    window: "selected",
+    kind: "daily",
     live: { gsc: true },
     unit: "count",
   },
@@ -5638,18 +5849,20 @@ export const DASHBOARD_PRESETS: {
     label: "Domains",
     note: "the portfolio and what renews next",
     widgets: [
-      "registrars.total",
-      "registrars.lapsed",
-      "registrars.expiring",
-      "registrars.autoRenewOff",
-      "registrars.runway",
-      "registrars.attention",
-      "registrars.security",
-      "registrars.table",
-      "registrars.byTld",
-      "registrars.byRegistrar",
-      "registrars.nameservers",
-      "registrars.newest",
+      "domains.held",
+      "domains.yearly",
+      "domains.next",
+      "domains.inUse",
+      "domains.renewals",
+      "domains.attention",
+      "domains.protection",
+      "domains.grid",
+      "domains.traffic",
+      "domains.priciest",
+      "domains.soonest",
+      "domains.byTld",
+      "domains.dns",
+      "domains.age",
       "registrars.search",
     ],
   },

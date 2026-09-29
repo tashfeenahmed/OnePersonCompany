@@ -3,6 +3,7 @@
  *
  *   GET  /sites                          which websites have deep rows, and how stale
  *   GET  /segments/:websiteId            who the traffic was, raw AND adjusted
+ *   GET  /overview                       every site's segments at once, trimmed for a board
  *   GET  /events                         events with participants, and their properties
  *   GET  /events/funnel-inputs           the same rows shaped for conversion work
  *   GET  /campaigns                      the campaign → venture map and its suggestions
@@ -37,7 +38,7 @@ import { ventureRow, ventureRows } from "../../db.ts";
 import { umamiWebsites } from "../analytics/store.ts";
 import * as umami from "../analytics/umami.ts";
 import * as meta from "../../providers/meta.ts";
-import { segmentsFor } from "./segments.ts";
+import { overviewOf, segmentsFor } from "./segments.ts";
 import { fatigueRows, statusRows, MIN_IMPRESSIONS } from "./fatigue.ts";
 import {
   blended,
@@ -123,6 +124,37 @@ webAnalyticsRoutes.get("/segments/:websiteId", (c) => {
       "A share is of the DIMENSION'S own rows, not of the site's visitors. `unattributed` is the gap, which is sessions Umami had no value for.",
       "Visitor figures are de-duplicated over the window they were asked about. Two windows' visitors are not subtractable and the 30-day view therefore offers no week-on-week change.",
       "Days are the Umami INSTANCE'S days, in its own timezone, which this box does not know.",
+    ],
+  });
+});
+
+/* --------------------------------------------------------------- overview */
+
+/**
+ * EVERY SITE'S SEGMENTS IN ONE ANSWER, trimmed to what a board card draws.
+ *
+ * The Analytics board ranks countries, devices and browsers across the whole
+ * portfolio, and asking `/segments/:id` once per website would be two dozen
+ * requests for one card. This is the same reading, per site, never summed:
+ * each row names its website, and a card that adds two sites' visitor rows
+ * is adding site-visitors and says so itself. A site the rotation has not
+ * read yet is listed with no segments rather than left out.
+ */
+webAnalyticsRoutes.get("/overview", (c) => {
+  const days = Number(c.req.query("days") ?? 30) === 7 ? 7 : 30;
+  const keep = clamp(Number(c.req.query("keep") ?? 25) || 25, 1, 100);
+  const sites = umamiWebsites().map((s) => ({
+    name: s.name,
+    domain: s.domain,
+    readAt: clockAt("web-site", `${s.account_id}:${s.website_id}`),
+    ...overviewOf(segmentsFor(s.website_id, days), keep),
+  }));
+  return c.json({
+    windowDays: days,
+    sites,
+    notes: [
+      "Per website and never summed here: Umami de-duplicates visitors per site, so two sites' country rows added together count site-visitors, not people.",
+      "Each dimension keeps its largest values; `total` is the whole block's sum and `more` is how many values were left out.",
     ],
   });
 });

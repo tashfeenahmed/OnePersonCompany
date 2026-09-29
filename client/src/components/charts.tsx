@@ -1100,17 +1100,20 @@ export function DailyBars({
   unit,
   caption,
   split,
+  open,
 }: {
   days: DailyBar[];
   unit: ChartUnit;
   caption?: string;
   split?: string;
+  /** Start on the split tab — for a card whose point is the split. */
+  open?: "split";
 }) {
   const [host, w] = useMeasuredWidth<HTMLDivElement>();
   const { tip, show, hide } = useTip();
   const [hot, setHot] = useState<number | null>(null);
   const hasParts = !!split && days.some((d) => d.parts?.length);
-  const [tab, setTab] = useState<"total" | "split">("total");
+  const [tab, setTab] = useState<"total" | "split">(open ?? "total");
   const splitOn = hasParts && tab === "split";
 
   /* The window's top six parts, in size order, with their marks. */
@@ -1186,7 +1189,7 @@ export function DailyBars({
           <div
             key={d.day}
             role="img"
-            aria-label={`${dateLong(d.day)}: ${reading(d.total, unit)}`}
+            aria-label={`${d.label ?? dateLong(d.day)}: ${reading(d.total, unit)}`}
             className={cn(
               "flex h-full min-w-0 flex-1 flex-col justify-end transition-opacity",
               hot !== null && hot !== i && "opacity-55",
@@ -1205,7 +1208,7 @@ export function DailyBars({
               show({
                 x: box.left - hostBox.left + box.width / 2,
                 y: box.top - hostBox.top,
-                title: `${dateLong(d.day)} · ${reading(d.total, unit)}`,
+                title: `${d.label ?? dateLong(d.day)} · ${reading(d.total, unit)}`,
                 rows: parts.length ? (
                   <>
                     {parts.map((p) => (
@@ -1240,10 +1243,21 @@ export function DailyBars({
           </div>
         ))}
       </div>
-      <div className="text-muted-foreground mt-1 flex justify-between text-[11.5px]">
-        <span>{days.length ? dayShort(Date.parse(`${days[0]!.day}T00:00:00Z`)) : ""}</span>
-        <span>{days.length ? dayShort(Date.parse(`${days.at(-1)!.day}T00:00:00Z`)) : ""}</span>
-      </div>
+      {days.length > 0 && days.every((d) => d.tick) ? (
+        /* Buckets with names (months) are few enough to label every one. */
+        <div className="text-muted-foreground mt-1 flex gap-[3px] text-[11px]">
+          {days.map((d) => (
+            <span key={d.day} className="min-w-0 flex-1 truncate text-center">
+              {d.tick}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="text-muted-foreground mt-1 flex justify-between text-[11.5px]">
+          <span>{days.length ? days[0]!.label ?? dayShort(Date.parse(`${days[0]!.day}T00:00:00Z`)) : ""}</span>
+          <span>{days.length ? days.at(-1)!.label ?? dayShort(Date.parse(`${days.at(-1)!.day}T00:00:00Z`)) : ""}</span>
+        </div>
+      )}
       {splitOn && (
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[12px]">
           {legend.map((l) => (
@@ -1492,17 +1506,18 @@ export function Ranked({
   const { state } = useStore();
   return (
     <div className="mt-1 flex flex-col gap-2">
-      {rows.map((r) => {
+      {rows.map((r, i) => {
         const share = (Math.max(r.value, 0) / top) * 78;
         const venture = r.venture ? state.ventures.find((v) => v.id === r.venture) : undefined;
         return (
-          <div key={r.label} className="min-w-0">
+          /* The index as well: one query can rank for two sites. */
+          <div key={`${r.label}|${i}`} className="min-w-0">
             <div className="flex items-baseline gap-2 text-[13px]">
               {r.mark && <ModelMark name={r.mark} size={13} className="self-center" />}
               {venture && <VentureMark venture={venture} size={16} className="self-center" />}
               {r.role && <RoleIcon role={r.role} className="size-5 self-center" />}
               {r.app && <AppIcon app={r.app} size={16} className="self-center" />}
-              {r.host && <HostMark host={r.host} size={14} className="self-center" />}
+              {r.host && <HostMark host={r.host} size={14} className="self-center" fallback />}
               <span className="truncate">{r.label}</span>
               {r.spark && r.spark.length > 1 && <MiniLine values={r.spark} />}
               {r.sub && (
@@ -2098,7 +2113,7 @@ export function Figures({
                 >
                   {i === 0 && hosts?.[ri] ? (
                     <span className="inline-flex items-center gap-1.5">
-                      <HostMark host={hosts[ri]} size={13} />
+                      <HostMark host={hosts[ri]} size={13} fallback />
                       {cell}
                     </span>
                   ) : i === 0 && marks?.[ri] ? (
