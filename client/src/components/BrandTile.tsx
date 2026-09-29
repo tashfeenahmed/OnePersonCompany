@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import { BRAND_ICONS } from "@/data/brandIcons";
+import { readableColour, tileBackground } from "@/lib/readableColour";
 
 /**
  * A rounded service tile: the real brand glyph on a tint of its own colour, or
@@ -30,12 +31,12 @@ export function BrandTile({
         "grid size-[34px] shrink-0 place-items-center rounded-[12px]",
         className,
       )}
-      style={{ background: `${colour}1f` }}
+      style={{ background: tileBackground(colour) }}
     >
       {brand ? (
         <svg
           viewBox="0 0 24 24"
-          fill={colour}
+          fill={readableColour(colour)}
           className={cn("size-[17px]", glyphClassName)}
           aria-hidden
           dangerouslySetInnerHTML={{ __html: brand.svg }}
@@ -49,7 +50,7 @@ export function BrandTile({
             "inline-flex items-center justify-center text-[14px] leading-none font-semibold tracking-tight",
             glyphClassName,
           )}
-          style={{ color: colour }}
+          style={{ color: readableColour(colour) }}
         >
           {mono ?? name?.[0] ?? "?"}
         </span>
