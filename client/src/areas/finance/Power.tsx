@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useApi } from "@/hooks/useApi";
 import { Input } from "@/components/ui/input";
 import { finance } from "@/lib/api/finance";
+import { api } from "@/lib/api";
 import { amount } from "./format";
 
 /**
@@ -22,6 +23,8 @@ export function Power() {
   const doc = useApi(() => finance.power(), []);
   const [draft, setDraft] = useState<Record<string, { idle: string; busy: string; rate: string; currency: string; alwaysOn: boolean }>>({});
   const [error, setError] = useState<string | null>(null);
+  const [rate, setRate] = useState<string | null>(null);
+  const [home, setHome] = useState({ label: "", idle: "", busy: "" });
 
   if (doc.error) return <p className="text-muted-foreground text-[14px]">The API is not answering: {doc.error}</p>;
   if (!doc.data) return <p className="text-muted-foreground text-[14px]">Reading profiles…</p>;
@@ -29,16 +32,48 @@ export function Power() {
 
   return (
     <>
-      <p className="text-muted-foreground mb-4 text-[13.5px] leading-relaxed">
-        Electricity for {d.month}. The price per kWh comes from the Finance integration's settings
-        ({d.tariff.perKwh === null ? "not set — every line below is unpriced" : `${d.tariff.perKwh} ${d.tariff.currency}`}),
-        unless a machine carries one of its own.
+      <p className="text-muted-foreground mb-3 text-[13.5px] leading-relaxed">
+        Electricity for {d.month}, priced per kWh at the tariff below unless a machine carries a price of its own.
       </p>
 
+      {/* THE TARIFF, editable here: it is the one number every line is multiplied by. */}
+      <div className="bg-card mb-4 flex flex-wrap items-end gap-2 rounded-[14px] px-4.5 py-3.5">
+        <label className="text-[12px]">
+          <div className="text-muted-foreground mb-1">Price per kWh (EUR)</div>
+          <Input
+            value={rate ?? (d.tariff.source === "typed" && d.tariff.perKwh !== null ? String(d.tariff.perKwh) : "")}
+            placeholder={d.tariff.source === "irish-average" ? `${d.tariff.perKwh} — Irish standard rate` : "0.36"}
+            onChange={(e) => setRate(e.target.value)}
+            className="h-8 w-56 text-[13.5px]"
+          />
+        </label>
+        <button
+          onClick={async () => {
+            setError(null);
+            try {
+              await api.savePluginConfig("finance", { kwh_rate: (rate ?? "").trim(), kwh_currency: "EUR" });
+              setRate(null);
+              await finance.refresh().catch(() => null);
+              doc.reload();
+            } catch (err) {
+              setError(err instanceof Error ? err.message : String(err));
+            }
+          }}
+          className="hover:bg-accent h-8 rounded-lg border px-3 text-[13px]"
+        >
+          Save rate
+        </button>
+        <span className="text-muted-foreground mb-1.5 text-[12.5px]">
+          {d.tariff.source === "irish-average"
+            ? "Using the Irish standard unit rate (incl. VAT). Type your supplier's rate to replace it; empty goes back to the Irish rate."
+            : `Your rate: ${d.tariff.perKwh} ${d.tariff.currency}/kWh. Empty it to use the Irish standard rate.`}
+        </span>
+      </div>
+
       {d.machines.length === 0 && (
-        <p className="text-muted-foreground text-[14px] leading-relaxed">
-          No workstation is connected, so there is no machine to profile. Connect one under Integrations → Workstation
-          and its uptime will be sampled every collection; the hours come from those samples.
+        <p className="text-muted-foreground mb-3 text-[14px] leading-relaxed">
+          No machine yet. Add a home machine below — priced as always on — or connect a workstation under
+          Integrations → Workstation so its hours are measured.
         </p>
       )}
 
@@ -68,6 +103,7 @@ export function Power() {
                   </>
                 )}
                 {!p && <span className="text-muted-foreground text-[12.5px]">no profile yet</span>}
+                {m.home && <span className="text-muted-foreground text-[12.5px]">home machine · always on</span>}
                 {m.gone && (
                   <span className="text-muted-foreground text-[12.5px]">
                     this workstation account no longer exists — the profile is still priced into the ledger until you remove it
@@ -130,6 +166,48 @@ export function Power() {
             </div>
           );
         })}
+      </div>
+
+      {/* A HOME MACHINE: anything plugged in at home that nothing samples — the
+          Pi, the inference box, a mini PC. Priced always-on at its idle watts. */}
+      <div className="bg-card mt-3 flex flex-wrap items-end gap-2 rounded-[14px] px-4.5 py-3.5">
+        <div className="w-full text-[13.5px] font-medium">Add a home machine</div>
+        <label className="text-[12px]">
+          <div className="text-muted-foreground mb-1">Name</div>
+          <Input value={home.label} placeholder="Home Pi" onChange={(e) => setHome({ ...home, label: e.target.value })} className="h-8 w-44 text-[13.5px]" />
+        </label>
+        <label className="text-[12px]">
+          <div className="text-muted-foreground mb-1">Idle watts</div>
+          <Input value={home.idle} onChange={(e) => setHome({ ...home, idle: e.target.value })} className="h-8 w-24 text-[13.5px]" />
+        </label>
+        <label className="text-[12px]">
+          <div className="text-muted-foreground mb-1">Busy watts</div>
+          <Input value={home.busy} placeholder="same as idle" onChange={(e) => setHome({ ...home, busy: e.target.value })} className="h-8 w-28 text-[13.5px]" />
+        </label>
+        <button
+          disabled={!home.label.trim() || !home.idle.trim()}
+          onClick={async () => {
+            setError(null);
+            const slug = home.label.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "machine";
+            try {
+              await finance.savePower(`home:${slug}`, {
+                label: home.label.trim(),
+                idleWatts: Number(home.idle),
+                busyWatts: Number(home.busy.trim() || home.idle),
+                ratePerKwh: null,
+                currency: "EUR",
+                alwaysOn: true,
+              });
+              setHome({ label: "", idle: "", busy: "" });
+              doc.reload();
+            } catch (err) {
+              setError(err instanceof Error ? err.message : String(err));
+            }
+          }}
+          className="hover:bg-accent h-8 rounded-lg border px-3 text-[13px] disabled:opacity-50"
+        >
+          Add
+        </button>
       </div>
 
       {error && <p className="text-destructive mt-2 text-[13px]">{error}</p>}

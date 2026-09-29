@@ -590,6 +590,9 @@ export type Widget = {
   /** A phrase in the name that is a link — "your limits" going to the page
    *  where they are set. Drawn underlined; the rest of the name is text. */
   nameLink?: { text: string; to: string };
+  /** Where this card's figures are set — drawn as a small link at the right
+   *  of the header, e.g. "Set rate & machines" → /finance/power. */
+  configLink?: { label: string; to: string };
   /** daily — one entry per day: the total and, for the split tab, its parts. */
   daily?: DailyBar[];
   /** daily — the split tab's name: "By model", "By source". */
@@ -2394,9 +2397,9 @@ export const WIDGETS: Record<string, Widget> = {
   },
   "openai.daily": {
     src: "openai",
-    name: "Spend by day",
+    name: "OpenAI spend per day",
     window: "selected",
-    kind: "chart",
+    kind: "daily",
     live: { costs: true },
     unit: "usd",
   },
@@ -2564,6 +2567,25 @@ export const WIDGETS: Record<string, Widget> = {
     kind: "metric",
     live: { costs: true },
     invert: true,
+  },
+  /* THE WHOLE MONTH IN ONE FIGURE: the rate card plus the metered LLM bills,
+     in the display currency, each foreign part converted and marked ≈. */
+  "costs.allIn": {
+    src: "costs",
+    name: "All-in monthly",
+    kind: "metric",
+    live: { finance: true, costs: true },
+    invert: true,
+    configLink: { label: "Edit", to: "/finance" },
+  },
+  /* OpenAI and OpenRouter per day, stacked — the two metered LLM bills. */
+  "costs.daily": {
+    src: "costs",
+    name: "LLM API spend per day",
+    window: "selected",
+    kind: "daily",
+    live: { costs: true },
+    unit: "usd",
   },
   "costs.sideBySide": {
     src: "costs",
@@ -3410,7 +3432,8 @@ export const WIDGETS: Record<string, Widget> = {
   */
   "finance.monthly": {
     src: "finance",
-    name: "Monthly cost",
+    name: "Rate card · monthly",
+    configLink: { label: "Edit", to: "/finance" },
     kind: "metric",
     live: { finance: true },
     invert: true,
@@ -3419,42 +3442,49 @@ export const WIDGETS: Record<string, Widget> = {
     src: "finance",
     name: "Where it goes",
     kind: "donut",
-    live: { finance: true },
+    live: { finance: true, costs: true },
+    configLink: { label: "Edit", to: "/finance" },
   },
   "finance.servers": {
     src: "finance",
     name: "Servers",
     kind: "ranked",
+    configLink: { label: "Edit", to: "/finance" },
     live: { finance: true },
   },
   "finance.services": {
     src: "finance",
     name: "Services",
-    kind: "rows",
+    kind: "proportion",
+    configLink: { label: "Add or edit", to: "/finance" },
     live: { finance: true },
   },
   "finance.power": {
     src: "finance",
     name: "Electricity",
-    kind: "rows",
+    kind: "proportion",
+    configLink: { label: "Rate & machines", to: "/finance/power" },
     live: { finance: true },
   },
   "finance.domains": {
     src: "finance",
     name: "Domains",
     kind: "rows",
+    configLink: { label: "Edit", to: "/finance/renewals" },
     live: { finance: true },
   },
   "finance.renewals": {
     src: "finance",
     name: "Renewals · 90d",
     kind: "metric",
+    configLink: { label: "Decide", to: "/finance/renewals" },
     live: { finance: true },
   },
   "finance.unpriced": {
     src: "finance",
     name: "Unpriced lines",
     kind: "metric",
+    configLink: { label: "Price them", to: "/finance" },
     live: { finance: true },
   },
   /* --------------------------------------------------------------- payments
@@ -5209,37 +5239,25 @@ export const DASHBOARD_PRESETS: {
   {
     id: "costs",
     label: "Costs",
-    note: "LLM, media and infrastructure — each in its own currency",
+    note: "The all-in month, where it goes, then each part",
     widgets: [
+      "costs.allIn",
       "finance.monthly",
-      "finance.renewals",
+      "costs.llm",
       "finance.unpriced",
       "finance.groups",
-      "finance.servers",
       "finance.services",
+      "costs.daily",
+      "finance.servers",
       "finance.power",
       "finance.domains",
-      "costs.llm",
-      "hetzner.spend",
+      "costs.byProvider",
+      "finance.renewals",
       "openrouter.credits",
       "replicate.compute",
-      "costs.sideBySide",
-      "costs.byProvider",
-      "openai.cost",
-      "openai.daily",
-      "openai.projects",
-      "openrouter.spend",
-      "openrouter.models",
-      "openrouter.totals",
-      "openrouter.keys",
-      "openrouter.free",
       "replicate.runs",
-      "replicate.health",
       "replicate.models",
       "replicate.outputs",
-      "replicate.noCost",
-      "hetzner.spendSplit",
-      "costs.limits",
     ],
   },
   /*
@@ -5256,12 +5274,16 @@ export const DASHBOARD_PRESETS: {
     widgets: [
       "llm.headingApps",
       "costs.llm",
+      "openai.cost",
       "openrouter.spend",
       "openrouter.credits",
+      "costs.daily",
       "openrouter.runway",
-      "openrouter.daily",
       "openrouter.tokens",
+      "openrouter.daily",
       "openrouter.tokensDaily",
+      "openai.daily",
+      "openai.projects",
       "openrouter.models",
       "openrouter.free",
       "openrouter.modelTable",

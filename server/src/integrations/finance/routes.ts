@@ -57,7 +57,7 @@ import {
 } from "./money.ts";
 import { crossRate, priceListMeta, referenceRates, refreshReferenceRates, refreshTldPrices } from "./prices.ts";
 import { findVenture, portfolioPnl, venturePnl } from "./profit.ts";
-import { deleteProfile, machinesAvailable, powerLines, profiles, saveProfile, tariff } from "./power.ts";
+import { deleteProfile, isHomeMachine, machinesAvailable, powerLines, profiles, saveProfile, tariff } from "./power.ts";
 import { seedPower } from "./power.ts";
 
 export const financeRoutes = new Hono();
@@ -518,7 +518,13 @@ financeRoutes.put("/power/:machineId", async (c) => {
     `observe("foo")` → `Number("foo")` → NaN → no samples at all.
   */
   const known = machinesAvailable();
-  if (!known.some((m) => m.machineId === machineId))
+  /* A HOME MACHINE (`home:<slug>`) needs no workstation account: it is typed
+     in by hand and priced always-on, which is the honest model for a box
+     nothing samples. */
+  const home = isHomeMachine(machineId);
+  if (home && !/^home:[a-z0-9-]{1,40}$/.test(machineId))
+    return bad(c, "A home machine id is home: followed by lowercase letters, digits and dashes.");
+  if (!home && !known.some((m) => m.machineId === machineId))
     return bad(
       c,
       known.length
@@ -544,7 +550,7 @@ financeRoutes.put("/power/:machineId", async (c) => {
     ratePerKwh: rate,
     currency,
     timezone: body.timezone ? String(body.timezone) : null,
-    alwaysOn: Boolean(body.alwaysOn),
+    alwaysOn: home || Boolean(body.alwaysOn),
   });
   const counts = seedPower();
   return c.json({

@@ -397,7 +397,10 @@ const PLOT_H = 108;
  * it, so they are set at the card's own type size and are selectable.
  */
 /** The hue of the nth series — green, blue, purple, then round again. */
-const seriesColour = (i: number) => `var(--chart-line-${(i % 4) + 1})`;
+/* Four theme lines, then two fixed hues, so a five- or six-part ring or split
+   does not repeat its first colour. */
+const PALETTE = ["var(--chart-line-1)", "var(--chart-line-2)", "var(--chart-line-3)", "var(--chart-line-4)", "#c084fc", "#f59e0b"];
+const seriesColour = (i: number) => PALETTE[i % PALETTE.length]!;
 
 /** A figure written on the plot: small, in the ink, with a halo of the card
  *  colour so it stays legible over the line it labels. */
