@@ -156,6 +156,9 @@ function openrouterSection(from: string) {
   const collected = everCollected("openrouter");
 
   const byDay = new Map<string, { usd: number; requests: number; prompt: number; completion: number }>();
+  /* Day → model → spend and tokens, for the "by model" split of the daily
+     bars. Rows are already per day per model, so this is the ledger as-is. */
+  const dayModels = new Map<string, Map<string, { usd: number; tokens: number }>>();
   const byModel = new Map<
     string,
     { usd: number; byokUsd: number; requests: number; prompt: number; completion: number }
@@ -179,6 +182,13 @@ function openrouterSection(from: string) {
     d.prompt += r.prompt_tokens;
     d.completion += r.completion_tokens;
     byDay.set(r.day, d);
+
+    const dm = dayModels.get(r.day) ?? new Map<string, { usd: number; tokens: number }>();
+    const cell = dm.get(r.model) ?? { usd: 0, tokens: 0 };
+    cell.usd += r.usd;
+    cell.tokens += r.prompt_tokens + r.completion_tokens;
+    dm.set(r.model, cell);
+    dayModels.set(r.day, dm);
 
     const m = byModel.get(r.model) ?? {
       usd: 0,
@@ -242,6 +252,10 @@ function openrouterSection(from: string) {
              quote a blended rate for the day rather than for the month. */
           promptTokens: d.prompt,
           completionTokens: d.completion,
+          /* Only models that did something that day. */
+          models: [...(dayModels.get(day) ?? new Map()).entries()]
+            .filter(([, c]) => c.usd > 0 || c.tokens > 0)
+            .map(([model, c]) => ({ model, usd: money(c.usd), tokens: c.tokens })),
         })),
       models: [...byModel.entries()]
         .map(([model, m]) => ({

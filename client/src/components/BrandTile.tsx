@@ -41,9 +41,12 @@ export function BrandTile({
           dangerouslySetInnerHTML={{ __html: brand.svg }}
         />
       ) : (
+        /* Centred as a box, not as a line of text: a glyph class that sizes
+           the span (`size-[11px]`) would otherwise pin the digit to the top
+           left of its line box, and a lone "1" shows it most. */
         <span
           className={cn(
-            "text-[14px] font-semibold tracking-tight",
+            "inline-flex items-center justify-center text-[14px] leading-none font-semibold tracking-tight",
             glyphClassName,
           )}
           style={{ color: colour }}

@@ -15,6 +15,10 @@
  * loudest thing on the card; inheriting the text's ink is what lets one mark
  * work in both themes and every palette.
  *
+ * SINCE 2026-09-29 THE OWNER WANTS THEM IN COLOUR: components/ModelMark draws
+ * data/modelLogos.ts first and falls back to these paths only for a house
+ * that table does not hold.
+ *
  * A NAME WE CANNOT PLACE GETS ITS INITIALS, never another company's logo. New
  * models turn up every few weeks, so the monogram is the ordinary case and not
  * an error state.
@@ -81,6 +85,14 @@ const ALIASES: Record<string, string> = {
   mistral: "mistralai",
   "x-ai": "x",
   xai: "x",
+  zai: "z-ai",
+  "z.ai": "z-ai",
+  zhipu: "z-ai",
+  zhipuai: "z-ai",
+  thudm: "z-ai",
+  moonshot: "moonshotai",
+  "cohere-ai": "cohere",
+  liquidai: "liquid",
 };
 
 /**
@@ -100,6 +112,13 @@ const FAMILIES: [RegExp, string][] = [
   [/^grok/, "x"],
   [/^(sonar|pplx)/, "perplexity"],
   [/^nemotron/, "nvidia"],
+  [/^glm/, "z-ai"],
+  [/^kimi/, "moonshotai"],
+  [/^minimax/, "minimax"],
+  [/^(command|aya)/, "cohere"],
+  [/^lfm/, "liquid"],
+  [/^ling/, "inclusionai"],
+  [/^(nova-|aura-)/, "deepgram"],
 ];
 
 /**
