@@ -585,13 +585,19 @@ export function seedDomains(): SeedCounts {
     const ref = `${d.source}:${d.name}`;
     keep.add(ref);
     const priced = d.source === "dynadot" ? tldPrice(d.name, "dynadot") : null;
+    /* ANOTHER REGISTRAR'S NAME, PRICED AS AN ESTIMATE from Dynadot's list for
+       the same TLD (since 2026-09-29). Spaceship publishes no renewal price
+       over its API, and seven unpriced names made every total a floor; a
+       same-TLD price from another registrar is close and is marked so. */
+    const estimate = !priced && d.source !== "dynadot" ? tldPrice(d.name, "dynadot") : null;
     bump(t, upsertSeed("registrar", {
       sourceRef: ref,
       label: d.name,
       category: "domain",
-      amount: priced ? priced.annual : null,
-      currency: priced ? priced.currency : "USD",
+      amount: priced ? priced.annual : estimate ? estimate.annual : null,
+      currency: priced ? priced.currency : estimate ? estimate.currency : "USD",
       period: "yearly",
+      confidence: estimate ? "estimated" : null,
       renewalOn: d.expires_at,
       ventureId: ventureOfEntity(d.source, d.name),
       notes:
@@ -601,7 +607,9 @@ export function seedDomains(): SeedCounts {
           ? `Priced from Dynadot's own renewal list for .${priced.tld}${priced.price_level ? ` at the ${priced.price_level} price level` : ""}, read ${priced.fetched_at.slice(0, 10)} — what the registrar will charge, not an estimate.`
           : d.source === "dynadot"
             ? `Dynadot's price list has not been read yet, or does not carry this TLD, so the amount is unpriced until it is or until you type it.`
-            : `No renewal price is published through this registrar's API, so the amount is unpriced until you type it.`),
+            : estimate
+              ? `No renewal price is published through this registrar's API; estimated from Dynadot's renewal price for .${estimate.tld}, read ${estimate.fetched_at.slice(0, 10)}. Type the real price to replace it.`
+              : `No renewal price is published through this registrar's API, so the amount is unpriced until you type it.`),
     }));
   }
   t.archived = archiveMissing("registrar", keep);

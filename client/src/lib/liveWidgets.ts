@@ -1641,6 +1641,18 @@ function dayShort(iso: string): string {
   });
 }
 
+/** The metered LLM bills (OpenAI + OpenRouter) scaled to 30 days, in USD. */
+function llmMonthly(COSTS: LiveInputs["costs"]): { usd: number; parts: { name: string; usd: number }[] } | null {
+  if (!COSTS) return null;
+  const parts: { name: string; usd: number }[] = [];
+  if (COSTS.openai.usd !== null) parts.push({ name: "OpenAI", usd: COSTS.openai.usd });
+  if (COSTS.openrouter.activity.usd !== null) parts.push({ name: "OpenRouter", usd: COSTS.openrouter.activity.usd });
+  if (!parts.length) return null;
+  const days = Math.max(1, COSTS.window.days);
+  const scale = 30 / days;
+  return { usd: parts.reduce((n, p) => n + p.usd, 0) * scale, parts: parts.map((p) => ({ ...p, usd: p.usd * scale })) };
+}
+
 /** The vendor prefix dropped for a bar's summary line, kept for its hover.
  *  "google/gemini-3.7-flash" is the name; "gemini-3.7-flash" is what fits. */
 const shortModel = (model: string) => model.split("/").at(-1) ?? model;
@@ -1689,12 +1701,7 @@ Object.assign(LIVE_BUILDERS, {
     */
     const settling = o.days.filter((d) => d.day > o.completeThrough).length;
     return {
-      chart: [
-        {
-          label: "Spend, USD",
-          points: o.days.map((d) => ({ ts: `${d.day}T00:00:00Z`, value: d.usd })),
-        },
-      ],
+      daily: o.days.map((d) => ({ day: d.day, total: d.usd })),
       unit: "usd" as const,
       caption:
         `${usd(total)} over ${o.days.length} days to ${dayShort(o.days.at(-1)!.day)}` +
@@ -1977,6 +1984,68 @@ Object.assign(LIVE_BUILDERS, {
   },
 
   /* ------------------------------------------------------------ costs */
+
+  "costs.allIn": ({ finance, costs: COSTS }: LiveInputs) => {
+    if (!finance) return null;
+    /*
+      THE WHOLE MONTH: every priced ledger line (servers, domains, services,
+      electricity) converted into the display currency, plus the metered LLM
+      bills scaled to 30 days. Converted parts are marked ≈ and the rate is
+      named; a part with no rate is left out and said so.
+    */
+    const ring = displayCurrency(finance);
+    const into = converter(finance, ring);
+    let total = 0;
+    let approx = false;
+    const missing: string[] = [];
+    for (const a of finance.summary.monthly.amounts) {
+      if (a.currency === ring) { total += a.amount; continue; }
+      const c = into(a.amount, a.currency);
+      if (c) { total += c.amount; approx = true; } else missing.push(a.currency);
+    }
+    const ledger = total;
+    const llm = llmMonthly(COSTS);
+    if (llm) {
+      const c = ring === "USD" ? { amount: llm.usd } : into(llm.usd, "USD");
+      if (c) { total += c.amount; if (ring !== "USD") approx = true; } else missing.push("USD");
+    }
+    const unpriced = finance.summary.counts.unpriced;
+    return {
+      value: `${approx ? "≈" : ""}${money(total, ring)}`,
+      tone: unpriced ? ("warn" as StatusTone) : undefined,
+      sub: [
+        `ledger ${money(ledger, ring)}`,
+        llm ? `LLM APIs ${money(llm.usd, "USD")} per 30d` : "",
+        missing.length ? `${missing.join(", ")} not converted` : "",
+        unpriced ? `${count(unpriced)} line${unpriced === 1 ? "" : "s"} unpriced` : "",
+        "Replicate publishes no price",
+      ].filter(Boolean).join(" · "),
+    };
+  },
+
+  "costs.daily": ({ costs: COSTS }: LiveInputs) => {
+    if (!COSTS) return null;
+    const days = new Map<string, { openai: number; openrouter: number }>();
+    for (const d of COSTS.openai.days) days.set(d.day, { openai: d.usd, openrouter: days.get(d.day)?.openrouter ?? 0 });
+    for (const d of COSTS.openrouter.activity.days)
+      days.set(d.day, { openai: days.get(d.day)?.openai ?? 0, openrouter: d.usd });
+    if (!days.size) return null;
+    const list = [...days.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    const total = list.reduce((n, [, v]) => n + v.openai + v.openrouter, 0);
+    return {
+      daily: list.map(([day, v]) => ({
+        day,
+        total: v.openai + v.openrouter,
+        parts: [
+          { label: "OpenAI", value: v.openai, mark: "openai" },
+          { label: "OpenRouter", value: v.openrouter },
+        ],
+      })),
+      dailySplit: "By provider",
+      unit: "usd" as const,
+      caption: `${usd(total)} over ${list.length} days · mean ${usd(total / list.length)}/day · the newest days are still settling`,
+    };
+  },
 
   "costs.llm": ({ costs: COSTS, window: W }: LiveInputs) => {
     if (!COSTS) return null;
@@ -7230,7 +7299,7 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "finance.groups": ({ finance }: LiveInputs) => {
+  "finance.groups": ({ finance, costs: COSTS }: LiveInputs) => {
     if (!finance) return null;
     const lead = leadCurrency(finance);
     if (!lead) return null;
@@ -7240,7 +7309,9 @@ Object.assign(LIVE_BUILDERS, {
       carries most of the bill and the caption names the rest. A group with
       lines and no prices stays in the legend at zero with its count.
     */
-    const live = finance.expenses.filter((e) => !e.archived);
+    /* The seeded electricity rows are category "other" AND are drawn below
+       from the power lines; counting both put the same euros in twice. */
+    const live = finance.expenses.filter((e) => !e.archived && e.source !== "power");
     const group = (currency: string, label: string, cats: string[], unit: string) => {
       const rows = live.filter((e) => e.currency === currency && cats.includes(e.category));
       const priced = rows.filter((e) => e.monthly !== null);
@@ -7287,6 +7358,17 @@ Object.assign(LIVE_BUILDERS, {
           sub: `${count(lines.length)} machine${lines.length === 1 ? "" : "s"} · watts estimated`,
         });
     }
+    /* THE METERED LLM BILLS, per 30 days, in dollars — part of what the month
+       costs and absent from the ledger, which only holds fixed lines. */
+    const llm = llmMonthly(COSTS);
+    if (llm)
+      groups.push({
+        label: "LLM APIs",
+        currency: "USD",
+        value: llm.usd,
+        rows: llm.parts.length,
+        sub: `${llm.parts.map((p) => p.name).join(" + ")} · metered, per 30 days`,
+      });
     if (!groups.length) return null;
     /*
       ONE RING, ONE CURRENCY, EVERY GROUP ON IT WHEN A RATE CAN BE HAD. A
@@ -7369,48 +7451,69 @@ Object.assign(LIVE_BUILDERS, {
     if (!finance) return null;
     /*
       THE BILLS THAT BUY THE RIGHT TO SHIP RATHER THAN COMPUTE — developer
-      programs, AI plans. Each at the cadence it is billed at: a yearly bill
-      says /yr and is not spread, a one-off says once and is in neither total.
-      Nothing under the heading is a sentence saying where to type one.
+      programs, AI plans. The hero is the monthly run rate of the recurring
+      ones in their main currency; a yearly bill counts a twelfth, a one-off
+      counts nothing and is named in the caption.
     */
     const rows = finance.expenses.filter(
       (e) => !e.archived && (e.category === "service" || e.category === "subscription"),
     );
     if (!rows.length)
-      return { rows: [["No services in the ledger yet", "add one under Finance → Ledger"]] };
-    const sorted = rows.slice().sort((a, b) => (b.monthly ?? -1) - (a.monthly ?? -1));
+      return { parts: [], rows: [["No services in the ledger yet", "add one under Finance → Ledger"]] };
+    const recurring = rows.filter((e) => e.period !== "once" && e.monthly !== null);
+    const currency = recurring[0]?.currency ?? rows[0]!.currency;
+    const same = recurring.filter((e) => e.currency === currency).sort((a, b) => (b.monthly ?? 0) - (a.monthly ?? 0));
+    const total = same.reduce((n, e) => n + (e.monthly ?? 0), 0);
+    const once = rows.filter((e) => e.period === "once");
+    const unpriced = rows.filter((e) => e.period !== "once" && e.monthly === null);
     return {
-      rows: sorted.slice(0, 8).map((e) => [
-        `${e.label}${e.period === "once" ? " · one-time" : e.period === "yearly" ? " · billed yearly" : ""}${
-          e.confidence ? ` · ${e.confidence}` : ""
-        }`,
-        e.amount === null ? "no price yet" : `${money(e.amount, e.currency)}${cadence(e.period)}`,
-      ]),
+      value: `${money(total, currency)}/mo`,
+      sub: `${count(recurring.length)} recurring · ${money(total * 12, currency, { digits: 0 })} a year`,
+      parts: same.map((e) => ({ label: e.label, value: e.monthly ?? 0, text: `${money(e.monthly, e.currency)}/mo` })),
+      rows: [
+        ...same.map((e) => [
+          e.label,
+          `${money(e.amount, e.currency)}${cadence(e.period)}${e.period === "yearly" ? ` · ${money(e.monthly, e.currency)}/mo` : ""}`,
+        ] as [string, string]),
+        ...unpriced.map((e) => [e.label, "no price yet"] as [string, string]),
+      ],
+      caption: once.length
+        ? `One-off, in no total: ${once.map((e) => `${e.label} ${money(e.amount, e.currency)}`).join(" · ")}`
+        : undefined,
     };
   },
 
   "finance.power": ({ finance }: LiveInputs) => {
     if (!finance) return null;
+    const t = finance.power.tariff;
+    const rateWord =
+      t.perKwh === null
+        ? "no price per kWh"
+        : `${money(t.perKwh, t.currency)}/kWh${t.source === "irish-average" ? " · Irish standard rate" : " · your rate"}`;
     const lines = finance.power.lines;
-    if (!lines.length) {
-      const rows: [string, string][] = [
-        finance.power.machines.length
-          ? ["No wattage profile yet", "type idle and busy watts under Finance → Power"]
-          : ["No workstation connected", "connect one under Integrations → Workstation"],
-      ];
-      if (finance.summary.tariff.perKwh === null)
-        rows.push(["No price per kWh set", "set the tariff on the Finance integration"]);
-      return { rows };
-    }
+    if (!lines.length)
+      return {
+        value: "—",
+        sub: rateWord,
+        parts: [],
+        rows: [["No machine yet", "add your home machines under Rate & machines"]],
+      };
+    const priced = lines.filter((l) => l.amount !== null);
+    const currency = priced[0]?.currency ?? t.currency;
+    const total = priced.filter((l) => l.currency === currency).reduce((n, l) => n + (l.amount ?? 0), 0);
+    const kwh = lines.reduce((n, l) => n + (l.kwh ?? 0), 0);
     return {
       // The hours may be metered; the watts never are — see Finance → Power.
       tag: "est.",
+      value: `${money(total, currency)}/mo`,
+      sub: also(`${count(Math.round(kwh))} kWh`, rateWord),
+      parts: priced.map((l) => ({ label: l.label, value: l.amount ?? 0, text: money(l.amount, l.currency) })),
       rows: lines.map((l) => [
-        `${l.label}${l.confidence ? ` · ${l.confidence} hours` : " · no hours observed"}`,
+        `${l.label} · ${l.watts.idle}W${l.watts.busy !== l.watts.idle ? `–${l.watts.busy}W` : ""}`,
         l.amount === null
-          ? "unpriced — no tariff"
-          : `${money(l.amount, l.currency)}/mo${l.kwh !== null ? ` · ${l.kwh} kWh` : ""}`,
-      ]),
+          ? "unpriced"
+          : `${money(l.amount, l.currency)}/mo${l.kwh !== null ? ` · ${count(Math.round(l.kwh))} kWh` : ""}`,
+      ] as [string, string]),
     };
   },
 

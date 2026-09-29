@@ -429,6 +429,14 @@ export function WidgetCard({
             />
           )}
         </span>
+        {def.configLink && !editing && (
+          <Link
+            to={def.configLink.to}
+            className="text-muted-foreground hover:text-foreground ml-auto shrink-0 text-[12px] underline underline-offset-2"
+          >
+            {def.configLink.label}
+          </Link>
+        )}
         {scope && !narrowed && !perParam && (
           <span
             title={`This figure has no per-site breakdown, so it is the whole portfolio rather than ${scope.label}.`}

@@ -143,7 +143,7 @@ export const manifest: IntegrationManifest = {
           hint:
             "What your supplier charges for a kilowatt-hour, as a number — 0.32 for 32 cents. Used for any " +
             "machine power profile that carries no price of its own. With nothing here every electricity line is " +
-            "unpriced, which is the correct answer to “what does the GPU cost” when nobody has said.",
+            "priced at the Irish standard rate, 0.36 EUR incl. VAT.",
           ph: "0.32",
           check(value) {
             if (!value.trim()) return null;
