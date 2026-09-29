@@ -15691,7 +15691,7 @@ function seoHost(value: string | null | undefined): string | null {
 type SeoGrade = "A" | "B" | "C" | "D";
 const seoGrade = (i: { error: number; warning: number } | null): SeoGrade | null =>
   !i ? null : i.error >= 3 ? "D" : i.error >= 1 ? "C" : i.warning > 0 ? "B" : "A";
-const plural = (n: number, word: string) => `${count(n)} ${word}${n === 1 ? "" : "s"}`;
+const seoPlural = (n: number, word: string) => `${count(n)} ${word}${n === 1 ? "" : "s"}`;
 
 /** A property's clicks (or impressions) in the window's two halves, on the
  *  portfolio's own day grid. Null when the property's rows do not cover the
@@ -15797,7 +15797,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       value: `${count(bad.length)} of ${count(rows.length)}`,
       tone: bad.length ? ("warn" as StatusTone) : undefined,
-      sub: bad.length ? `${plural(errors, "error")} to fix` : "no audit errors anywhere",
+      sub: bad.length ? `${seoPlural(errors, "error")} to fix` : "no audit errors anywhere",
     };
   },
 
@@ -15808,7 +15808,7 @@ Object.assign(LIVE_BUILDERS, {
     const sites = new Set(named.map((a) => a.ventureId));
     return {
       value: pct(named.length / asked.length, { digits: 0 }),
-      sub: `${count(named.length)} of ${count(asked.length)} questions named one of ours · ${plural(sites.size, "site")}`,
+      sub: `${count(named.length)} of ${count(asked.length)} questions named one of ours · ${seoPlural(sites.size, "site")}`,
     };
   },
 
@@ -15836,9 +15836,9 @@ Object.assign(LIVE_BUILDERS, {
           gradeNote: !i
             ? "not audited"
             : i.error
-              ? also(plural(i.error, "error"), i.warning ? plural(i.warning, "warning") : "")
+              ? also(seoPlural(i.error, "error"), i.warning ? seoPlural(i.warning, "warning") : "")
               : i.warning
-                ? plural(i.warning, "warning")
+                ? seoPlural(i.warning, "warning")
                 : "clean audit",
           clicks: s.gsc ? compact(s.gsc.clicks) : DASH,
           change: h?.change ?? null,
@@ -15930,9 +15930,9 @@ Object.assign(LIVE_BUILDERS, {
         out.push([`${s.host} · audit is old`, dayShort(ts.slice(0, 10)), s.host]);
     }
     const never = sites.filter((s) => s.audit && !s.audit.ts);
-    if (never.length) out.push([`${plural(never.length, "site")} · never audited`, count(never.length), null]);
+    if (never.length) out.push([`${seoPlural(never.length, "site")} · never audited`, count(never.length), null]);
     const unindexed = sites.filter((s) => s.bing && s.bing.index.inIndex === 0);
-    if (unindexed.length) out.push([`${plural(unindexed.length, "site")} · nothing in Bing's index`, count(unindexed.length), null]);
+    if (unindexed.length) out.push([`${seoPlural(unindexed.length, "site")} · nothing in Bing's index`, count(unindexed.length), null]);
     if (!out.length) return { rows: [["Nothing urgent", "✓"]] as [string, string][] };
     const shown = out.slice(0, 10);
     return {
@@ -16036,9 +16036,9 @@ Object.assign(LIVE_BUILDERS, {
         host: s.site,
         value: s.index.inIndex!,
         text: `${count(s.index.inIndex!)} pages`,
-        sub: s.index.crawlErrors ? plural(s.index.crawlErrors, "crawl error") : undefined,
+        sub: s.index.crawlErrors ? seoPlural(s.index.crawlErrors, "crawl error") : undefined,
       })),
-      caption: none ? `${plural(none, "site")} with none yet` : undefined,
+      caption: none ? `${seoPlural(none, "site")} with none yet` : undefined,
     };
   },
 
