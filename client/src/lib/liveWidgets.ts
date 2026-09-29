@@ -16572,3 +16572,546 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ============================================================ domains board
+   THE DOMAINS BOARD, DRAWN. What is owned, what renews when and for how much,
+   what is at risk, and which names actually serve a site — one registrar read
+   joined with three documents that already exist:
+
+   - PRICES come from the finance ledger's `domain` rows (one per name, seeded
+     from Dynadot's own renewal list; Spaceship names carry an estimate from the
+     same list and say so). A name with no ledger row is unpriced, never $0.
+   - USE comes from Cloudflare (a zone's page views and its 3xx share) and the
+     uptime probe (does the name answer right now). A name neither can see is
+     "not measured", never "parked".
+   - FAVICONS come from the renderer: every row carries its hostname and
+     HostMark finds the venture.
+*/
+
+type DomPrice = { amount: number; currency: string; estimated: boolean };
+
+/** The ledger's yearly renewal price for one name, or null when unpriced. */
+function domPrice(d: Domain, finance: FinanceReport | null | undefined): DomPrice | null {
+  if (!finance) return null;
+  const ref = `${d.source}:${d.name}`;
+  const row =
+    finance.expenses.find((e) => !e.archived && e.category === "domain" && e.sourceRef === ref) ??
+    finance.expenses.find((e) => !e.archived && e.category === "domain" && e.label.toLowerCase() === d.name);
+  if (!row || row.annual === null) return null;
+  return { amount: row.annual, currency: row.currency, estimated: row.confidence === "estimated" };
+}
+
+/** The one currency the portfolio's prices are mostly in — the board sums
+ *  that one and counts the rest apart rather than adding dollars to euros. */
+function domCurrency(prices: (DomPrice | null)[]): string | null {
+  const n = new Map<string, number>();
+  for (const p of prices) if (p) n.set(p.currency, (n.get(p.currency) ?? 0) + 1);
+  return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
+const domMoney = (n: number, currency: string, digits = 2) => money(n, currency, { digits });
+
+const DOM_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** 2026-12-05 → "5 Dec" (or "5 Dec 2026"). Fixed month words, so no locale
+ *  turns September into "Sept". */
+function domDate(iso: string | null, withYear = true): string | null {
+  const m = iso ? /^(\d{4})-(\d{2})-(\d{2})/.exec(iso) : null;
+  if (!m) return null;
+  const month = DOM_MONTHS[Number(m[2]) - 1];
+  if (!month) return null;
+  return `${Number(m[3])} ${month}${withYear ? ` ${m[1]}` : ""}`;
+}
+
+/** "in 67 days · 5 Dec" — the distance and the date together; the year only
+ *  when it is not within the next twelve months. */
+function domWhen(days: number | null, iso: string | null): string {
+  if (days === null || !iso) return "no date";
+  const date = domDate(iso, days > 330);
+  if (!date) return "no date";
+  const n = Math.round(days);
+  const dist =
+    n === 0 ? "today" : n < 0 ? `${-n} day${n === -1 ? "" : "s"} ago` : `in ${n} day${n === 1 ? "" : "s"}`;
+  return `${dist} · ${date}`;
+}
+
+export type DomUse = "live" | "redirect" | "parked" | "down" | "unmeasured";
+
+const DOM_USE_WORD: Record<DomUse, string> = {
+  live: "Live",
+  redirect: "Redirect",
+  parked: "Parked",
+  down: "Down",
+  unmeasured: "—",
+};
+
+/**
+ * Whether a registered name is actually used.
+ *
+ * The uptime probe answering OK is the strongest yes. Without it, Cloudflare's
+ * window decides: mostly 3xx is a redirect, a handful of page views a day is a
+ * live site, fewer is parked. No zone and no probe is "unmeasured" — a name on
+ * somebody else's nameservers may well be live, and this board cannot say so.
+ */
+export function domUse(
+  name: string,
+  cloudflare: CloudflareReport | null | undefined,
+  uptime: UptimeReport | null | undefined,
+): DomUse {
+  name = name.toLowerCase();
+  const probe = uptime?.hosts.find((h) => domHostKey(h.host) === name);
+  if (probe?.current?.ok) return "live";
+  const zone = cloudflare?.zones.find((z) => z.name.toLowerCase() === name);
+  const t = zone?.traffic;
+  if (t && t.requests >= 50) {
+    const s3 = t.status.s3xx;
+    if (s3 !== null && s3 / t.requests >= 0.6) return "redirect";
+    if (t.pageViews !== null && t.days > 0 && t.pageViews / t.days >= 3) return "live";
+    if (probe?.current && !probe.current.ok) return "down";
+    return t.pageViews === null ? "unmeasured" : "parked";
+  }
+  if (probe?.current && !probe.current.ok) return "down";
+  if (t) return "parked";
+  return "unmeasured";
+}
+
+function domHostKey(v: string): string {
+  return v.toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
+}
+
+/** The DNS provider a name delegates to, in a word. */
+function domDnsProvider(ns: string[] | null): string | null {
+  const first = ns?.[0];
+  if (!first) return null;
+  const provider = first.toLowerCase().split(".").slice(-2).join(".");
+  const known: Record<string, string> = {
+    "cloudflare.com": "Cloudflare",
+    "hetzner.com": "Hetzner",
+    "hetzner.de": "Hetzner",
+    "dynadot.com": "Dynadot",
+    "spaceship.net": "Spaceship",
+    "awsdns-00.com": "AWS",
+    "vercel-dns.com": "Vercel",
+    "googledomains.com": "Google",
+  };
+  return known[provider] ?? provider;
+}
+
+const domTick = (v: boolean | null) => (v === null ? "?" : v ? "✓" : "✗");
+
+function domTld(name: string): string {
+  const parts = name.split(".");
+  const two = parts.slice(-2).join(".");
+  return parts.length >= 3 && /^(co|org|com|net|me|ltd|plc|ac)\.[a-z]{2}$/.test(two) ? two : parts.at(-1) ?? name;
+}
+
+type DomAttention = { d: Domain; what: string; rank: number };
+
+/** Every thing on the portfolio that wants a decision, worst first. */
+function domAttention(
+  domains: Domain[],
+  cloudflare: CloudflareReport | null | undefined,
+  uptime: UptimeReport | null | undefined,
+): DomAttention[] {
+  const out: DomAttention[] = [];
+  for (const d of domains) {
+    const days = d.expiresInDays;
+    if (days !== null && days < 0) out.push({ d, what: "Past its date", rank: 0 });
+    else if (days !== null && days <= 30)
+      out.push({
+        d,
+        what: d.autoRenew === false ? "Renew now" : "Renews soon",
+        rank: 1,
+      });
+    else if (d.autoRenew === false)
+      out.push({
+        d,
+        what: (days ?? 999) <= 120 ? "Renew or let go" : "Auto-renew off",
+        rank: (days ?? 999) <= 120 ? 2 : 5,
+      });
+    if (d.expiresAt === null) out.push({ d, what: "No expiry date", rank: 3 });
+    if (d.locked === false) out.push({ d, what: "Unlocked", rank: 3 });
+    if (d.privacy === "off") out.push({ d, what: "No privacy", rank: 4 });
+    const use = domUse(d.name, cloudflare, uptime);
+    if (use === "down") out.push({ d, what: "Not answering", rank: 1 });
+    else if (use === "parked") out.push({ d, what: "Parked", rank: 6 });
+    else if (!d.nameservers?.length && use === "unmeasured")
+      out.push({ d, what: "No DNS", rank: 6 });
+  }
+  const soon = (a: DomAttention) => a.d.expiresInDays ?? 99999;
+  return out.sort((a, b) => a.rank - b.rank || soon(a) - soon(b) || a.d.name.localeCompare(b.d.name));
+}
+
+/** The months from this one to the same month next year, as `YYYY-MM`. */
+function domMonths(now = new Date()): string[] {
+  const out: string[] = [];
+  for (let i = 0; i <= 12; i++) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + i, 1));
+    out.push(d.toISOString().slice(0, 7));
+  }
+  return out;
+}
+
+Object.assign(LIVE_BUILDERS, {
+  "domains.held": ({ domains, domainSummary }: LiveInputs) => {
+    if (!domains.length || !domainSummary) return null;
+    const regs = Object.entries(domainSummary.byRegistrar).sort((a, b) => b[1] - a[1]);
+    return {
+      value: count(domains.length),
+      sub: `across ${regs.length} registrar${regs.length === 1 ? "" : "s"}`,
+      partsLabel: "By registrar",
+      parts: regs.map(([k, n]) => ({ label: k, value: n, text: count(n) })),
+    };
+  },
+
+  "domains.yearly": ({ domains, finance }: LiveInputs) => {
+    if (!domains.length || !finance) return null;
+    const prices = domains.map((d) => domPrice(d, finance));
+    const cur = domCurrency(prices);
+    if (!cur) return null;
+    const byReg = new Map<string, number>();
+    let total = 0;
+    let est = 0;
+    let unpriced = 0;
+    domains.forEach((d, i) => {
+      const p = prices[i];
+      if (!p || p.currency !== cur) {
+        unpriced += 1;
+        return;
+      }
+      total += p.amount;
+      if (p.estimated) est += 1;
+      byReg.set(d.registrar, (byReg.get(d.registrar) ?? 0) + p.amount);
+    });
+    return {
+      value: `${domMoney(total, cur, 0)}/yr`,
+      sub: also(
+        `≈ ${domMoney(total / 12, cur, 0)} a month`,
+        unpriced ? `${unpriced} unpriced` : est ? `${est} estimated` : "",
+      ),
+      partsLabel: "By registrar",
+      parts: [...byReg]
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => ({ label: k, value: v, text: domMoney(v, cur, 0) })),
+    };
+  },
+
+  "domains.next": ({ domains, finance }: LiveInputs) => {
+    const ahead = domains
+      .filter((d) => d.expiresInDays !== null && d.expiresInDays >= 0)
+      .sort(bySoonest);
+    const first = ahead[0];
+    if (!first) return null;
+    const same = ahead.filter((d) => d.expiresAt === first.expiresAt);
+    const prices = same.map((d) => domPrice(d, finance));
+    const priced = prices.every((p) => p && p.currency === prices[0]!.currency);
+    const cost = priced ? prices.reduce((n, p) => n + p!.amount, 0) : null;
+    const days = first.expiresInDays!;
+    const off = same.filter((d) => d.autoRenew === false).length;
+    return {
+      value: `${days} day${days === 1 ? "" : "s"}`,
+      tone: days <= 7 ? ("bad" as StatusTone) : days <= 30 ? ("warn" as StatusTone) : undefined,
+      sub: also(
+        also(domDate(first.expiresAt, days > 330) ?? "", `${first.name}${same.length > 1 ? ` +${same.length - 1}` : ""}`),
+        also(cost !== null ? domMoney(cost, prices[0]!.currency) : "", off ? "auto-renew off" : ""),
+      ),
+    };
+  },
+
+  "domains.inUse": ({ domains, cloudflare, uptime }: LiveInputs) => {
+    if (!domains.length || (!cloudflare && !uptime)) return null;
+    const by: Record<DomUse, number> = { live: 0, redirect: 0, parked: 0, down: 0, unmeasured: 0 };
+    for (const d of domains) by[domUse(d.name, cloudflare, uptime)] += 1;
+    return {
+      value: `${count(by.live)} of ${count(domains.length)}`,
+      tone: by.down ? ("bad" as StatusTone) : undefined,
+      sub: "serve a live site",
+      partsLabel: "What each name does",
+      parts: [
+        { label: "Live", value: by.live, text: count(by.live), tone: "ok" as StatusTone },
+        { label: "Redirect", value: by.redirect, text: count(by.redirect) },
+        { label: "Parked", value: by.parked, text: count(by.parked), tone: "warn" as StatusTone },
+        { label: "Down", value: by.down, text: count(by.down), tone: "bad" as StatusTone },
+        { label: "Not measured", value: by.unmeasured, text: count(by.unmeasured) },
+      ].filter((p) => p.value > 0),
+    };
+  },
+
+  "domains.renewals": ({ domains, finance }: LiveInputs) => {
+    if (!domains.length || !finance) return null;
+    const prices = domains.map((d) => domPrice(d, finance));
+    const cur = domCurrency(prices);
+    if (cur !== "USD") return null; // the daily chart's money axis is USD
+    const months = domMonths();
+    const bucket = new Map(months.map((m) => [m, new Map<string, number>()]));
+    let total = 0;
+    let unpriced = 0;
+    let later = 0;
+    domains.forEach((d, i) => {
+      if (!d.expiresAt || d.expiresInDays === null || d.expiresInDays < 0) return;
+      const m = bucket.get(d.expiresAt.slice(0, 7));
+      if (!m) {
+        later += 1;
+        return;
+      }
+      const p = prices[i];
+      if (!p || p.currency !== cur) {
+        unpriced += 1;
+        return;
+      }
+      m.set(d.registrar, (m.get(d.registrar) ?? 0) + p.amount);
+      total += p.amount;
+    });
+    if (!total) return null;
+    const daily = months.map((m) => {
+      const parts = [...bucket.get(m)!].map(([label, value]) => ({ label, value: Math.round(value * 100) / 100 }));
+      const d = new Date(`${m}-01T00:00:00Z`);
+      return {
+        day: `${m}-01`,
+        total: Math.round(parts.reduce((n, p) => n + p.value, 0) * 100) / 100,
+        parts,
+        label: `${DOM_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`,
+        tick: DOM_MONTHS[d.getUTCMonth()],
+      };
+    });
+    const peak = daily.reduce((b, d) => (d.total > b.total ? d : b), daily[0]!);
+    return {
+      daily,
+      dailySplit: "By registrar",
+      unit: "usd" as const,
+      caption: also(
+        `${domMoney(total, cur)} over the next 12 months · biggest ${peak.label}`,
+        also(unpriced ? `${unpriced} unpriced not drawn` : "", later ? `${later} renew later` : ""),
+      ),
+    };
+  },
+
+  "domains.attention": ({ domains, cloudflare, uptime }: LiveInputs) => {
+    if (!domains.length) return null;
+    /* One row per name, its worst reason first and any others after it. */
+    const byName = new Map<string, { d: Domain; what: string[] }>();
+    for (const a of domAttention(domains, cloudflare, uptime)) {
+      const row = byName.get(a.d.name) ?? { d: a.d, what: [] };
+      row.what.push(a.what);
+      byName.set(a.d.name, row);
+    }
+    const items = [...byName.values()];
+    if (!items.length)
+      return { headers: ["Domain", "To do", "Renews"], table: [], caption: "Nothing needs a decision" };
+    return {
+      headers: ["Domain", "To do", "Renews"],
+      table: items.map((a) => [a.d.name, a.what.join(" · "), domWhen(a.d.expiresInDays, a.d.expiresAt)]),
+      rowHosts: items.map((a) => a.d.name),
+    };
+  },
+
+  "domains.protection": ({ domains, cloudflare }: LiveInputs) => {
+    if (!domains.length) return null;
+    const n = domains.length;
+    const on = domains.filter((d) => d.autoRenew === true).length;
+    const off = domains.filter((d) => d.autoRenew === false).length;
+    const unknown = n - on - off;
+    const share = (k: number, of: number) => `${count(k)} of ${count(of)}`;
+    const locked = domains.filter((d) => d.locked === true).length;
+    const priv = domains.filter((d) => d.privacy !== null && d.privacy !== "off").length;
+    const cfNames = new Set((cloudflare?.zones ?? []).map((z) => z.name.toLowerCase()));
+    const onCf = domains.filter((d) => cfNames.has(d.name)).length;
+    const rows: [string, string][] = [
+      ["Transfer lock", `${locked === n ? "✓ " : ""}${share(locked, n)}`],
+      ["WHOIS privacy", `${priv === n ? "✓ " : ""}${share(priv, n)}`],
+    ];
+    if (cloudflare) rows.push(["Cloudflare zone", `${onCf === n ? "✓ " : ""}${share(onCf, n)}`]);
+    return {
+      value: share(on, n),
+      tone: off ? ("warn" as StatusTone) : undefined,
+      sub: "renew themselves",
+      partsLabel: "Auto-renew",
+      parts: [
+        { label: "On", value: on, text: count(on), tone: "ok" as StatusTone },
+        { label: "Off", value: off, text: count(off), tone: "warn" as StatusTone },
+        ...(unknown ? [{ label: "Not reported", value: unknown, text: count(unknown) }] : []),
+      ],
+      rows,
+    };
+  },
+
+  "domains.grid": ({ domains, finance, cloudflare, uptime }: LiveInputs) => {
+    if (!domains.length) return null;
+    const sorted = [...domains].sort(bySoonest);
+    const headers = ["Domain", "Site", "Renews", "Price", "Auto", "Lock", "Privacy"];
+    return {
+      headers,
+      table: sorted.map((d) => {
+        const p = domPrice(d, finance);
+        return [
+          d.name,
+          DOM_USE_WORD[domUse(d.name, cloudflare, uptime)],
+          domWhen(d.expiresInDays, d.expiresAt),
+          p ? `${p.estimated ? "~" : ""}${domMoney(p.amount, p.currency)}` : DASH,
+          domTick(d.autoRenew),
+          domTick(d.locked),
+          d.privacy === null ? "?" : d.privacy === "off" ? "✗" : "✓",
+        ];
+      }),
+      rowHosts: sorted.map((d) => d.name),
+      caption: finance && sorted.some((d) => domPrice(d, finance)?.estimated) ? "~ estimated from Dynadot's price for the same extension" : undefined,
+    };
+  },
+
+  "domains.traffic": ({ domains, cloudflare: C }: LiveInputs) => {
+    if (!C || !domains.length) return null;
+    const zones = new Map(C.zones.map((z) => [z.name.toLowerCase(), z]));
+    const measured = domains
+      .map((d) => ({ d, t: zones.get(d.name)?.traffic ?? null }))
+      .filter((r): r is { d: Domain; t: NonNullable<CloudflareZone["traffic"]> } => r.t !== null && r.t.pageViews !== null);
+    if (!measured.length) return null;
+    const top = measured.sort((a, b) => b.t.pageViews! - a.t.pageViews!).slice(0, 10);
+    const unseen = domains.filter((d) => !zones.get(d.name)?.traffic).map((d) => d.name);
+    return {
+      ranked: top.map(({ d, t }) => ({
+        label: d.name,
+        host: d.name,
+        value: t.pageViews!,
+        text: compact(t.pageViews!),
+        sub: `${compact(t.requests)} req`,
+      })),
+      caption: also(
+        measured.length > top.length ? `+ ${measured.length - top.length} quieter` : "",
+        unseen.length ? `not on Cloudflare: ${unseen.slice(0, 2).join(", ")}${unseen.length > 2 ? ` +${unseen.length - 2}` : ""}` : "",
+      ) || undefined,
+    };
+  },
+
+  "domains.priciest": ({ domains, finance }: LiveInputs) => {
+    if (!domains.length || !finance) return null;
+    const rows = domains
+      .map((d) => ({ d, p: domPrice(d, finance) }))
+      .filter((r): r is { d: Domain; p: DomPrice } => r.p !== null)
+      .sort((a, b) => b.p.amount - a.p.amount);
+    if (!rows.length) return null;
+    const top = rows.slice(0, 8);
+    return {
+      ranked: top.map(({ d, p }) => ({
+        label: d.name,
+        host: d.name,
+        value: p.amount,
+        text: `${p.estimated ? "~" : ""}${domMoney(p.amount, p.currency)}`,
+        sub: d.registrar,
+      })),
+      caption: rows.length > top.length ? `Top ${top.length} of ${rows.length} priced names` : undefined,
+    };
+  },
+
+  "domains.soonest": ({ domains, domainSummary, finance }: LiveInputs) => {
+    if (!domainSummary) return null;
+    const dated = domains.filter((d) => d.expiresInDays !== null).sort(bySoonest).slice(0, 8);
+    if (!dated.length) return null;
+    return {
+      runway: dated.map((d) => {
+        const p = domPrice(d, finance);
+        return {
+          label: d.name,
+          days: d.expiresInDays!,
+          sub: also(p ? domMoney(p.amount, p.currency) : "", d.autoRenew === false ? "auto-renew off" : d.autoRenew ? "auto" : ""),
+          at: d.expiresAt,
+        };
+      }),
+      thresholds: domainSummary.thresholds,
+    };
+  },
+
+  "domains.byTld": ({ domains, finance }: LiveInputs) => {
+    if (!domains.length || !finance) return null;
+    const prices = domains.map((d) => domPrice(d, finance));
+    const cur = domCurrency(prices);
+    if (!cur) return null;
+    const by = new Map<string, { cost: number; n: number }>();
+    domains.forEach((d, i) => {
+      const p = prices[i];
+      if (!p || p.currency !== cur) return;
+      const k = `.${domTld(d.name)}`;
+      const g = by.get(k) ?? { cost: 0, n: 0 };
+      g.cost += p.amount;
+      g.n += 1;
+      by.set(k, g);
+    });
+    if (!by.size) return null;
+    const total = [...by.values()].reduce((n, g) => n + g.cost, 0);
+    /* Six extensions and the rest together, so the legend stays a legend. */
+    const sorted = [...by].sort((a, b) => b[1].cost - a[1].cost);
+    const shown = sorted.length > 7 ? sorted.slice(0, 6) : sorted;
+    const rest = sorted.slice(shown.length);
+    if (rest.length)
+      shown.push([
+        `${rest.length} others`,
+        { cost: rest.reduce((n, [, g]) => n + g.cost, 0), n: rest.reduce((n, [, g]) => n + g.n, 0) },
+      ]);
+    return {
+      slices: shown
+        .map(([k, g]) => ({
+          label: k,
+          value: g.cost,
+          text: domMoney(g.cost, cur, 0),
+          sub: `${g.n} name${g.n === 1 ? "" : "s"}`,
+        })),
+      center: { value: domMoney(total, cur, 0), note: "a year" },
+    };
+  },
+
+  "domains.dns": ({ domains }: LiveInputs) => {
+    if (!domains.length) return null;
+    const by = new Map<string, string[]>();
+    const silent: string[] = [];
+    for (const d of domains) {
+      const p = domDnsProvider(d.nameservers);
+      if (!p) silent.push(d.name);
+      else by.set(p, [...(by.get(p) ?? []), d.name]);
+    }
+    const ranked = [...by].sort((a, b) => b[1].length - a[1].length);
+    const lead = ranked[0];
+    const rows: [string, string][] = ranked
+      .slice(1)
+      .flatMap(([p, names]) => names.map((n) => [n, p] as [string, string]));
+    for (const n of silent) rows.push([n, "none reported"]);
+    return {
+      value: lead ? `${count(lead[1].length)} of ${count(domains.length)}` : "0",
+      sub: lead ? `point at ${lead[0]}` : "no nameservers reported",
+      partsLabel: "Nameservers",
+      parts: [
+        ...ranked.map(([p, names], i) => ({
+          label: p,
+          value: names.length,
+          text: count(names.length),
+          ...(i === 0 ? { tone: "ok" as StatusTone } : {}),
+        })),
+        ...(silent.length ? [{ label: "Not reported", value: silent.length, text: count(silent.length) }] : []),
+      ],
+      rows: rows.slice(0, 6),
+    };
+  },
+
+  "domains.age": ({ domains }: LiveInputs) => {
+    const dated = domains.filter((d) => d.registeredOn && /^\d{4}/.test(d.registeredOn));
+    if (!dated.length) return null;
+    const years = new Map<string, Domain[]>();
+    for (const d of dated) {
+      const y = d.registeredOn!.slice(0, 4);
+      years.set(y, [...(years.get(y) ?? []), d]);
+    }
+    const undated = domains.length - dated.length;
+    return {
+      ranked: [...years]
+        .sort((a, b) => b[0].localeCompare(a[0]))
+        .map(([y, list]) => {
+          const newest = [...list].sort((a, b) => b.registeredOn!.localeCompare(a.registeredOn!))[0]!;
+          return {
+            label: y,
+            value: list.length,
+            text: count(list.length),
+            sub: list.length === 1 ? newest.name : `newest ${newest.name}`,
+          };
+        }),
+      caption: undated ? `${undated} without a registration date` : undefined,
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
