@@ -65,6 +65,7 @@ async function doc() {
         cohort: number;
         converted: number;
         neverPaid: number;
+        failing: number;
         ratePct: number;
         convertedMrr: number;
       }[];
@@ -130,6 +131,26 @@ test("currencies stay apart; a null paid_cents is not a non-conversion", async (
   assert.equal(by.USD!.converted, 1);
   assert.equal(by.EUR!.cohort, 1);
   assert.equal(by.EUR!.ratePct, 100);
+});
+
+test("live rows past their trial are judged by status, not by null paid_cents", async () => {
+  const a = fixture("live");
+  /* paid_cents is only ever resolved for ENDED rows, so every live row here
+     is null — as it is in production. */
+  writeStripeSubscriptions([
+    trial(a, "tc_active", { endedDaysAgo: 3, paidCents: null, status: "active" }),
+    trial(a, "tc_paused", { endedDaysAgo: 3, paidCents: null, status: "paused" }),
+    trial(a, "tc_pastdue", { endedDaysAgo: 3, paidCents: null, status: "past_due" }),
+    trial(a, "tc_paid_gone", { endedDaysAgo: 3, paidCents: 2000, status: "canceled" }),
+  ]);
+  const body = await doc();
+  const row = body.trialConversion.windows.find((w) => w.days === 30 && w.currency === "USD")!;
+  assert.equal(row.cohort, 4);
+  assert.equal(row.converted, 2, "active and paid-then-cancelled");
+  assert.equal(row.neverPaid, 1, "paused for want of a card");
+  assert.equal(row.failing, 1, "past_due first charge");
+  assert.equal(row.ratePct, 50);
+  assert.equal(row.convertedMrr, 20, "only the converted row still billing adds MRR");
 });
 
 test("an empty book publishes an empty cohort list, not an error", async () => {

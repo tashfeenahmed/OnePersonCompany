@@ -976,6 +976,8 @@ export type StripeReport = {
       cohort: number;
       converted: number;
       neverPaid: number;
+      /** Past the trial, first charge failing: in the cohort, not converted. */
+      failing: number;
       ratePct: number;
       convertedMrr: number;
     }[];

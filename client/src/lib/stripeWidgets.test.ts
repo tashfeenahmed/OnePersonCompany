@@ -197,7 +197,24 @@ test("no trial ended in the window: an em dash, and the running trials are said"
   const p = build("stripe.trialConversion", trialConversionDoc(null, 4))!;
   assert.equal(p.value, "—");
   assert.match(p.sub!, /no trials ended in the window/);
-  assert.match(p.sub!, /4 still running/);
+  assert.match(p.sub!, /4 trials still running/);
+});
+
+test("a window with no ended trial does not borrow another window's rate", () => {
+  const p = build("stripe.trialConversion", {
+    ...trialConversionDoc(
+      { days: 30, currency: "USD", cohort: 10, converted: 6, neverPaid: 4, failing: 0, ratePct: 60, convertedMrr: 120 },
+    ),
+    window: 7,
+  })!;
+  assert.equal(p.value, "—");
+});
+
+test("trials whose first charge is failing are said, not counted as converted", () => {
+  const p = build("stripe.trialConversion", trialConversionDoc(
+    { days: 30, currency: "USD", cohort: 4, converted: 2, neverPaid: 1, failing: 1, ratePct: 50, convertedMrr: 40 },
+  ))!;
+  assert.match(p.sub!, /2 of 4 trials converted · 1 with a failing first charge/);
 });
 
 test("one trial converting of one reads singular in the subtitle", () => {

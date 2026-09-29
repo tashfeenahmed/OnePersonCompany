@@ -3220,26 +3220,27 @@ Object.assign(LIVE_BUILDERS, {
       running has no verdict yet and is counted in the subtitle instead, so
       the rate never moves with billing dates.
     */
-    const row = tc.windows.find(
-      (r) => r.days === (W === "all" ? 90 : W ?? 30),
-    ) ?? tc.windows.find((r) => r.days === 30) ?? null;
+    /* The route cuts at 7, 30 and 90 like churn, and a window with no ended
+       trial has no row — which reads as a dash, never as another window's
+       rate under this window's label. */
+    const days = churnDays(W);
+    const row = tc.windows.find((r) => r.days === days) ?? null;
+    const name = isAll(W) ? { name: `Trial conversion · ${days}d` } : {};
+    const running = tc.inFlight
+      ? `${count(tc.inFlight)} trial${tc.inFlight === 1 ? "" : "s"} still running`
+      : "";
     if (!row)
-      return {
-        value: "—",
-        tone: undefined,
-        sub: also(
-          tc.inFlight
-            ? `no trials ended in the window · ${count(tc.inFlight)} still running`
-            : "no trials ended in the window",
-          tc.inFlight ? "" : "or running",
-        ),
-      };
+      return { ...name, value: "—", tone: undefined, sub: also("no trials ended in the window", running) };
     return {
+      ...name,
       value: `${row.ratePct.toFixed(0)}%`,
       tone: row.ratePct >= 40 ? ("ok" as StatusTone) : row.ratePct >= 20 ? ("warn" as StatusTone) : ("bad" as StatusTone),
       sub: also(
-        `${count(row.converted)} of ${count(row.cohort)} trials converted`,
-        tc.inFlight ? `${count(tc.inFlight)} trial${tc.inFlight === 1 ? "" : "s"} still running` : "",
+        also(
+          `${count(row.converted)} of ${count(row.cohort)} trials converted`,
+          row.failing ? `${count(row.failing)} with a failing first charge` : "",
+        ),
+        running,
       ),
     };
   },
