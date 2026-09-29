@@ -14149,7 +14149,11 @@ Object.assign(LIVE_BUILDERS, {
     if (!withPlay.length) return { value: "—", sub: "no Android app reports devices" };
     const active = withPlay.reduce((n, a) => n + (a.play!.activeDevices ?? 0), 0);
     const un = A.apps.reduce((n, a) => n + a.totals.uninstalls, 0);
-    return { value: count(active), sub: `with the app installed now · ${count(un)} uninstalls in the window` };
+    const asOf = withPlay.map((a) => a.play!.activeAt).filter((d): d is string => !!d).sort().at(-1);
+    return {
+      value: count(active),
+      sub: also(`with the app installed${asOf ? ` as of ${dayShort(asOf)}` : ""}`, `${count(un)} uninstalls in the window`),
+    };
   },
 
   "apps.daily": ({ apps: A }: LiveInputs) => {
