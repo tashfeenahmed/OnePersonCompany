@@ -689,7 +689,7 @@ export function WidgetCard({
         )}
 
         {!empty && def.kind === "daily" && def.daily && (
-          <DailyBars days={def.daily} unit={def.unit ?? "count"} caption={def.caption} split={def.dailySplit} />
+          <DailyBars days={def.daily} unit={def.unit ?? "count"} caption={def.caption} split={def.dailySplit} open={def.dailyOpen} />
         )}
 
         {!empty && def.kind === "chart" && (

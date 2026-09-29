@@ -971,7 +971,12 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       */
       tryFetch(
         connected.has("umami") && wanted.needsUmami,
-        () => reports.umami(daysFor(selected, 90)),
+        /* TWICE THE SPAN, so every per-site change on the Analytics board has
+           the window before it to compare with. The builders cut the line
+           back to the picker's span; "all" is the collector's ninety. Two
+           days over, because the route counts back from today and today is
+           not complete. */
+        () => reports.umami(daysFor(selected === "all" ? "all" : selected * 2 + 2, 90)),
         setUmami, "umami");
       tryFetch(
         connected.has("calendar") && wanted.needsCalendar,
