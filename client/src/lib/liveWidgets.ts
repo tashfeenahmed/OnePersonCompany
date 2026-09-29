@@ -3494,7 +3494,7 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "cf.total": ({ cloudflare: C, window: W }: LiveInputs) => {
+  "cf.total": ({ cloudflare: C }: LiveInputs) => {
     if (!C || !C.summary.withTraffic) return null;
     /* The sparkline is the window's own complete days — today is in the
        document and deliberately not on the line, because a bucket Cloudflare
@@ -3504,7 +3504,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       value: compact(C.summary.requests),
       sub: also(
-        `${C.summary.withTraffic} zone${C.summary.withTraffic === 1 ? "" : "s"} · ${cfDays(C, W)} to ${dayShort(C.window.through)}`,
+        `${C.summary.withTraffic} site${C.summary.withTraffic === 1 ? "" : "s"} · to ${dayShort(C.window.through)}`,
         blind ? `${blind} not measured` : "",
       ),
       series: done.length > 1 ? done.map((d) => d.requests) : undefined,
@@ -3588,9 +3588,13 @@ Object.assign(LIVE_BUILDERS, {
 
   "cf.bandwidth": ({ cloudflare: C, window: W }: LiveInputs) => {
     if (!C || !C.summary.withTraffic) return null;
+    const done = C.daily.filter((d) => !d.partial);
     return {
       value: bytes(C.summary.bytes, { base: 1000 }),
-      sub: `served from the edge over ${cfDays(C, W)}, ${C.summary.withTraffic} zones`,
+      sub: `served over ${cfDays(C, W)}`,
+      series: done.length > 1 ? done.map((d) => d.bytes) : undefined,
+      seriesAt: done.length > 1 ? done.map((d) => at(d.day)) : undefined,
+      unit: "bytes" as const,
     };
   },
 
@@ -3601,12 +3605,12 @@ Object.assign(LIVE_BUILDERS, {
     const share = C.summary.requests
       ? (C.summary.threats / C.summary.requests) * 100
       : null;
+    const done = C.daily.filter((d) => !d.partial && d.threats !== null);
     return {
-      value: count(C.summary.threats),
-      sub: also(
-        `Cloudflare's own count over ${cfDays(C, W)}`,
-        share === null ? "" : `${percent(share, 2)} of requests`,
-      ),
+      value: compact(C.summary.threats),
+      sub: also(share === null ? "" : `${percent(share, 1)} of requests`, cfDays(C, W)),
+      series: done.length > 1 ? done.map((d) => d.threats!) : undefined,
+      seriesAt: done.length > 1 ? done.map((d) => at(d.day)) : undefined,
     };
   },
 
@@ -3828,6 +3832,303 @@ Object.assign(LIVE_BUILDERS, {
     );
     rows.push(["Checked", C.cannot.checkedOn]);
     return { rows };
+  },
+
+  /* ------------------------------------------------- traffic (visual) */
+
+  /*
+    THE TRAFFIC & DNS BOARD, DRAWN RATHER THAN WRITTEN. Same rules as the cf.*
+    cards above — a zone nobody could measure is left out, never drawn as a
+    zero; today's half-written bucket is never on a bar — with the site as the
+    unit a reader recognises: every row carries its favicon, every day is a
+    stack of sites, and the checklists are ticks rather than sentences.
+  */
+
+  "traffic.pageViews": ({ cloudflare: C, window: W }: LiveInputs) => {
+    if (!C || C.summary.pageViews === null || !C.summary.withTraffic) return null;
+    const done = C.daily.filter((d) => !d.partial && d.pageViews !== null);
+    return {
+      value: compact(C.summary.pageViews),
+      sub: also(
+        C.summary.requests ? `${pct(C.summary.pageViews / C.summary.requests, { digits: 0 })} of requests` : "",
+        cfDays(C, W),
+      ),
+      series: done.length > 1 ? done.map((d) => d.pageViews!) : undefined,
+      seriesAt: done.length > 1 ? done.map((d) => at(d.day)) : undefined,
+    };
+  },
+
+  "traffic.daily": ({ cloudflare: C }: LiveInputs) => {
+    const done = (C?.daily ?? []).filter((d) => !d.partial);
+    if (done.length < 2) return null;
+    const total = done.reduce((n, d) => n + d.requests, 0);
+    const peak = done.reduce((b, d) => (d.requests > b.requests ? d : b), done[0]!);
+    return {
+      daily: done.map((d) => ({
+        day: d.day,
+        total: d.requests,
+        parts: (d.sites ?? []).map((s) => ({ label: s.name, value: s.requests, host: s.name })),
+      })),
+      dailySplit: "By site",
+      unit: "count" as const,
+      caption: `${compact(total)} requests · busiest ${dayShort(peak.day)} · today not drawn until it settles`,
+    };
+  },
+
+  "traffic.visitors": ({ cloudflare: C }: LiveInputs) => {
+    const done = (C?.daily ?? []).filter((d) => !d.partial && d.uniquesByZone !== null);
+    if (done.length < 2) return null;
+    return {
+      daily: done.map((d) => ({
+        day: d.day,
+        total: d.uniquesByZone!,
+        parts: (d.sites ?? [])
+          .filter((s) => s.uniques)
+          .map((s) => ({ label: s.name, value: s.uniques!, host: s.name })),
+      })),
+      dailySplit: "By site",
+      unit: "count" as const,
+      caption: "Counted per site per day — someone who reads two sites counts twice",
+    };
+  },
+
+  "traffic.sites": ({ cloudflare: C }: LiveInputs) => {
+    const measured = (C?.zones ?? []).filter((z) => z.traffic && z.traffic.requests > 0);
+    if (!measured.length) return null;
+    const whole = measured.reduce((n, z) => n + z.traffic!.requests, 0);
+    const done = C!.daily.filter((d) => !d.partial);
+    const spark = (name: string) =>
+      done.map((d) => d.sites?.find((s) => s.name === name)?.requests ?? 0);
+    const top = [...measured].sort((a, b) => b.traffic!.requests - a.traffic!.requests).slice(0, 10);
+    const rest = measured.length - top.length;
+    return {
+      ranked: top.map((z) => ({
+        label: z.name,
+        host: z.name,
+        value: z.traffic!.requests,
+        text: compact(z.traffic!.requests),
+        sub: pct(z.traffic!.requests / whole, { digits: 0 }),
+        spark: done.length > 1 && done.some((d) => d.sites) ? spark(z.name) : undefined,
+      })),
+      caption: rest ? `+ ${rest} smaller site${rest === 1 ? "" : "s"}` : undefined,
+    };
+  },
+
+  "traffic.countries": ({ cloudflare: C }: LiveInputs) => {
+    const list = C?.summary.countries;
+    if (!C || !list?.length || !C.summary.requests) return null;
+    const whole = C.summary.requests;
+    const name = (code: string) =>
+      code === "XX" ? "Unknown" : code === "T1" ? "🧅 Tor" : countryName(code);
+    const threatTop = [...list].sort((a, b) => b.threats - a.threats)[0];
+    return {
+      ranked: list.slice(0, 10).map((c) => ({
+        label: name(c.code),
+        value: c.requests,
+        text: compact(c.requests),
+        sub: pct(c.requests / whole, { digits: 0 }),
+      })),
+      caption: threatTop && threatTop.threats
+        ? `Most threats from ${name(threatTop.code)} · ${compact(threatTop.threats)}`
+        : undefined,
+    };
+  },
+
+  "traffic.status": ({ cloudflare: C }: LiveInputs) => {
+    const measured = (C?.zones ?? []).filter((z) => z.traffic);
+    if (!measured.length) return null;
+    /* One null anywhere and the split is unknown, as on cf.responses. */
+    const t = { s2xx: 0, s3xx: 0, s4xx: 0, s5xx: 0 };
+    for (const z of measured)
+      for (const k of ["s2xx", "s3xx", "s4xx", "s5xx"] as const) {
+        const v = z.traffic!.status[k];
+        if (v === null) return null;
+        t[k] += v;
+      }
+    const all = t.s2xx + t.s3xx + t.s4xx + t.s5xx;
+    if (!all) return null;
+    const failing = measured
+      .map((z) => ({ z, n: z.traffic!.status.s5xx ?? 0, of: z.traffic!.requests }))
+      .filter((r) => r.n > 0 && r.of >= 100 && r.n / r.of >= 0.005)
+      .sort((a, b) => b.n / b.of - a.n / a.of)
+      .slice(0, 5);
+    return {
+      value: pct((t.s2xx + t.s3xx) / all, { digits: 0 }),
+      sub: "answered OK or redirected",
+      partsLabel: "Response codes",
+      parts: [
+        { label: "2xx", value: t.s2xx, tone: "ok" as const },
+        { label: "3xx", value: t.s3xx },
+        { label: "4xx", value: t.s4xx, tone: "warn" as const },
+        { label: "5xx", value: t.s5xx, tone: "bad" as const },
+      ],
+      ranked: failing.map((r) => ({
+        label: r.z.name,
+        host: r.z.name,
+        value: r.n / r.of,
+        text: pct(r.n / r.of, { digits: r.n / r.of < 0.1 ? 1 : 0 }),
+        sub: `${compact(r.n)} 5xx`,
+      })),
+      caption: failing.length ? "Sites where 5xx server errors are ½% or more of requests" : "No site above ½% server errors",
+    };
+  },
+
+  "traffic.cache": ({ cloudflare: C }: LiveInputs) => {
+    const s = C?.summary;
+    if (!C || !s || s.cacheRatio === null) return null;
+    const top = C.zones
+      .filter((z) => z.traffic && z.traffic.cacheRatio !== null && z.traffic.requests > 0)
+      .sort((a, b) => b.traffic!.requests - a.traffic!.requests)
+      .slice(0, 6);
+    return {
+      value: pct(s.cacheRatio),
+      sub: `of ${compact(s.requests)} requests served from cache`,
+      partsLabel: "Cache",
+      parts: [
+        { label: "Cached", value: s.cached, text: compact(s.cached), tone: "ok" as const },
+        { label: "From origin", value: s.requests - s.cached, text: compact(s.requests - s.cached) },
+      ],
+      ranked: top.map((z) => ({
+        label: z.name,
+        host: z.name,
+        value: z.traffic!.cacheRatio!,
+        text: pct(z.traffic!.cacheRatio!, { digits: 0 }),
+        sub: bytes(z.traffic!.bytes, { base: 1000 }),
+      })),
+      caption: "Busiest sites: share cached · bandwidth served",
+    };
+  },
+
+  "traffic.threatsBySite": ({ cloudflare: C }: LiveInputs) => {
+    const rows = (C?.zones ?? []).filter((z) => z.traffic && z.traffic.threats);
+    if (!rows.length) return null;
+    const top = [...rows].sort((a, b) => b.traffic!.threats! - a.traffic!.threats!).slice(0, 8);
+    return {
+      ranked: top.map((z) => ({
+        label: z.name,
+        host: z.name,
+        value: z.traffic!.threats!,
+        text: compact(z.traffic!.threats!),
+        sub: z.traffic!.requests ? `${percent((z.traffic!.threats! / z.traffic!.requests) * 100, 1)} of requests` : undefined,
+      })),
+    };
+  },
+
+  "traffic.dnsHealth": ({ cloudflare: C }: LiveInputs) => {
+    if (!C?.zones.length) return null;
+    /* The checklist: ✓ present, ✗ missing where the site handles mail, — not
+       needed because the site has no mail to protect, ? records unreadable. */
+    const rank = (z: CloudflareZone) => {
+      const e = z.email;
+      if (!e) return 1;
+      const sending = e.mx || e.spf;
+      if (sending && (!e.spf || !e.dmarc || e.dkim === false)) return 0;
+      if (e.dmarc && e.dmarcPolicy === "none") return 2;
+      return 3;
+    };
+    const zones = [...C.zones].sort(
+      (a, b) => rank(a) - rank(b) || (b.traffic?.requests ?? -1) - (a.traffic?.requests ?? -1),
+    );
+    const cells = (z: CloudflareZone): string[] => {
+      const e = z.email;
+      if (!e) return ["?", "?", "?", "?"];
+      const sending = e.mx || e.spf;
+      return [
+        e.mx ? "✓" : "—",
+        e.spf ? "✓" : sending ? "✗" : "—",
+        e.dmarc ? (e.dmarcPolicy === "none" ? "p=none" : "✓") : sending ? "✗" : "—",
+        e.dkim === true ? "✓" : e.dkim === false ? "✗" : "—",
+      ];
+    };
+    return {
+      headers: ["Site", "Records", "Proxied", "MX", "SPF", "DMARC", "DKIM"],
+      table: zones.map((z) => [
+        z.name,
+        z.records === null ? "?" : String(z.records),
+        z.records === null || z.proxied === null ? "?" : `${z.proxied} of ${z.records}`,
+        ...cells(z),
+      ]),
+      rowHosts: zones.map((z) => z.name),
+      caption: "Gaps first · — means no mail on that site · p=none reports but does not block spoofing",
+    };
+  },
+
+  "traffic.email": ({ cloudflare: C }: LiveInputs) => {
+    const zones = (C?.zones ?? []).filter((z) => z.email && (z.email.mx || z.email.spf));
+    if (!zones.length) return null;
+    const enforced = zones.filter(
+      (z) => z.email!.spf && z.email!.dmarc && z.email!.dmarcPolicy !== null && z.email!.dmarcPolicy !== "none",
+    );
+    const missing = zones.filter((z) => !z.email!.spf || !z.email!.dmarc);
+    const monitoring = zones.length - enforced.length - missing.length;
+    const gaps = zones
+      .map((z) => {
+        const e = z.email!;
+        const lack = [!e.spf && "SPF", !e.dmarc && "DMARC", e.dkim === false && "DKIM"].filter(Boolean);
+        return lack.length ? ([z.name, `no ${lack.join(" or ")}`] as [string, string]) : null;
+      })
+      .filter((r): r is [string, string] => r !== null);
+    return {
+      value: `${enforced.length} of ${zones.length}`,
+      sub: "sites that take mail enforce DMARC",
+      partsLabel: "Mail protection",
+      parts: [
+        { label: "Enforced", value: enforced.length, text: String(enforced.length), tone: "ok" as const },
+        { label: "p=none", value: monitoring, text: String(monitoring), tone: "warn" as const },
+        { label: "Missing SPF/DMARC", value: missing.length, text: String(missing.length), tone: "bad" as const },
+      ],
+      rows: gaps.slice(0, 6),
+    };
+  },
+
+  "traffic.delegation": ({ cloudflare: C }: LiveInputs) => {
+    if (!C?.zones.length) return null;
+    const a = C.alignment;
+    const off = a.offCloudflare.length + a.elsewhereOnCloudflare.length;
+    const rows: [string, string][] = [
+      ...a.offCloudflare.map((z) => [z.name, "points off Cloudflare"] as [string, string]),
+      ...a.elsewhereOnCloudflare.map((z) => [z.name, "other Cloudflare account"] as [string, string]),
+      ...a.registrarOnly.map((d) => [d.name, `${d.registrar} · no zone`] as [string, string]),
+    ];
+    return {
+      value: `${a.aligned.length} of ${C.zones.length}`,
+      sub: "sites confirmed pointing at their zone",
+      partsLabel: "Delegation",
+      parts: [
+        { label: "Confirmed", value: a.aligned.length, text: String(a.aligned.length), tone: "ok" as const },
+        { label: "Registrar not connected", value: a.zoneOnly.length, text: String(a.zoneOnly.length) },
+        ...(a.unknown.length
+          ? [{ label: "Unknown", value: a.unknown.length, text: String(a.unknown.length), tone: "warn" as const }]
+          : []),
+        ...(off ? [{ label: "Elsewhere", value: off, text: String(off), tone: "bad" as const }] : []),
+      ],
+      rows: rows.slice(0, 5),
+    };
+  },
+
+  "traffic.table": ({ cloudflare: C }: LiveInputs) => {
+    if (!C?.zones.length) return null;
+    const zones = [...C.zones].sort((a, b) => (b.traffic?.requests ?? -1) - (a.traffic?.requests ?? -1));
+    return {
+      headers: ["Site", "Requests", "Visitors/day", "Views", "Cached", "Bandwidth", "Threats", "5xx"],
+      /* A dash for a site nobody could measure; the site that really served
+         nothing prints 0. */
+      table: zones.map((z) => {
+        const t = z.traffic;
+        if (!t) return [z.name, DASH, DASH, DASH, DASH, DASH, DASH, DASH];
+        return [
+          z.name,
+          compact(t.requests),
+          t.uniquesByDay === null || !t.days ? DASH : compact(t.uniquesByDay / t.days),
+          t.pageViews === null ? DASH : compact(t.pageViews),
+          t.cacheRatio === null ? DASH : pct(t.cacheRatio, { digits: 0 }),
+          bytes(t.bytes, { base: 1000 }),
+          t.threats === null ? DASH : compact(t.threats),
+          t.status.s5xx === null || !t.requests ? DASH : pct(t.status.s5xx / t.requests, { digits: 1 }),
+        ];
+      }),
+      rowHosts: zones.map((z) => z.name),
+    };
   },
 
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
