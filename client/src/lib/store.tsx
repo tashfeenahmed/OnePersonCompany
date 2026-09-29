@@ -597,56 +597,38 @@ const SEED: StoreState = {
       ],
     },
     /*
-      REVENUE. What the whole operation actually earns, from four sources that
-      report money four different ways.
-
-      THE ORDER IS AN ARGUMENT. Stripe first and at the top, because it is the
-      business — $788.87 of MRR against Play's $170 a month and an App Store
-      that has never been paid out at all. Putting the four stores on equal
-      footing would give three of them a quarter of the page each and flatter
-      them enormously.
-
-      ESTIMATE AND PAYOUT SIT SIDE BY SIDE, DELIBERATELY. Apple's daily sales
-      report and Google's sales export are previews; Apple's finance report and
-      Google's earnings export are the money that lands. They are next to each
-      other so the gap between them is legible, and they are never added — see
-      `estimateVsPayout` on /api/mobile.
-
-      NO TOTAL IS OFFERED and none should be. Ten currencies appear across these
-      cards and this box fetches no exchange rate, so a single "revenue" figure
-      would be a confident lie about the one number a reader would trust most.
+      REVENUE & PAYMENTS. What we earn, from which product, whether it is
+      growing, and where money leaks — at a glance. Stripe leads because it is
+      the business; the app stores and AdSense sit beside it per product.
+      Currencies meet only through the Finance FX rates and wear "≈"; one
+      nobody can price is left out and named.
     */
     {
       id: "d-revenue",
       slug: "revenue",
       name: "Revenue",
       widgets: [
+        /* Reworked 2026-09-29: drawn rather than written — four figures
+           with their lines, every day as a stack of products, products with
+           their favicons and app icons, MRR movement and gross-to-net as
+           waterfalls; the refusal and "cannot say" cards are gone. */
         { id: "rv1", type: "stripe.mrr", w: 1 },
         { id: "rv2", type: "stripe.arr", w: 1 },
-        { id: "rv3", type: "stripe.subs", w: 1 },
-        { id: "rv4", type: "stripe.churn", w: 1 },
-        { id: "rv5", type: "stripe.gross", w: 4 },
-        { id: "rv6", type: "stripe.net30", w: 1 },
-        { id: "rv7", type: "stripe.fees", w: 1 },
-        { id: "rv8", type: "stripe.pending", w: 1 },
+        { id: "rv23", type: "revenue.gross", w: 1 },
+        { id: "rv24", type: "revenue.net", w: 1 },
+        { id: "rv25", type: "revenue.daily", w: 4 },
+        { id: "rv26", type: "revenue.byProduct", w: 2 },
+        { id: "rv27", type: "revenue.stores", w: 2 },
+        { id: "rv28", type: "revenue.movement", w: 2 },
+        { id: "rv29", type: "revenue.mrrByProduct", w: 2 },
+        { id: "rv30", type: "revenue.plans", w: 2 },
+        { id: "rv31", type: "revenue.combined", w: 2 },
+        { id: "rv32", type: "revenue.leaks", w: 2 },
+        { id: "rv33", type: "revenue.churn", w: 2 },
+        { id: "rv34", type: "revenue.failures", w: 2 },
+        { id: "rv35", type: "revenue.disputes", w: 1 },
         { id: "rv9", type: "stripe.payouts", w: 1 },
-        { id: "rv10", type: "mobile.sideBySide", w: 2 },
-        { id: "rv11", type: "play.revenue", w: 2 },
-        { id: "rv12", type: "appstore.payout", w: 2 },
-        { id: "rv13", type: "appstore.proceeds", w: 2 },
-        { id: "rv14", type: "stripe.products", w: 2 },
-        { id: "rv15", type: "stripe.mix", w: 2 },
-        { id: "rv16", type: "stripe.churnNotChurn", w: 2 },
-        { id: "rv17", type: "stripe.declines", w: 2 },
-        { id: "rv18", type: "play.split", w: 2 },
-        { id: "rv19", type: "adsense.earnings", w: 1 },
-        // The access card stays even though the money card is beside it now:
-        // it is where a silence explains itself. If the Cloud consent screen is
-        // still in Testing the refresh token dies in seven days, and this is
-        // the card that says so rather than the earnings quietly going flat.
-        { id: "rv20", type: "adsense.access", w: 1 },
-        { id: "rv21", type: "adsense.rpm", w: 2 },
-        { id: "rv22", type: "mobile.presence", w: 2 },
+        { id: "rv36", type: "revenue.recent", w: 4 },
       ],
     },
     /*

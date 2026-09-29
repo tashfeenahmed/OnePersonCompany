@@ -58,7 +58,7 @@ test("combined ARR is in the display currency, not whichever currency has the bi
 test("combined ARR defaults to USD before finance has loaded",()=>{
   const p=build("brief.arr",{mobile:{appstore:appleInRubles,play:{connected:false}}})!;
   assert.match(p.value!,/\$/);
-  assert.match(p.caption!,/RUB could be priced by neither/);
+  assert.match(p.caption!,/RUB not priced/);
 });
 test("combined ARR follows a chosen display currency",()=>{
   const p=build("brief.arr",{mobile:{appstore:appleInRubles,play:{connected:false}},finance:{summary:{fx:{...fx.summary.fx,displayCurrency:"EUR"}}}})!;
