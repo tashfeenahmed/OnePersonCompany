@@ -7,6 +7,7 @@ export function widgetExample(widget: Widget): Partial<Widget> {
   const base = { sub: "Illustrative example", caption: "Synthetic preview data" };
   switch (widget.kind) {
     case "heading": return {};
+    case "appfilter": case "appgrid": case "reviews": return {};
     case "daily": return { ...base, daily: series.map((total, i) => ({ day: `2025-01-0${i + 1}`, total })) };
     case "domain-search": return { sub: "Search across TLDs or check domains in bulk." };
     case "metric": return { ...base, value: "100", series };

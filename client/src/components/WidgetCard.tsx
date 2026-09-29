@@ -7,7 +7,9 @@ import { measuredWidget } from "@/lib/widgetView";
 import { ChevronDown, Trash2, UnfoldHorizontal } from "lucide-react";
 import { BrandTile } from "@/components/BrandTile";
 import { useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
+import { narrowApps } from "@/lib/api/apps";
+import { AppFilter, AppGrid, ReviewList } from "@/components/apps/AppsWidgets";
 import {
   Bars,
   Chart,
@@ -87,6 +89,7 @@ function inputsOf(live: LiveData, points: LiveInputs["points"], extra: Pick<Live
     capture: live.capture,
     users: live.users,
     mobileHealth: live.mobileHealth,
+    apps: live.apps,
     webAnalytics: live.webAnalytics,
     window: live.window,
     ...extra,
@@ -135,6 +138,7 @@ export function WidgetCard({
 }) {
   const base = WIDGETS[placed.type];
   const all = useLive();
+  const [searchParams, setSearchParams] = useSearchParams();
   /*
     INSIDE A VENTURE, THIS CARD IS ONE OF TWO KINDS.
 
@@ -210,6 +214,20 @@ export function WidgetCard({
   // call a per-project builder declines, so the verdict is made here from
   // the narrowed document instead: live if the builder answered.
   const build = LIVE_BUILDERS[placed.type];
+  /* THE APPS BOARD'S PICKER: `?app=` narrows every Apps card to one app; the
+     picker itself always reads the whole list. */
+  const appFilter = base.live?.apps ? searchParams.get("app") : null;
+  const pickApp = (key: string | null) =>
+    setSearchParams((now) => {
+      const next = new URLSearchParams(now);
+      if (key) next.set("app", key);
+      else next.delete("app");
+      return next;
+    }, { replace: true });
+  const withApps = (inputs: LiveInputs): LiveInputs =>
+    base.live?.apps && inputs.apps && placed.type !== "apps.filter"
+      ? { ...inputs, apps: narrowApps(inputs.apps, appFilter), appFilter }
+      : inputs;
   const patch = perParam
     ? perProject
       ? project && projectLive && build
@@ -219,7 +237,7 @@ export function WidgetCard({
         ? build(inputsOf(portfolio, points, { param: placed.param, server }))
         : null
     : live.liveTypes.has(placed.type) && build
-      ? build(inputsOf(live, points, {}))
+      ? build(withApps(inputsOf(live, points, {})))
       : null;
   // Real numbers replace the sample ones in place, so the card's layout does
   // not change when a provider connects — only what it is showing.
@@ -315,6 +333,29 @@ export function WidgetCard({
       : !isLive ? unavailable : null;
   const failedSource = Object.keys(base.live ?? {}).find(key =>
     live.sourceStates[key === "metric" ? `metric:${base.live?.metric}` : key] === "error");
+  /* THE APP PICKER sits across the board with no card around it, and stays
+     in view while the cards under it scroll. */
+  if (base.kind === "appfilter")
+    return (
+      <div
+        {...dragHandlers}
+        className={cn(
+          "bg-background/95 sticky top-0 z-20 col-span-12 -mx-1 flex items-center gap-2 px-1 py-1.5 backdrop-blur",
+          editing && "cursor-grab touch-none rounded-[14px] border border-dashed select-none",
+        )}
+      >
+        {patch?.appsDoc ? (
+          <AppFilter apps={patch.appsDoc.apps} selected={searchParams.get("app")} onPick={pickApp} />
+        ) : (
+          <span className="text-muted-foreground text-[12.5px]">Connect App Store Connect or Google Play to pick an app.</span>
+        )}
+        {editing && (
+          <button title="Remove" onClick={(e) => { e.stopPropagation(); onRemove(); }} className="text-muted-foreground ml-auto p-1">
+            <Trash2 className="size-3.5" strokeWidth={1.6} />
+          </button>
+        )}
+      </div>
+    );
   /* A SECTION HEADING has no data and no card: a title across the grid. In
      edit mode it keeps the move and remove controls every card has. */
   if (base.kind === "heading")
@@ -608,6 +649,14 @@ export function WidgetCard({
               </div>
             ))}
           </div>
+        )}
+
+        {!empty && def.kind === "appgrid" && def.appsDoc && (
+          <AppGrid apps={def.appsDoc.apps} selected={searchParams.get("app")} onPick={pickApp} />
+        )}
+
+        {!empty && def.kind === "reviews" && def.appsDoc && (
+          <ReviewList reviews={def.appsDoc.reviews} apps={def.appsDoc.apps} />
         )}
 
         {!empty && def.kind === "daily" && def.daily && (

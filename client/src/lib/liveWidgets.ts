@@ -50,7 +50,7 @@ import type {
   UmamiWebsite,
   UptimeReport,
 } from "@/lib/api/reports";
-import type { Meter, ProfileFigure, ProportionPart, RunwayRow, StatusTone, WaterfallStep, Widget } from "@/data/widgets";
+import type { Meter, ProfileFigure, ProportionPart, RankedRow, RunwayRow, StatusTone, WaterfallStep, Widget } from "@/data/widgets";
 import type { Expense, FinanceReport, MarginRow, PortfolioPnl } from "@/lib/api/finance";
 import type { InboxDoc, InboxItem } from "@/lib/api/inbox";
 import type { CaptureReport } from "@/lib/api/ventures";
@@ -62,6 +62,7 @@ import type { SocialPost } from "@/areas/socialfeed/api";
 import type { FeedItem } from "@/data/widgets";
 import type { AdRow, AdsBoardDocs } from "@/lib/api/adsboard";
 import type { MobileHealthDocs } from "@/lib/api/mobilehealthboard";
+import type { AppsDoc } from "@/lib/api/apps";
 import type { WebAnalyticsDocs } from "@/lib/api/webanalyticsboard";
 import { rateBetween } from "./fx.ts";
 import {
@@ -337,6 +338,11 @@ export type LiveInputs = {
     instead of it. Two collectors, two clocks, four fields.
   */
   mobileHealth?: MobileHealthDocs | null;
+  /** Every app, both stores joined — already narrowed to the board's app
+   *  picker when one is chosen (see WidgetCard). */
+  apps?: AppsDoc | null;
+  /** The app picked on the Apps board, or null for every app. */
+  appFilter?: string | null;
   webAnalytics?: WebAnalyticsDocs | null;
   /*
     THE PER-PROJECT CONTRACT. A widget whose catalog entry says `perProject`
@@ -14071,3 +14077,241 @@ Object.assign(LIVE_BUILDERS, {
 Object.assign(LIVE_BUILDERS, SERVER_BUILDERS);
 
 for (const type of ["insights.pace", "insights.dormant", "insights.infrastructure"]) LIVE_BUILDERS[type] = d => d.insights ? { insightData: d.insights } : null;
+
+/* ================================================================== apps
+   THE APPS BOARD — every card reads /api/mobilehealth/apps, already narrowed
+   to the app picked in `apps.filter` (WidgetCard applies `?app=`). With one
+   app picked the split cards turn from "by app" to "by store", because a
+   one-row "by app" is a card with nothing to compare.
+   ======================================================================== */
+
+const STORE_NAME = { appstore: "App Store", play: "Google Play" } as const;
+
+Object.assign(LIVE_BUILDERS, {
+  "apps.filter": ({ apps: A }: LiveInputs) => (A?.apps.length ? { appsDoc: A } : null),
+
+  "apps.installs": ({ apps: A }: LiveInputs) => {
+    if (!A?.apps.length) return null;
+    const ios = A.apps.reduce((n, a) => n + a.totals.ios, 0);
+    const android = A.apps.reduce((n, a) => n + a.totals.android, 0);
+    const days = A.apps[0]!.daily.map((_, i) => A.apps.reduce((n, a) => n + a.daily[i]!.ios + a.daily[i]!.android, 0));
+    return {
+      value: count(ios + android),
+      sub: `iOS ${count(ios)} · Android ${count(android)}`,
+      series: days,
+      seriesAt: A.apps[0]!.daily.map((d) => `${d.day}T00:00:00Z`),
+      unit: "count" as const,
+    };
+  },
+
+  "apps.rating": ({ apps: A }: LiveInputs) => {
+    if (!A?.apps.length) return null;
+    const counted = A.apps.filter((a) => a.rating && a.rating.count);
+    const n = counted.reduce((m, a) => m + a.rating!.count!, 0);
+    if (n) {
+      const avg = counted.reduce((m, a) => m + a.rating!.average * a.rating!.count!, 0) / n;
+      const one = A.apps.length === 1 ? A.apps[0]! : null;
+      return {
+        value: `${avg.toFixed(1)} ★`,
+        tone: avg < 3 ? ("bad" as StatusTone) : avg < 4 ? ("warn" as StatusTone) : undefined,
+        sub: one
+          ? also(
+              one.appstore?.ratingCount ? `App Store ${one.appstore.rating?.toFixed(1)} (${count(one.appstore.ratingCount)})` : "",
+              one.play?.rating !== null && one.play?.rating !== undefined ? `Play ${one.play.rating.toFixed(1)}${one.play.ratingCount ? ` (${count(one.play.ratingCount)})` : ""}` : "",
+            )
+          : `${count(n)} ratings across ${count(counted.length)} app${counted.length === 1 ? "" : "s"}`,
+      };
+    }
+    const lone = A.apps.find((a) => a.rating);
+    return lone
+      ? { value: `${lone.rating!.average.toFixed(1)} ★`, sub: "Play Console average · too few ratings for a count" }
+      : { value: "—", sub: "no ratings yet" };
+  },
+
+  "apps.reviews": ({ apps: A }: LiveInputs) => {
+    if (!A) return null;
+    const inWindow = A.reviews.filter((r) => r.created && r.created.slice(0, 10) >= A.window.from);
+    const rated = inWindow.filter((r) => r.rating !== null);
+    const avg = rated.length ? rated.reduce((n, r) => n + r.rating!, 0) / rated.length : null;
+    const low = rated.filter((r) => r.rating! <= 2).length;
+    return {
+      value: count(inWindow.length),
+      tone: low > inWindow.length / 2 && low > 0 ? ("warn" as StatusTone) : undefined,
+      sub: inWindow.length
+        ? also(avg !== null ? `average ${avg.toFixed(1)} ★` : "", low ? `${count(low)} at 1–2 ★` : "no 1–2 ★ reviews")
+        : `${count(A.reviews.length)} all-time`,
+    };
+  },
+
+  "apps.active": ({ apps: A }: LiveInputs) => {
+    if (!A?.apps.length) return null;
+    const withPlay = A.apps.filter((a) => a.play?.activeDevices !== null && a.play?.activeDevices !== undefined);
+    if (!withPlay.length) return { value: "—", sub: "no Android app reports devices" };
+    const active = withPlay.reduce((n, a) => n + (a.play!.activeDevices ?? 0), 0);
+    const un = A.apps.reduce((n, a) => n + a.totals.uninstalls, 0);
+    return { value: count(active), sub: `with the app installed now · ${count(un)} uninstalls in the window` };
+  },
+
+  "apps.daily": ({ apps: A }: LiveInputs) => {
+    if (!A?.apps.length) return null;
+    const one = A.apps.length === 1;
+    const grid = A.apps[0]!.daily.map((d) => d.day);
+    const total = A.apps.reduce((n, a) => n + a.totals.ios + a.totals.android, 0);
+    return {
+      daily: grid.map((day, i) => ({
+        day,
+        total: A.apps.reduce((n, a) => n + a.daily[i]!.ios + a.daily[i]!.android, 0),
+        parts: one
+          ? [
+              { label: "iOS", value: A.apps[0]!.daily[i]!.ios },
+              { label: "Android", value: A.apps[0]!.daily[i]!.android },
+            ]
+          : A.apps.map((a) => ({ label: a.name.split(/[:–—]/)[0]!.trim(), value: a.daily[i]!.ios + a.daily[i]!.android })),
+      })),
+      dailySplit: one ? "By store" : "By app",
+      unit: "count" as const,
+      caption: `${count(total)} App Store downloads and Play installs · the newest days are still arriving`,
+    };
+  },
+
+  "apps.grid": ({ apps: A }: LiveInputs) => (A?.apps.length ? { appsDoc: A } : null),
+
+  "apps.byApp": ({ apps: A }: LiveInputs) => {
+    if (!A?.apps.length) return null;
+    const rows = A.apps.filter((a) => a.totals.ios + a.totals.android > 0);
+    if (!rows.length) return null;
+    const whole = rows.reduce((n, a) => n + a.totals.ios + a.totals.android, 0);
+    return {
+      ranked: rows.slice(0, 10).map((a) => ({
+        label: a.name,
+        value: a.totals.ios + a.totals.android,
+        text: count(a.totals.ios + a.totals.android),
+        sub: `iOS ${count(a.totals.ios)} · Android ${count(a.totals.android)} · ${pct((a.totals.ios + a.totals.android) / whole, { digits: 0 })}`,
+        app: a,
+      })),
+    };
+  },
+
+  "apps.ratings": ({ apps: A }: LiveInputs) => {
+    if (!A?.apps.length) return null;
+    if (A.apps.length === 1) {
+      const a = A.apps[0]!;
+      const rows: RankedRow[] = [];
+      if (a.appstore?.rating !== null && a.appstore?.rating !== undefined)
+        rows.push({ label: "App Store", value: a.appstore.rating, text: `${a.appstore.rating.toFixed(1)} ★`, sub: `${count(a.appstore.ratingCount ?? 0)} ratings` });
+      if (a.play?.rating !== null && a.play?.rating !== undefined)
+        rows.push({ label: "Google Play", value: a.play.rating, text: `${a.play.rating.toFixed(1)} ★`, sub: a.play.ratingCount ? `${count(a.play.ratingCount)} ratings` : "Console average" });
+      return rows.length ? { ranked: rows, rankedMax: 5 } : null;
+    }
+    const rated = A.apps.filter((a) => a.rating).sort((x, y) => y.rating!.average - x.rating!.average);
+    if (!rated.length) return null;
+    return {
+      ranked: rated.map((a) => ({
+        label: a.name,
+        value: a.rating!.average,
+        text: `${a.rating!.average.toFixed(1)} ★`,
+        sub: a.rating!.count !== null ? `${count(a.rating!.count)} ratings` : "Play average",
+        app: a,
+      })),
+      rankedMax: 5,
+      caption: `${count(A.apps.length - rated.length)} apps have no ratings yet`,
+    };
+  },
+
+  "apps.stars": ({ apps: A }: LiveInputs) => {
+    if (!A) return null;
+    const stars = [0, 0, 0, 0, 0];
+    for (const a of A.apps) a.reviews.stars.forEach((n, i) => (stars[i]! += n));
+    const total = stars.reduce((n, v) => n + v, 0);
+    if (!total) return null;
+    return {
+      ranked: [5, 4, 3, 2, 1].map((s) => ({
+        label: "★".repeat(s),
+        value: stars[s - 1]!,
+        text: count(stars[s - 1]!),
+        sub: pct(stars[s - 1]! / total, { digits: 0 }),
+      })),
+      caption: `${count(total)} reviews the stores have sent this box, all time`,
+    };
+  },
+
+  "apps.reviewList": ({ apps: A }: LiveInputs) => (A ? { appsDoc: A } : null),
+
+  "apps.countries": ({ apps: A }: LiveInputs) => {
+    if (!A?.apps.length) return null;
+    const merged = new Map<string, number>();
+    for (const a of A.apps) for (const c of a.countries) merged.set(c.label, (merged.get(c.label) ?? 0) + c.n);
+    const rows = [...merged.entries()].sort((x, y) => y[1] - x[1]);
+    if (!rows.length) return null;
+    const whole = rows.reduce((n, [, v]) => n + v, 0);
+    return {
+      ranked: rows.slice(0, 10).map(([code, n]) => ({ label: countryName(code), value: n, text: count(n), sub: pct(n / whole, { digits: 0 }) })),
+      caption: "App Store downloads by storefront, plus Play installs where Google's country export has them",
+    };
+  },
+
+  "apps.sources": ({ apps: A }: LiveInputs) => {
+    if (!A?.apps.length) return null;
+    const merged = new Map<string, { n: number; store: "appstore" | "play"; label: string }>();
+    for (const a of A.apps)
+      for (const s of a.sources) {
+        const k = `${s.store}|${s.label}`;
+        merged.set(k, { store: s.store, label: s.label, n: (merged.get(k)?.n ?? 0) + s.n });
+      }
+    const rows = [...merged.values()].filter((r) => r.label !== "Unavailable").sort((x, y) => y.n - x.n);
+    if (!rows.length) return null;
+    return {
+      ranked: rows.slice(0, 10).map((r) => ({ label: r.label, value: r.n, text: count(r.n), sub: STORE_NAME[r.store] })),
+      caption: "App Store downloads by source type · Play installs by traffic source",
+    };
+  },
+
+  "apps.conversion": ({ apps: A }: LiveInputs) => {
+    if (!A?.apps.length) return null;
+    const withListing = A.apps.filter((a) => a.listing && a.listing.visitors > 0);
+    if (!withListing.length) return null;
+    const v = withListing.reduce((n, a) => n + a.listing!.visitors, 0);
+    const acq = withListing.reduce((n, a) => n + a.listing!.acquisitions, 0);
+    return {
+      value: pct(acq / v),
+      sub: `${count(v)} Play listing visitors → ${count(acq)} installs`,
+      parts: [
+        { label: "installed", value: acq, text: count(acq), tone: "ok" as StatusTone },
+        { label: "left", value: Math.max(0, v - acq), text: count(Math.max(0, v - acq)) },
+      ],
+      partsLabel: "Play store listing visitors",
+      ranked:
+        withListing.length > 1
+          ? withListing
+              .sort((x, y) => y.listing!.visitors - x.listing!.visitors)
+              .slice(0, 6)
+              .map((a) => ({
+                label: a.name,
+                value: a.listing!.acquisitions / a.listing!.visitors,
+                text: pct(a.listing!.acquisitions / a.listing!.visitors, { digits: 0 }),
+                sub: `${count(a.listing!.visitors)} visitors`,
+                app: a,
+              }))
+          : undefined,
+      rankedMax: withListing.length > 1 ? 1 : undefined,
+    };
+  },
+
+  "apps.stability": ({ apps: A }: LiveInputs) => {
+    if (!A?.apps.length) return null;
+    const rows = A.apps.filter((a) => a.stability && a.stability.crashes + a.stability.anrs > 0);
+    if (!rows.length) return A.apps.some((a) => a.play) ? { ranked: [], caption: "No crashes or ANRs reported in the window" } : null;
+    return {
+      ranked: rows
+        .sort((x, y) => y.stability!.crashes + y.stability!.anrs - (x.stability!.crashes + x.stability!.anrs))
+        .map((a) => ({
+          label: a.name,
+          value: a.stability!.crashes + a.stability!.anrs,
+          text: count(a.stability!.crashes + a.stability!.anrs),
+          sub: `${count(a.stability!.crashes)} crashes · ${count(a.stability!.anrs)} ANRs`,
+          app: a,
+        })),
+      caption: "Android, from Play's crash export",
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
