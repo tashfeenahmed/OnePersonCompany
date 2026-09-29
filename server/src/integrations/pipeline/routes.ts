@@ -247,13 +247,48 @@ pipelineRoutes.get("/schedule", (c) => c.json(schedule()));
 
 /* --------------------------------------------------------------- the ledger */
 
+/**
+ * EACH RUN'S STEPS AS ONE WORD APIECE — the outcome per block, in walk order.
+ *
+ * The Workflows overview draws a grid of nights × steps, and without this it
+ * would have to open every run one request at a time to colour one square.
+ * Only the id and the outcome travel; the reasons stay on `/runs/:id`.
+ */
+type RunRow = ReturnType<typeof runRows>[number];
+function withSteps(rows: RunRow[]) {
+  const steps = new Map<string, { stageId: string; outcome: string }[]>();
+  if (rows.length) {
+    const read = db.prepare(
+      `SELECT run_id, stage_id, outcome FROM pipeline_stage_results
+        WHERE run_id IN (${rows.map(() => "?").join(",")}) ORDER BY id`,
+    ).all(...rows.map((r) => r.id)) as { run_id: string; stage_id: string; outcome: string }[];
+    for (const s of read) {
+      const list = steps.get(s.run_id) ?? [];
+      list.push({ stageId: s.stage_id, outcome: s.outcome });
+      steps.set(s.run_id, list);
+    }
+  }
+  return rows.map((r) => ({ ...shapeRun(r), steps: steps.get(r.id) ?? [] }));
+}
+
+/** The last REAL nights, newest first. Previews are rehearsals and never
+ *  count towards whether the workflow is healthy. */
+function realRunRows(limit: number): RunRow[] {
+  return db
+    .prepare("SELECT * FROM pipeline_runs WHERE dry = 0 ORDER BY started_at DESC, rowid DESC LIMIT ?")
+    .all(limit) as unknown as RunRow[];
+}
+
 pipelineRoutes.get("/", (c) => {
-  const runs = runRows(20).map(shapeRun);
+  const runs = withSteps(runRows(20));
   const last = latestRealRun();
   return c.json({
     schedule: schedule(),
     ...stageDoc(),
     runs,
+    /** Up to thirty real runs with their per-step outcomes, for the history
+     *  strip and the step grid. */
+    history: withSteps(realRunRows(30)),
     /** The last REAL night, not the last planned one: a plan somebody ran at
      *  noon must not read as last night's result. */
     last: last ? shapeRun(last) : null,
@@ -262,7 +297,7 @@ pipelineRoutes.get("/", (c) => {
   });
 });
 
-pipelineRoutes.get("/runs", (c) => c.json({ runs: runRows(50).map(shapeRun) }));
+pipelineRoutes.get("/runs", (c) => c.json({ runs: withSteps(runRows(50)) }));
 
 pipelineRoutes.get("/runs/:id", (c) => {
   const row = runRow(c.req.param("id"));
