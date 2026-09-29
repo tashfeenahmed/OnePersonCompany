@@ -4,15 +4,21 @@ import {
   Check,
   ChevronsRight,
   Clock,
+  Layers,
+  List,
   Loader2,
   Mail,
   Pencil,
   RefreshCw,
+  Reply,
   RotateCcw,
   Send,
   Trash2,
+  Undo2,
 } from "lucide-react";
-import { ago } from "@/lib/format";
+import { ago, day } from "@/lib/format";
+import { decodeEntities, mailTime, plural, senderName, TRIAGE_LABELS, type TriageKey } from "@/lib/mailText";
+import { Avatar, EmptyState, FilterChips, Problem, SmallPrint, TriageChip, VentureTag, type FilterChip } from "./parts";
 import { PageShell } from "@/components/PageShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,66 +34,27 @@ import {
 } from "@/lib/api/mailflow";
 
 /**
- * TRIAGE — the inbox re-ordered by what the mail IS rather than when it came,
- * and now dealt one card at a time as well as listed.
+ * PRIORITY (route /mail/triage) — the last few days of the inbox, sorted by an
+ * AI pass into Needs reply, Waiting on them, FYI and Newsletter.
  *
- * TWO VIEWS OF ONE SET OF ROWS, AND THE DECK IS THE DEFAULT. The list answers
- * "what is in there" and it answers it well; what it cannot do is stop the
- * failure this screen exists to prevent, which is reading everything and
- * deciding nothing. A list invites a scroll. The deck puts ONE thread on the
- * table with four verbs under it — skip it, mark it done, snooze it, or answer
- * it — and moves only when one of them is pressed. Same rows, same order, same
- * cache; the difference is that the deck cannot be scrolled past.
+ * TWO VIEWS OF ONE SET OF ROWS. The list is the default: it reads like an
+ * inbox, with filter chips for each group (plus Done and Snoozed, which can be
+ * undone) and Reply / Done / Tomorrow as buttons on every row. "One at a time"
+ * is the deck: one email on the table with Skip, Done, Tomorrow and Reply with
+ * AI under it, which moves only when one is pressed. The choice is remembered
+ * in this browser.
  *
- * THE LIST IS STILL HERE AND IS ONE PRESS AWAY. A deck is the wrong shape for
- * "how much noise came in today" and for finding one particular mail, so the
- * toggle is not a migration path — both views are permanent, and the choice is
- * remembered in this browser.
+ * NOT SORTED IS SHOWN, NEVER HIDDEN. A thread the AI has not read yet has its
+ * own group; folding it into Newsletter would hide mail nobody looked at.
  *
- * FIVE GROUPS, AND THE FIFTH IS THE HONEST ONE. Four are the model's
- * categories; `unscored` is every thread it has not read — arrived since the
- * last pass, or a pass with no provider behind it. It is drawn LAST but it is
- * drawn, with its own count and its own sentence, because a page that quietly
- * folded those into "noise" would be hiding mail on the grounds that nobody
- * had looked at it. That is the one failure this screen is built to make
- * impossible. The deck honours the same rule: it deals unscored threads, and it
- * is NOISE it leaves out by default — with a chip that puts it back.
+ * DONE AND TOMORROW CHANGE THIS LIST AND NOTHING IN GMAIL.
  *
- * EVERY CATEGORY CARRIES ITS REASON ON THE ROW. Not in a tooltip and not
- * behind a click: the category is a guess made from a subject line and 180
- * characters of snippet, and a guess shown without its argument is an oracle.
- * Where the model's venture guess was used rather than a domain match, the tag
- * says "guess" — a venture matched by host is a fact and the two must not look
- * the same.
+ * REPLY WITH AI is the one thing here that reads message bodies, and the server
+ * drops what it read with the request. What it writes lands in a textarea;
+ * sending goes through the Outbox's own approve → send, see `queue()`.
  *
- * DONE AND SNOOZE CHANGE THIS LIST AND NOTHING IN GMAIL. That is written under
- * the header rather than left to be discovered, because every other button
- * that looks like this one — in Gmail, in every mail client — archives
- * something.
- *
- * DRAFT REPLY IS THE ONE THING ON THIS PAGE THAT READS A MESSAGE BODY, and the
- * server drops what it read with the request. Nothing it produces is queued,
- * addressed or sent by pressing it: the words land in a textarea. Sending them
- * means queueing an Outbox row and then doing exactly what the Outbox's own
- * buttons do — which, with approval on, is two presses and not one. This page
- * has no send of its own and must never grow one; see `send()` below.
- *
- * THE PAGE IS DRAWN FROM A CACHE AND SAYS HOW OLD IT IS. It used to cost a
- * Gmail round trip per thread — fifty threads, four and a half seconds of
- * spinner, on every single open — and the mail was never stored. Now a
- * background pass keeps the rows in the server's own table and this page is a
- * database read, which means it paints at once and means it can be WRONG in a
- * way the old one could not: a thread archived since the last pass is still
- * here. That trade is only acceptable if the age is on the screen, so the line
- * under the header says when it was last read and when it is read next, the
- * way Workdash's inbox does. Subject lines and snippets are now stored;
- * message bodies are still never fetched by the pass.
- *
- * IT POLLS ONLY WHILE A PASS IS RUNNING. `pass.running` comes back with every
- * document; while it is true the page re-reads every few seconds so the rows
- * fill in as the model answers, and when it goes false the polling stops. A
- * page that polled a mailbox nothing was happening to would be a timer nobody
- * asked for.
+ * THE LIST IS A CACHE kept by a background pass every half hour, so the page
+ * says when it was last sorted, and polls only while a pass is running.
  */
 
 /** How often the page re-reads WHILE a pass is in flight. Four seconds is
@@ -117,7 +84,7 @@ const REMEMBERED = "opc.triage.document";
 
 /** Which of the two views was last used. Same wrapping, same reasoning, and a
  *  missing or unreadable value means the deck — the default. */
-const VIEW_KEY = "opc.triage.view";
+const VIEW_KEY = "opc.triage.layout";
 
 function remembered(): TriageDoc | null {
   try {
@@ -142,9 +109,9 @@ type View = "deck" | "list";
 
 function rememberedView(): View {
   try {
-    return localStorage.getItem(VIEW_KEY) === "list" ? "list" : "deck";
+    return localStorage.getItem(VIEW_KEY) === "deck" ? "deck" : "list";
   } catch {
-    return "deck";
+    return "list";
   }
 }
 
@@ -164,33 +131,16 @@ function until(iso: string | null): string | null {
  *  verbatim — every refusal on this page was written to be read. */
 const said = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
-const GROUPS: { key: string; label: string; hint: string; tone: string }[] = [
-  {
-    key: "needs_reply",
-    label: "Needs a reply",
-    hint: "Somebody is waiting on you.",
-    tone: "bg-destructive",
-  },
-  {
-    key: "waiting_on_them",
-    label: "Waiting on them",
-    hint: "You have answered; the ball is on the other side.",
-    tone: "bg-warn",
-  },
-  {
-    key: "fyi",
-    label: "Worth knowing",
-    hint: "Real, but nobody is waiting.",
-    tone: "bg-ok",
-  },
-  { key: "noise", label: "Noise", hint: "You would never answer these.", tone: "bg-muted" },
-  {
-    key: "unscored",
-    label: "Not scored",
-    hint: "The model has not read these. That is not a verdict of noise.",
-    tone: "bg-muted",
-  },
-];
+/** The groups, in the order both views rank them. Labels live in
+ *  lib/mailText so the Inbox chips and this page say the same words. */
+const GROUPS: { key: TriageKey; label: string; hint: string; tone: string }[] = (
+  ["needs_reply", "waiting_on_them", "fyi", "noise", "unscored"] as const
+).map((key) => ({
+  key,
+  label: TRIAGE_LABELS[key].label,
+  hint: TRIAGE_LABELS[key].hint,
+  tone: { bad: "bg-destructive", warn: "bg-warn", ok: "bg-ok", muted: "bg-muted-foreground/40" }[TRIAGE_LABELS[key].tone],
+}));
 
 /* ==================================================================== */
 /*  The deck's ordering                                                 */
@@ -613,14 +563,14 @@ function Deck({
         <p className="text-muted-foreground max-w-sm text-[13.5px] leading-relaxed">
           {dealt.size === 0
             ? ordered.length === 0 && !includeNoise && noiseHeld > 0
-              ? `Nothing but noise on this list — ${noiseHeld} thread${noiseHeld === 1 ? "" : "s"} the model would never have you answer. The chip below deals them if you want to look.`
-              : "Nothing on this list to deal. Done and snoozed threads are hidden; both are still in Gmail."
-            : `That is the deck — ${dealt.size} thread${dealt.size === 1 ? "" : "s"} dealt with${noiseHeld && !includeNoise ? `, and ${noiseHeld} left out as noise` : ""}.`}
+              ? `All clear — only ${plural(noiseHeld, "newsletter")} left, nothing to answer.`
+              : "All clear — nothing waiting on you."
+            : `All done — you went through ${plural(dealt.size, "email")}.`}
         </p>
         <div className="flex flex-wrap items-center justify-center gap-1.5">
           {dealt.size > 0 && (
             <Button size="sm" variant="outline" onClick={() => setDealt(new Set())}>
-              <RotateCcw /> Restart the deck
+              <RotateCcw /> Start again
             </Button>
           )}
           <NoiseChip on={includeNoise} held={noiseHeld} toggle={() => setIncludeNoise((v) => !v)} />
@@ -628,7 +578,6 @@ function Deck({
       </div>
     );
 
-  const group = GROUPS.find((g) => g.key === (top.score ?? "unscored")) ?? GROUPS[4]!;
   const drafting = reply.phase === "drafting";
   const composing =
     reply.phase === "ready" ||
@@ -660,48 +609,30 @@ function Deck({
             leaving === "skip" && "translate-x-[115%] opacity-0",
           )}
         >
-          <header className="border-line-soft shrink-0 border-b px-4.5 pt-3.5 pb-3">
-            <div className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px]">
-              <span className="inline-flex items-center gap-1.5">
-                <span className={cn("size-2 rounded-full", group.tone)} />
-                {group.label}
-              </span>
-              {top.urgency && top.urgency !== "normal" && (
-                <>
-                  <span>·</span>
-                  <span className={top.urgency === "high" ? "text-destructive" : ""}>
-                    {top.urgency} urgency
+          <header className="border-line-soft shrink-0 border-b px-4 pt-3.5 pb-3 sm:px-4.5">
+            <div className="flex items-start gap-3">
+              <Avatar name={senderName(top.fromName, top.from)} address={top.from} size={36} />
+              <div className="min-w-0 flex-1">
+                <p className="flex min-w-0 items-baseline gap-2 text-[13.5px]">
+                  <span className="min-w-0 truncate font-medium" title={top.from}>
+                    {senderName(top.fromName, top.from)}
+                    {top.messages > 1 && <span className="text-muted-foreground font-normal"> · {top.messages}</span>}
                   </span>
-                </>
-              )}
-              {top.ventureName && (
-                <>
-                  <span>·</span>
-                  {/* A host match is a fact; a model match is a guess. They must
-                      not look the same. */}
-                  <span className="border-line-soft rounded border px-1 py-px">
-                    {top.ventureName}
-                    {top.ventureBy === "model" && (
-                      <span className="text-muted-foreground/70"> · guess</span>
-                    )}
-                  </span>
-                </>
-              )}
-              {top.unread && (
-                <span className="bg-primary/70 size-1.5 rounded-full" title="Unread in Gmail" />
-              )}
-              <span className="ml-auto tabular-nums">{ago(top.at, { nullText: "no date" })}</span>
+                  <span className="text-muted-foreground ml-auto shrink-0 text-[12px] tabular-nums">{mailTime(top.at)}</span>
+                </p>
+                <h2 className="mt-0.5 text-[16.5px] leading-snug tracking-[-0.015em] break-words">
+                  {top.subject || "(no subject)"}
+                </h2>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <TriageChip score={top.score} urgency={top.urgency} />
+                  {top.ventureName && (
+                    <span title={top.ventureBy === "model" ? "Best guess at which venture this is about" : undefined}>
+                      <VentureTag ventureId={top.venture} name={`${top.ventureName}${top.ventureBy === "model" ? "?" : ""}`} />
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
-            <p className="text-muted-foreground mt-2 flex min-w-0 items-baseline gap-2 text-[12.5px]">
-              <span className="shrink truncate font-medium" title={top.from}>
-                {top.fromName || top.from || "unknown sender"}
-                {top.messages > 1 && ` (${top.messages})`}
-              </span>
-              <span className="min-w-0 truncate">{top.from}</span>
-            </p>
-            <h2 className="mt-0.5 truncate text-[17px] leading-snug tracking-[-0.02em]">
-              {top.subject || "(no subject)"}
-            </h2>
           </header>
 
           {/* The card's own scroller. The verbs below it never move. */}
@@ -715,22 +646,17 @@ function Deck({
               />
             ) : (
               <>
-                {top.reason ? (
-                  <p className="text-[13.5px] leading-relaxed italic">{top.reason}</p>
-                ) : (
-                  <p className="text-muted-foreground/70 text-[13.5px] leading-relaxed italic">
-                    Not scored — the model has not read this thread. That is not a verdict of
-                    noise.
+                {top.reason && (
+                  <p className="text-[13.5px] leading-relaxed">
+                    <span className="text-muted-foreground">Why: </span>
+                    {top.reason}
                   </p>
                 )}
                 {top.stale && (
-                  <p className="text-warn mt-1 text-[12.5px]">
-                    Replied to since it was scored — the reason above describes a conversation
-                    that has moved on.
-                  </p>
+                  <p className="text-warn mt-1 text-[12.5px]">There's a newer reply since this was sorted.</p>
                 )}
                 <p className="text-muted-foreground mt-2 text-[13px] leading-relaxed">
-                  {top.snippet || "(no preview)"}
+                  {decodeEntities(top.snippet) || "(no preview)"}
                 </p>
 
                 <div className="border-line-soft mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-2.5">
@@ -740,13 +666,13 @@ function Deck({
                     className="text-muted-foreground -ml-1.5"
                     onClick={() => setViewThread((v) => !v)}
                   >
-                    <Mail /> {viewThread ? "Hide thread" : "View thread"}
+                    <Mail /> {viewThread ? "Hide the conversation" : "Read the whole conversation"}
                   </Button>
                   <Link
                     className="text-muted-foreground text-[12.5px] underline"
-                    to={`/mail/email?thread=${encodeURIComponent(top.id)}&account=${top.accountId}`}
+                    to={`/mail/inbox?thread=${encodeURIComponent(top.id)}&account=${top.accountId}`}
                   >
-                    Open in the mailbox
+                    Open in Inbox
                   </Link>
                 </div>
 
@@ -754,13 +680,12 @@ function Deck({
 
                 {drafting && (
                   <p className="text-muted-foreground mt-3 animate-pulse text-[12.5px] leading-relaxed">
-                    Reading the thread and drafting a reply. The bodies are read to write it and
-                    dropped with the request — nothing is stored and nothing is sent.
+                    Writing a reply for you… Nothing is sent.
                   </p>
                 )}
                 {reply.phase === "failed" && (
                   <p className="text-destructive mt-3 text-[12.5px] leading-relaxed">
-                    No draft — {reply.error}
+                    Couldn't write a reply: {reply.error}
                   </p>
                 )}
               </>
@@ -778,7 +703,7 @@ function Deck({
                 )}
                 {reply.phase === "queued" && (
                   <Button size="sm" onClick={() => void sendApproved()} disabled={busy}>
-                    {busy ? <Loader2 className="animate-spin" /> : <Send />} Send it
+                    {busy ? <Loader2 className="animate-spin" /> : <Send />} Send now
                   </Button>
                 )}
                 {reply.phase === "sending" && (
@@ -792,7 +717,7 @@ function Deck({
                   </Button>
                 )}
                 {reply.phase === "sent" && (
-                  <p className="text-muted-foreground text-[12.5px]">Sent. Next card…</p>
+                  <p className="text-ok text-[12.5px]">Sent. Next email…</p>
                 )}
               </>
             ) : (
@@ -801,7 +726,7 @@ function Deck({
                   size="sm"
                   variant="ghost"
                   onClick={() => advance("skip")}
-                  title="Decide nothing, move on. It comes back next visit. (j)"
+                  title="Leave it for now. It comes back next time. (j)"
                 >
                   <ChevronsRight /> Skip
                 </Button>
@@ -809,7 +734,7 @@ function Deck({
                   size="sm"
                   variant="outline"
                   onClick={() => handle("done")}
-                  title="Take it off this list. Nothing changes in Gmail. (d)"
+                  title="Take it off this list. Gmail is not changed. (d)"
                 >
                   <Check /> Done
                 </Button>
@@ -817,18 +742,18 @@ function Deck({
                   size="sm"
                   variant="ghost"
                   onClick={() => handle("snooze")}
-                  title="Hide for a day. Nothing changes in Gmail. (s)"
+                  title="Hide it until tomorrow. Gmail is not changed. (s)"
                 >
-                  <Clock /> Snooze
+                  <Clock /> Tomorrow
                 </Button>
                 <Button
                   size="sm"
                   onClick={() => void draftReply()}
                   disabled={drafting}
-                  title="The model drafts it from the thread. Nothing sends without you. (r)"
+                  title="AI writes a reply you can edit. Nothing sends without you. (r)"
                 >
                   {drafting ? <Loader2 className="animate-spin" /> : <Pencil />}
-                  {drafting ? "Drafting…" : "Draft reply"}
+                  {drafting ? "Writing…" : "Reply with AI"}
                 </Button>
               </>
             )}
@@ -861,11 +786,11 @@ function Deck({
             className="text-muted-foreground"
             onClick={() => setDealt(new Set())}
           >
-            <RotateCcw /> Restart the deck
+            <RotateCcw /> Start again
           </Button>
         )}
-        <span className="text-muted-foreground/70 ml-auto text-[12.5px]">
-          j/k or arrows skip · d done · s snooze · r draft a reply · Esc discards
+        <span className="text-muted-foreground/70 ml-auto hidden text-[12px] sm:inline">
+          Keys: j skip · d done · s tomorrow · r reply · Esc cancel
         </span>
       </div>
     </div>
@@ -919,9 +844,9 @@ function NoiseChip({ on, held, toggle }: { on: boolean; held: number; toggle: ()
       aria-pressed={on}
       className={on ? undefined : "text-muted-foreground"}
       onClick={toggle}
-      title="Noise is mail the model says you would never answer. It is left out of the deck unless you ask for it."
+      title="Newsletters, alerts and receipts are skipped unless you ask for them."
     >
-      {on ? "Dealing noise too" : `Include ${held} noise`}
+      {on ? "Hide newsletters" : `Also show ${plural(held, "newsletter")}`}
     </Button>
   );
 }
@@ -966,13 +891,13 @@ function ThreadView({ threadId, accountId }: { threadId: string; accountId: numb
     return (
       <p className="text-muted-foreground mt-2 text-[12.5px]">
         <Loader2 className="mr-1.5 inline size-3.5 animate-spin" />
-        Opening the thread from Gmail. It is read for this browser and stored nowhere.
+        Opening the conversation…
       </p>
     );
   if (state.error)
     return (
       <p className="text-muted-foreground mt-2 text-[12.5px] leading-relaxed">
-        The thread would not open — <span className="text-destructive">{state.error}</span>
+        It wouldn't open — <span className="text-destructive">{state.error}</span>
       </p>
     );
 
@@ -984,7 +909,7 @@ function ThreadView({ threadId, accountId }: { threadId: string; accountId: numb
     <div className="mt-2 flex flex-col gap-2.5">
       {messages.length > shown.length && (
         <p className="text-muted-foreground/70 text-[12.5px]">
-          The last {shown.length} of {messages.length} messages.
+          The last {shown.length} of {messages.length} messages. Open in Inbox for the rest.
         </p>
       )}
       {shown.map((m) => (
@@ -999,7 +924,7 @@ function ThreadView({ threadId, accountId }: { threadId: string; accountId: numb
             </p>
           ) : (
             <p className="text-muted-foreground/70 mt-1 text-[12.5px] italic">
-              This message is HTML only. The mailbox reader draws it in its sandboxed frame.
+              This one has no plain text — open it in Inbox to see it.
             </p>
           )}
         </div>
@@ -1040,7 +965,7 @@ function Composer({
         <p className="text-muted-foreground text-[12.5px] leading-relaxed">
           {reply.phase === "sending"
             ? "Leaving now."
-            : "Approved and waiting in the Outbox. NOT SENT — approving says the words are right and sending says now, which is two presses on purpose. Dismiss puts the row back without sending it, and it still counts against the per-address floor."}
+            : "Approved — not sent yet. Press Send now when you're ready, or Dismiss to drop it."}
         </p>
         <p className="text-muted-foreground mt-2 text-[12.5px]">
           To <span className="text-foreground">{reply.item.to}</span>
@@ -1072,15 +997,13 @@ function Composer({
   return (
     <div>
       <p className="text-muted-foreground text-[12.5px] leading-relaxed">
-        Drafted by {reply.model ?? "the model"} from this thread. Nothing has been queued,
-        addressed or sent — this is a textarea.{" "}
-        {requireApproval === false
-          ? "Approval is switched off, so Send writes the Outbox row and sends it in one press."
-          : "Send writes an Outbox row and approves it; a second press sends it, exactly as the Outbox asks."}
+        A reply written for you — edit anything, then{" "}
+        {requireApproval === false ? "press Send." : "press Approve, then Send now."} Nothing
+        sends until you do.
       </p>
       <p className="text-muted-foreground mt-2.5 text-[12.5px]">
         To <span className="text-foreground">{reply.to}</span>
-        {reply.inReplyTo && " · it will land in this conversation"}
+        {reply.inReplyTo && " · as a reply in this conversation"}
       </p>
       <label className="mt-2 block">
         <span className="text-muted-foreground text-[12.5px]">Subject</span>
@@ -1101,9 +1024,8 @@ function Composer({
           onChange={(e) => onChange({ ...reply, body: e.target.value })}
         />
       </label>
-      <p className="text-muted-foreground/70 mt-1.5 text-[12.5px] leading-relaxed">
-        The Outbox appends your signature setting under this, and the preview you approve is
-        what the recipient receives.
+      <p className="text-muted-foreground/70 mt-1.5 text-[12px] leading-relaxed">
+        Your signature is added underneath.
       </p>
     </div>
   );
@@ -1113,122 +1035,130 @@ function Composer({
 /*  The list                                                            */
 /* ==================================================================== */
 
+type RowMode = "active" | "done" | "snoozed";
+
+/**
+ * One thread in the list, laid out like an inbox row: who, when, what, a
+ * one-line preview, the sorter's chip and its reason — and the actions as
+ * real buttons (not hover-only, so they work on a phone). Clicking the row
+ * opens the email in the Inbox reader.
+ */
 function Row({
   t,
   busy,
+  mode,
   onDone,
   onSnooze,
+  onUndo,
 }: {
   t: TriageThread;
   busy: boolean;
+  mode: RowMode;
   onDone: () => void;
   onSnooze: () => void;
+  onUndo: () => void;
 }) {
+  const name = senderName(t.fromName, t.from);
+  const open = `/mail/inbox?thread=${encodeURIComponent(t.id)}&account=${t.accountId}`;
+  const reply = {
+    to: t.from,
+    subject: /^re:/i.test(t.subject) ? t.subject : `Re: ${t.subject}`,
+    account: t.accountId,
+    thread: t.id,
+    venture: t.venture,
+    back: "/mail/triage",
+  };
   return (
-    <div className="border-line-soft group flex items-start gap-3 border-b px-3 py-2.5 last:border-b-0">
+    <div className="border-line-soft flex items-start gap-3 border-b px-3 py-3 last:border-b-0 sm:px-4">
+      <Link to={open} className="mt-0.5 shrink-0" tabIndex={-1} aria-hidden>
+        <Avatar name={name} address={t.from} size={34} />
+      </Link>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span
-            className={cn(
-              "truncate text-[14.5px]",
-              t.unread ? "font-medium" : "text-foreground/90",
-            )}
-          >
+        <Link to={open} className="group block min-w-0">
+          <span className="flex items-baseline gap-2">
+            {t.unread && <span className="bg-primary size-2 shrink-0 self-center rounded-full" aria-label="Unread" />}
+            <span className={cn("min-w-0 flex-1 truncate text-[13.5px]", t.unread ? "font-semibold" : "text-foreground/90")} title={t.from}>
+              {name}
+              {t.messages > 1 && <span className="text-muted-foreground font-normal"> · {t.messages}</span>}
+            </span>
+            <span className="text-muted-foreground shrink-0 text-[11.5px] tabular-nums">{mailTime(t.at)}</span>
+          </span>
+          <span className={cn("mt-0.5 block truncate text-[13.5px] group-hover:underline", t.unread && "font-medium")}>
             {t.subject || "(no subject)"}
           </span>
-          {t.messages > 1 && (
-            <span className="text-muted-foreground shrink-0 text-[12.5px]">
-              ({t.messages})
+          {t.snippet && <span className="text-muted-foreground mt-0.5 block truncate text-[12.5px]">{decodeEntities(t.snippet)}</span>}
+        </Link>
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <TriageChip score={t.score} urgency={t.urgency} />
+          {t.ventureName && (
+            <span title={t.ventureBy === "model" ? "Best guess at which venture this is about" : undefined}>
+              <VentureTag ventureId={t.venture} name={`${t.ventureName}${t.ventureBy === "model" ? "?" : ""}`} />
+            </span>
+          )}
+          {mode === "snoozed" && t.snoozedUntil && (
+            <span className="text-muted-foreground text-[12px]">Back {day(t.snoozedUntil, { long: false })}</span>
+          )}
+          {t.reason && mode === "active" && (
+            <span className="text-muted-foreground min-w-0 basis-full truncate text-[12.5px] italic sm:basis-auto sm:flex-1">
+              {t.reason}
             </span>
           )}
         </div>
-
-        <div className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12.5px]">
-          <span className="truncate">{t.fromName || t.from || "unknown sender"}</span>
-          <Link className="underline" to={`/mail/email?thread=${encodeURIComponent(t.id)}&account=${t.accountId}`}>Open</Link>
-          <Link className="underline" to="/mail/outbox" state={{ reply: { to: t.from, subject: /^re:/i.test(t.subject) ? t.subject : `Re: ${t.subject}`, account: t.accountId, thread: t.id, venture: t.venture, back: "/mail/triage" } }}>Draft reply</Link>
-          <span>·</span>
-          <span>{ago(t.at, { nullText: "no date" })}</span>
-          {t.urgency && t.urgency !== "normal" && (
+        {t.stale && mode === "active" && (
+          <p className="text-warn mt-1 text-[12px]">There's a newer reply since this was sorted.</p>
+        )}
+        <div className="mt-2 flex flex-wrap items-center gap-1">
+          {mode === "active" && (
             <>
-          <span>·</span>
-          <span className={t.urgency === "high" ? "text-destructive" : ""}>
-            {t.urgency} urgency
-          </span>
+              <Button size="xs" asChild>
+                <Link to="/mail/outbox" state={{ reply }}>
+                  <Reply /> Reply
+                </Link>
+              </Button>
+              <Button size="xs" variant="outline" disabled={busy} onClick={onDone} title="Take it off this list. Gmail is not changed.">
+                <Check /> Done
+              </Button>
+              <Button size="xs" variant="ghost" disabled={busy} onClick={onSnooze} title="Hide it until tomorrow. Gmail is not changed.">
+                <Clock /> Tomorrow
+              </Button>
             </>
           )}
-          {t.ventureName && (
-            <>
-              <span>·</span>
-              {/* A host match is a fact; a model match is a guess. They must
-                  not look the same. */}
-              <span className="border-line-soft rounded border px-1 py-px">
-                {t.ventureName}
-                {t.ventureBy === "model" && (
-                  <span className="text-muted-foreground/70"> · guess</span>
-                )}
-              </span>
-            </>
-          )}
-          {t.stale && (
-            <>
-              <span>·</span>
-              <span className="text-warn">
-                replied to since it was scored — the reason is out of date
-              </span>
-            </>
+          {mode === "done" && (
+            <Button size="xs" variant="outline" disabled={busy} onClick={onUndo} title="Put it back on the list">
+              <Undo2 /> Not done
+            </Button>
           )}
         </div>
-
-        {t.reason ? (
-          <p className="text-muted-foreground mt-1 text-[13.5px] italic">{t.reason}</p>
-        ) : (
-          <p className="text-muted-foreground/70 mt-1 text-[13.5px] italic">
-            Not scored — the model has not read this thread.
-          </p>
-        )}
-        <p className="text-muted-foreground/60 mt-0.5 line-clamp-1 text-[12.5px]">
-          {t.snippet}
-        </p>
-      </div>
-
-      <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-        <Button size="xs" variant="ghost" disabled={busy} onClick={onSnooze} title="Hide for a day. Nothing changes in Gmail.">
-          <Clock /> Snooze
-        </Button>
-        <Button size="xs" variant="outline" disabled={busy} onClick={onDone} title="Take it off this list. Nothing changes in Gmail.">
-          <Check /> Done
-        </Button>
       </div>
     </div>
   );
 }
 
-/** The two views, drawn as a narrowing rather than as a mode switch: no track
- *  and no fill, the chosen one lifted off the page by its surface alone. */
+/** List or one-at-a-time. */
 function ViewToggle({ view, onChange }: { view: View; onChange: (v: View) => void }) {
   return (
-    <div role="group" aria-label="How the threads are shown" className="flex items-center gap-0.5">
-      {(["deck", "list"] as const).map((v) => (
-        <Button
+    <div role="group" aria-label="How emails are shown" className="bg-muted flex items-center gap-0.5 rounded-lg p-0.5">
+      {(["list", "deck"] as const).map((v) => (
+        <button
           key={v}
-          size="xs"
-          variant={view === v ? "outline" : "ghost"}
+          type="button"
           aria-pressed={view === v}
-          className={view === v ? undefined : "text-muted-foreground"}
           onClick={() => onChange(v)}
-          title={
-            v === "deck"
-              ? "One thread at a time, with the verbs under it"
-              : "Every thread, grouped by what it is"
-          }
+          title={v === "deck" ? "One email at a time, with the buttons under it" : "Every email, sorted into groups"}
+          className={cn(
+            "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12.5px]",
+            view === v ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+          )}
         >
-          {v === "deck" ? "Deck" : "List"}
-        </Button>
+          {v === "deck" ? <Layers className="size-3.5" /> : <List className="size-3.5" />}
+          {v === "deck" ? "One at a time" : "List"}
+        </button>
       ))}
     </div>
   );
 }
+
+type Filter = "all" | TriageKey | "done" | "snoozed";
 
 export function Triage() {
   const doc = useApi<TriageDoc>(() => mailflowApi.triage(), []);
@@ -1238,11 +1168,11 @@ export function Triage() {
   /* Read once, at mount, so the first frame has a list on it. */
   const [last] = useState<TriageDoc | null>(() => remembered());
   const [view, setView] = useState<View>(() => rememberedView());
+  const [filter, setFilter] = useState<Filter>("all");
   /**
    * WHETHER THE OUTBOX REQUIRES APPROVAL, and null means NOT YET ASKED rather
    * than "no". Everything that reads it treats null as yes, because this is the
-   * setting that must fail towards a person pressing a button — the same rule
-   * the server states in `settings()`.
+   * setting that must fail towards a person pressing a button.
    */
   const [approval, setApproval] = useState<boolean | null>(null);
   const askedApproval = useRef(false);
@@ -1263,9 +1193,7 @@ export function Triage() {
     }
   }, [view]);
 
-  /* Poll ONLY while a pass is in flight — see the header. `reload` is pulled
-     out because it is the stable half of `doc`; depending on the object would
-     restart the interval on every answer. */
+  /* Poll ONLY while a pass is in flight. */
   const reload = doc.reload;
   useEffect(() => {
     if (!running) return;
@@ -1274,7 +1202,7 @@ export function Triage() {
   }, [running, reload]);
 
   /** The Outbox's own settings, asked for once and only when a reply is being
-   *  drafted. A deck is used to triage far more often than to answer. */
+   *  drafted. */
   const setData = doc.setData;
   const askApproval = useCallback(() => {
     if (askedApproval.current) return;
@@ -1283,8 +1211,6 @@ export function Triage() {
       .outbox(null, 0, 1)
       .then((o) => setApproval(o.settings.requireApproval))
       .catch(() => {
-        /* Unknown stays null, which every reader treats as "approval
-           required". Allowed to be asked again on the next draft. */
         askedApproval.current = false;
       });
   }, []);
@@ -1299,15 +1225,23 @@ export function Triage() {
       try {
         if (what === "done") await mailflowApi.done(threadId, { account: accountId });
         else await mailflowApi.snooze(threadId, { days: 1, account: accountId });
-        /* The row leaves the list without a refetch. The refetch is cheap now,
-           but it is still a round trip and a repaint to redraw a list that lost
-           exactly one row, and the server already knows what happened. */
+        /* The row leaves the list without a refetch, and joins Done/Snoozed. */
         setData((prev) => {
           if (!prev) return prev;
+          const moved = Object.values(prev.groups).flat().find((t) => t.id === threadId);
           const groups = Object.fromEntries(
             Object.entries(prev.groups).map(([k, v]) => [k, v.filter((t) => t.id !== threadId)]),
           );
-          return { ...prev, groups };
+          const stamp = new Date().toISOString();
+          return {
+            ...prev,
+            groups,
+            done: what === "done" && moved ? [{ ...moved, doneAt: stamp }, ...prev.done] : prev.done,
+            snoozedList:
+              what === "snooze" && moved
+                ? [{ ...moved, snoozed: true, snoozedUntil: new Date(Date.now() + 86_400_000).toISOString() }, ...prev.snoozedList]
+                : prev.snoozedList,
+          };
         });
         return null;
       } catch (err) {
@@ -1325,9 +1259,20 @@ export function Triage() {
     setBusy(null);
   }
 
-  /* The owner's own pass, and it is the same incremental one the timer runs:
-     the window is listed, only threads that moved are read, and whatever has
-     no category is scored. On a quiet inbox it is one request. */
+  async function undoDone(threadId: string) {
+    setBusy(threadId);
+    setRefused(null);
+    try {
+      await mailflowApi.done(threadId, { account: accountId, undo: true });
+      doc.reload();
+    } catch (err) {
+      setRefused(said(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /* The owner's own pass — the same incremental one the timer runs. */
   async function scan() {
     setScanning(true);
     setRefused(null);
@@ -1342,59 +1287,83 @@ export function Triage() {
     }
   }
 
+  const count = (k: TriageKey) => (d?.groups[k] ?? []).length;
+  const activeTotal = GROUPS.reduce((n, g) => n + count(g.key), 0);
+  const chips: FilterChip<Filter>[] = [
+    { key: "all", label: "All", count: activeTotal },
+    ...GROUPS.map((g) => ({
+      key: g.key as Filter,
+      label: g.key === "noise" ? "Newsletters" : g.label,
+      count: count(g.key),
+      urgent: g.key === "needs_reply",
+      title: g.hint,
+    })).filter((c) => c.count > 0 || c.key === "needs_reply"),
+    ...(d?.done.length ? [{ key: "done" as Filter, label: "Done", count: d.done.length, title: "Emails you marked done" }] : []),
+    ...(d?.snoozedList.length
+      ? [{ key: "snoozed" as Filter, label: "Snoozed", count: d.snoozedList.length, title: "Hidden until tomorrow" }]
+      : []),
+  ];
+  /* A filter whose chip vanished (its last row was cleared) falls back to All. */
+  const shownFilter: Filter = chips.some((c) => c.key === filter) ? filter : "all";
+
+  const sections: { key: string; label: string; tone: string; rows: TriageThread[]; mode: RowMode }[] = !d
+    ? []
+    : shownFilter === "done"
+      ? [{ key: "done", label: "Done", tone: "bg-muted-foreground/40", rows: d.done, mode: "done" }]
+      : shownFilter === "snoozed"
+        ? [{ key: "snoozed", label: "Snoozed", tone: "bg-muted-foreground/40", rows: d.snoozedList, mode: "snoozed" }]
+        : GROUPS.filter((g) => shownFilter === "all" || g.key === shownFilter).map((g) => ({
+            key: g.key,
+            label: g.label,
+            tone: g.tone,
+            rows: d.groups[g.key] ?? [],
+            mode: "active" as const,
+          }));
+
+  const partial = !!d?.lastRun?.error;
+
   return (
     <PageShell
-      title="Triage"
-      sub={
-        <>
-          {d
-            ? `${d.window.threads} threads from the last ${d.window.days} days of ${d.account.label ?? "the inbox"}, sorted by what they are. Done and Snooze change this list and nothing in Gmail.`
-            : "The last few days of the inbox, sorted by what needs you."}
-        </>
-      }
+      title="Priority"
+      sub="Your recent mail, sorted for you."
+      wide
       action={
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2">
+          {d && (
+            <p className="text-muted-foreground mr-auto text-[12.5px]" role="status">
+              {running || scanning
+                ? "Sorting new mail…"
+                : d.pass.ranAt
+                  ? `Sorted ${ago(d.pass.ranAt)}${until(d.pass.nextRunAt) ? ` · next ${until(d.pass.nextRunAt)}` : ""}`
+                  : "Not sorted yet"}
+            </p>
+          )}
           <ViewToggle view={view} onChange={setView} />
-          <Button size="sm" variant="outline" onClick={scan} disabled={scanning || running}>
+          <Button size="sm" variant="outline" onClick={scan} disabled={scanning || running} title="Fetch and sort the newest mail now">
             {scanning || running ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-            {scanning || running ? "Reading…" : "Run triage now"}
+            {scanning || running ? "Sorting…" : "Sort new mail"}
           </Button>
         </div>
       }
     >
-      {doc.error && (
-        <p className="text-muted-foreground mb-4 text-[14px]">
-          The inbox could not be read.{" "}
-          <span className="text-destructive">{doc.error}</span>
-        </p>
-      )}
-      {refused && (
-        <p className="text-destructive mb-4 text-[14px]">{refused}</p>
-      )}
+      {doc.error && <Problem className="mb-4">Couldn't load your mail: {doc.error}</Problem>}
+      {refused && <Problem className="mb-4">{refused}</Problem>}
 
       {doc.loading && !d && (
         <p className="text-muted-foreground text-[14px]">
           <Loader2 className="mr-1.5 inline size-3.5 animate-spin" />
-          Opening the list the last pass left.
+          Loading…
         </p>
       )}
 
       {d && (
         <>
-          {/* WHEN THIS WAS READ AND WHEN IT IS READ NEXT. The list comes out
-              of a cache, so its age is part of it: a category made an hour ago
-              describes an hour-old inbox, and a page that hid that would be
-              passing off a stored list as a live one. */}
-          <p className="text-muted-foreground mb-5 text-[12.5px]">
-            {d.pass.ranAt
-              ? `Read ${ago(d.pass.ranAt)}${until(d.pass.nextRunAt) ? ` · next ${until(d.pass.nextRunAt)}` : ""}`
-              : "Not read yet. The pass runs by itself every half hour, or press Run triage now."}
-            {running && " · reading now"}
-            {d.lastRun?.note ? ` — ${d.lastRun.note}` : ""}
-            {d.lastRun?.error ? ` · ${d.lastRun.error}` : ""}
-            {d.pass.unscored > 0 &&
-              ` · ${d.pass.unscored} thread${d.pass.unscored === 1 ? "" : "s"} in this window ${d.pass.unscored === 1 ? "has" : "have"} not been read by the model.`}
-          </p>
+          {count("unscored") > 0 && (
+            <p className="text-warn mb-4 text-[13px]">
+              {plural(count("unscored"), "email")} {count("unscored") === 1 ? "isn't" : "aren't"} sorted yet
+              {partial ? " — sorting stopped early last time" : ""}. They're under “Not sorted yet”.
+            </p>
+          )}
 
           {view === "deck" ? (
             <Deck
@@ -1406,26 +1375,28 @@ export function Triage() {
             />
           ) : (
             <>
-              {GROUPS.map((g) => {
-                const items = d.groups[g.key] ?? [];
-                if (!items.length) return null;
+              <FilterChips label="Show" chips={chips} value={shownFilter} onChange={setFilter} className="mb-4" />
+              {sections.map((sec) => {
+                if (!sec.rows.length) return null;
                 return (
-                  <section key={g.key} className="mb-6">
-                    <div className="mb-1.5 flex items-baseline gap-2">
-                      <span className={cn("size-2 rounded-full", g.tone)} />
-                      <h2 className="text-[15px] font-medium tracking-tight">{g.label}</h2>
-                      <span className="text-muted-foreground text-[12.5px]">
-                        {items.length} · {g.hint}
-                      </span>
-                    </div>
-                    <div className="bg-card border-line-soft rounded-xl">
-                      {items.map((t) => (
+                  <section key={sec.key} className="mb-5">
+                    {(shownFilter === "all" || sec.mode !== "active") && (
+                      <h2 className="mb-1.5 flex items-center gap-2 text-[13.5px] font-medium">
+                        <span className={cn("size-2 rounded-full", sec.tone)} />
+                        {sec.label}
+                        <span className="text-muted-foreground font-normal">{sec.rows.length}</span>
+                      </h2>
+                    )}
+                    <div className="bg-card border-line-soft overflow-hidden rounded-xl border">
+                      {sec.rows.map((t) => (
                         <Row
                           key={t.id}
                           t={t}
+                          mode={sec.mode}
                           busy={busy === t.id}
                           onDone={() => void rowAct(t.id, "done")}
                           onSnooze={() => void rowAct(t.id, "snooze")}
+                          onUndo={() => void undoDone(t.id)}
                         />
                       ))}
                     </div>
@@ -1433,18 +1404,30 @@ export function Triage() {
                 );
               })}
 
-              {!GROUPS.some((g) => (d.groups[g.key] ?? []).length) && (
-                <p className="text-muted-foreground text-[14px]">
-                  Nothing on this list. {d.counts.done} done and {d.counts.snoozed}{" "}
-                  snoozed are hidden; both are still in Gmail.
-                </p>
+              {!sections.some((sec) => sec.rows.length) && (
+                <EmptyState
+                  icon={Check}
+                  title={shownFilter === "needs_reply" ? "Nothing needs a reply" : "All clear"}
+                  body={
+                    shownFilter === "all"
+                      ? "Nothing waiting on you in the last few days. New mail is sorted every half hour."
+                      : "Nothing in this group right now. Pick All to see everything."
+                  }
+                />
               )}
             </>
           )}
 
-          <p className="text-muted-foreground/70 mt-8 text-[12.5px] leading-relaxed">
-            {d.note}
-          </p>
+          <SmallPrint summary="How Priority works" className="mt-8">
+            <p>
+              Mail from the last {d.window.days} days of {d.account.label ?? "your inbox"} ({d.window.threads} emails) is
+              sorted by AI into Needs reply, Waiting on them, FYI and Newsletter. Done and Tomorrow only change this
+              list — nothing changes in Gmail.
+            </p>
+            {d.lastRun?.note && <p>Last run: {d.lastRun.note}</p>}
+            {d.lastRun?.error && <p className="text-destructive">Problem: {d.lastRun.error}</p>}
+            <p>{d.note}</p>
+          </SmallPrint>
         </>
       )}
     </PageShell>

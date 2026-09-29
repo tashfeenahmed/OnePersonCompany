@@ -2,18 +2,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
+  Check,
   ChevronLeft,
   ChevronRight,
+  ExternalLink,
   Image,
+  Inbox as InboxIcon,
   Mail,
   MailOpen,
   Paperclip,
   RefreshCw,
+  Reply,
   Search,
+  Send,
 } from "lucide-react";
-import { ago, bytes, day, when } from "@/lib/format";
+import { ago, bytes, when } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { HostMark } from "@/components/HostMark";
 import { Input } from "@/components/ui/input";
 import { useApi } from "@/hooks/useApi";
 import { useStore, type Venture } from "@/lib/store";
@@ -24,6 +30,9 @@ import {
   type MailboxChip,
   type SentEmailDoc,
 } from "@/lib/api";
+import { mailflowApi, type TriageThread } from "@/lib/api/mailflow";
+import { decodeEntities, deliveryLabel, mailTime, parseStamp, senderName } from "@/lib/mailText";
+import { Avatar, EmptyState, LinkButton, ToneChip, TriageChip, VentureTag } from "@/areas/mailflow/parts";
 
 /**
  * MAILBOX — every venture's mail in one list, and the reader beside it.
@@ -124,6 +133,20 @@ export function Mailbox({ mode = "inbox" }: { mode?: Mode }) {
   const chips = useApi(() => api.mailboxes(), []);
   const connected = chips.data?.connected ?? null;
 
+  /* WHAT PRIORITY MADE OF EACH THREAD, drawn on the inbox rows as a chip
+     ("Needs reply", "FYI"…). The triage document is a database read on the
+     server, so this costs no Gmail quota; a failure just means no chips. */
+  const triage = useApi(async () => (mode === "inbox" ? await mailflowApi.triage() : null), [mode]);
+  const sorted = useMemo(() => {
+    const map = new Map<string, TriageThread>();
+    const d = triage.data;
+    if (!d) return map;
+    for (const rows of Object.values(d.groups)) for (const t of rows) map.set(t.id, t);
+    for (const t of d.done ?? []) map.set(t.id, t);
+    for (const t of d.snoozedList ?? []) map.set(t.id, t);
+    return map;
+  }, [triage.data]);
+
   const forceRefresh = useRef(false);
   const threads = useApi(
     async () => {
@@ -202,16 +225,16 @@ export function Mailbox({ mode = "inbox" }: { mode?: Mode }) {
   if (chips.error)
     return (
       <Center
-        title="The API is not running"
-        body="This page reads Gmail through the local API, and nothing is answering on port 8787. Start the server and reload."
+        title="Can't reach your mail right now"
+        body="The app's server isn't answering. Check it's running, then reload this page."
       />
     );
 
   if (connected === false)
     return (
       <Center
-        title="No mailbox is connected"
-        body="Every venture's mail funnels into one Google account, and this dashboard has not been given one. Connect Gmail and this page fills itself."
+        title="Connect your Gmail to see your mail here"
+        body="Once Gmail is connected, every venture's mail shows up in this inbox."
         action={{ to: "/integrations/gmail", label: "Connect Gmail" }}
       />
     );
@@ -231,39 +254,39 @@ export function Mailbox({ mode = "inbox" }: { mode?: Mode }) {
         open ? "hidden" : "flex",
       )}
     >
-      {/* The controls do not scroll with the rows. A search box that leaves
-          the top of the list is a search box you scroll back up to reach. */}
+      {/* The controls do not scroll with the rows. */}
       <div className="shrink-0 border-b px-3 pt-2.5 pb-2">
         <div className="flex items-center gap-1.5">
-          <div className="relative min-w-0 flex-1">
-            <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
-            <Input
-              value={typed}
-              onChange={(e) => {
-                setTyped(e.target.value);
-                setPage(null);
-                setBack([]);
-              }}
-              placeholder={
-                mode === "inbox"
-                  ? "Search this mailbox — from:, has:attachment, \"a phrase\""
-                  : "Search is Gmail's; this list is Resend's"
-              }
-              disabled={mode === "sent"}
-              className="h-8 pl-8 text-[13.5px]"
-              aria-label="Search mail"
-            />
-          </div>
-          <Button variant="ghost" size="icon-sm" disabled={refreshing} aria-label="Refresh mail" title="Refresh mail" onClick={refreshMail}>
+          {mode === "inbox" ? (
+            <div className="relative min-w-0 flex-1">
+              <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
+              <Input
+                value={typed}
+                onChange={(e) => {
+                  setTyped(e.target.value);
+                  setPage(null);
+                  setBack([]);
+                }}
+                placeholder="Search mail"
+                title='Works like Gmail search: from:someone, has:attachment, "exact words"'
+                className="h-8 pl-8 text-[13.5px]"
+                aria-label="Search mail"
+              />
+            </div>
+          ) : (
+            <p className="text-muted-foreground min-w-0 flex-1 truncate text-[12.5px]">
+              Newest first, from every product that sends email
+            </p>
+          )}
+          <Button variant="ghost" size="icon-sm" disabled={refreshing} aria-label="Refresh" title="Check for new mail" onClick={refreshMail}>
             <RefreshCw className={cn("size-4", refreshing && "animate-spin")} />
           </Button>
         </div>
         {mode === "inbox" && threads.data?.readAt && <p className="text-muted-foreground mt-1 text-[11px]" role="status">
-          {refreshing ? "Updating…" : `Updated ${ago(threads.data.readAt)}`}
+          {refreshing ? "Checking…" : `Checked ${ago(threads.data.readAt)}`}
         </p>}
 
-        {/* The chips. Horizontal scroll rather than wrap: ten domains wrapped
-            onto three lines is a third of the list pane spent on a filter. */}
+        {/* Which venture's mail. Scrolls sideways rather than wrapping. */}
         <div className="mt-2 flex items-center gap-1 overflow-x-auto pb-0.5">
           <Chip active={!chip} onClick={() => put("mailbox", null)} label="All" />
           {domains.map((m) => (
@@ -272,19 +295,16 @@ export function Mailbox({ mode = "inbox" }: { mode?: Mode }) {
               active={chip === m.key}
               onClick={() => put("mailbox", chip === m.key ? null : m.key)}
               label={label(m.key)}
-              title={
-                m.domain
-                  ? `to:(@${m.domain})${m.status ? ` · ${m.status} on Resend` : ""}`
-                  : undefined
-              }
+              host={m.domain}
+              title={m.domain ? `Mail sent to @${m.domain}` : undefined}
             />
           ))}
           {chips.data?.gmail && mode === "inbox" && (
             <Chip
               active={chip === "gmail"}
               onClick={() => put("mailbox", chip === "gmail" ? null : "gmail")}
-              label={chips.data.gmail.address ?? "Gmail"}
-              title={`to:(${chips.data.gmail.address ?? ""})`}
+              label="Personal"
+              title={`Mail sent to ${chips.data.gmail.address ?? "your Gmail address"}`}
             />
           )}
         </div>
@@ -294,16 +314,16 @@ export function Mailbox({ mode = "inbox" }: { mode?: Mode }) {
       <div className="min-h-0 flex-1 overflow-y-auto">
         {error ? (
           <ListNote
-            title="That did not work"
+            title="Couldn't load your mail"
             body={error}
             action={
               mode === "inbox"
-                ? { to: "/integrations/gmail", label: "Check the Gmail integration" }
-                : { to: "/integrations/resend", label: "Check the Resend keys" }
+                ? { to: "/integrations/gmail", label: "Check the Gmail connection" }
+                : { to: "/integrations/resend", label: "Check the Resend connection" }
             }
           />
         ) : loading ? (
-          <ListNote title="Reading…" body="Every row is a thread Gmail has to be asked about by name, so a page takes a second or two." />
+          <ListSkeleton />
         ) : mode === "inbox" ? (
           rows.length ? (
             rows.map((t) => (
@@ -312,14 +332,16 @@ export function Mailbox({ mode = "inbox" }: { mode?: Mode }) {
                 thread={t}
                 unread={readNow[t.id] ?? t.unread}
                 active={open?.kind === "thread" && open.id === t.id}
-                badge={t.mailbox ? label(t.mailbox) : null}
+                venture={t.mailbox && t.mailbox !== "gmail" ? { host: t.mailbox, name: label(t.mailbox) } : null}
+                sorted={sorted.get(t.id) ?? null}
                 onOpen={() => setOpen({ kind: "thread", id: t.id })}
               />
             ))
           ) : (
-            <ListNote
-              title="Nothing matches"
-              body={`Gmail was asked for “${threads.data?.query ?? ""}” and answered with no threads.`}
+            <EmptyState
+              icon={q ? Search : InboxIcon}
+              title={q ? "No emails match your search" : "Nothing here"}
+              body={q ? "Try fewer words, or clear the search." : chip ? "No mail for this venture yet. Pick All to see everything." : "Your inbox is empty."}
             />
           )
         ) : sentRows.length ? (
@@ -327,28 +349,30 @@ export function Mailbox({ mode = "inbox" }: { mode?: Mode }) {
             <SentRow
               key={`${e.domain}:${e.id}`}
               row={e}
-              label={label(e.domain)}
+              venture={{ host: e.domain, name: label(e.domain) }}
               active={open?.kind === "sent" && open.id === e.id}
               onOpen={() => setOpen({ kind: "sent", id: e.id, domain: e.domain })}
             />
           ))
         ) : (
-          <ListNote
-            title="Nothing sent"
-            body="No connected Resend key reports an email in its most recent page."
+          <EmptyState
+            icon={Send}
+            title="No automatic emails yet"
+            body="When your products send sign-up or receipt emails through Resend, they show up here."
+            action={<LinkButton to="/integrations/resend">Connect Resend</LinkButton>}
           />
         )}
 
         {mode === "sent" && !!sent.data?.restricted.length && (
           <ListNote
-            title="Some keys cannot be read"
-            body={`${sent.data.restricted.join(", ")} — the key is restricted to sending, so what it sent cannot be read back. That is not the same as having sent nothing.`}
+            title="Some products can't be shown"
+            body={`${sent.data.restricted.join(", ")}: the Resend key can only send, not read back. Use a full-access key to see these emails here.`}
           />
         )}
         {mode === "inbox" && threads.data?.mailboxIgnored && (
           <ListNote
-            title="That filter was ignored"
-            body={`No connected key covers ${threads.data.mailboxIgnored}, so the whole mailbox is shown rather than an empty list.`}
+            title="Showing all mail"
+            body={`Nothing is set up for ${threads.data.mailboxIgnored}, so the whole inbox is shown instead.`}
           />
         )}
       </div>
@@ -399,15 +423,12 @@ export function Mailbox({ mode = "inbox" }: { mode?: Mode }) {
       )}
     >
       {open === null ? (
-        <div className="text-muted-foreground flex flex-1 items-center justify-center px-6 text-center text-[14px]">
-          <div className="max-w-[320px]">
-            Pick a {mode === "inbox" ? "conversation" : "message"} to read it.
-            <div className="mt-1.5 text-[12.5px]">
-              Nothing on this page is written down — every subject and body is
-              read from {mode === "inbox" ? "Gmail" : "Resend"} the moment you
-              ask for it.
-            </div>
-          </div>
+        <div className="flex flex-1 items-center justify-center">
+          <EmptyState
+            icon={mode === "inbox" ? MailOpen : Send}
+            title={mode === "inbox" ? "Pick an email to read it" : "Pick an email to see it"}
+            body={mode === "inbox" ? "You can reply, mark it done or open it in Gmail from here." : "You'll see exactly what your customer received."}
+          />
         </div>
       ) : open.kind === "thread" ? (
         <ThreadReader
@@ -416,6 +437,9 @@ export function Mailbox({ mode = "inbox" }: { mode?: Mode }) {
           onBack={() => setOpen(null)}
           onRead={markedRead}
           venture={label}
+          sorted={sorted.get(open.id) ?? null}
+          onSortedChange={() => triage.reload()}
+          gmailAddress={(accountId) => chips.data?.accounts.find((a) => a.id === accountId)?.label ?? chips.data?.gmail?.address ?? null}
         />
       ) : (
         <SentReader
@@ -493,23 +517,6 @@ function chipLabel(key: string | null, chips: MailboxChip[], ventures: Venture[]
   return venture?.name ?? domain;
 }
 
-/* ====================================================================== */
-/*  Time                                                                  */
-/* ====================================================================== */
-
-/** A list column, so it has to be short and has to sort visually. Today is a
- *  clock, this year is a date, older carries the year — which is how every
- *  mail client anybody has used behaves, and the reason is that "14:02" and
- *  "3 Mar 2024" answer two different questions. */
-function listTime(ms: number | null): string {
-  if (!ms) return "";
-  const d = new Date(ms);
-  const now = new Date();
-  if (d.toDateString() === now.toDateString())
-    return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  return day(d, { year: d.getFullYear() !== now.getFullYear() });
-}
-
 /* A MESSAGE'S OWN STAMP AND AN ATTACHMENT'S SIZE both come from `@/lib/format`
    now. Both said "" for a missing value rather than the em dash, and both
    still do — a message with no date and an attachment with no size draw
@@ -546,11 +553,14 @@ function Chip({
   active,
   label,
   title,
+  host,
   onClick,
 }: {
   active: boolean;
   label: string;
   title?: string;
+  /** A venture domain: its favicon is drawn before the name. */
+  host?: string | null;
   onClick: () => void;
 }) {
   return (
@@ -560,12 +570,31 @@ function Chip({
       title={title}
       aria-pressed={active}
       className={cn(
-        "text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 rounded-full border px-2.5 py-[3px] text-[12.5px] whitespace-nowrap",
-        active && "bg-foreground text-background border-foreground",
+        "text-muted-foreground hover:bg-accent hover:text-foreground flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-[3px] text-[12.5px] whitespace-nowrap",
+        active && "bg-foreground text-background border-foreground hover:bg-foreground hover:text-background",
       )}
     >
+      {host && <HostMark host={host} size={13} />}
       {label}
     </button>
+  );
+}
+
+/** Placeholder rows while the first page loads. */
+function ListSkeleton() {
+  return (
+    <div role="status" aria-label="Loading mail">
+      {Array.from({ length: 7 }, (_, i) => (
+        <div key={i} className="flex gap-3 border-b px-3 py-3">
+          <span className="bg-muted size-8 shrink-0 animate-pulse rounded-full" />
+          <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <span className="bg-muted h-3 w-1/3 animate-pulse rounded" />
+            <span className="bg-muted h-3 w-3/4 animate-pulse rounded" />
+            <span className="bg-muted/70 h-3 w-2/3 animate-pulse rounded" />
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -573,121 +602,113 @@ function ThreadRow({
   thread: t,
   unread,
   active,
-  badge,
+  venture,
+  sorted,
   onOpen,
 }: {
   thread: MailThread;
   unread: boolean;
   active: boolean;
-  /** The venture this arrived at, or null. NO BADGE FOR GMAIL AND NONE FOR
-   *  "none of ours": a badge on every row is a column, and a column reading
-   *  "Gmail" two hundred times is noise. The badge answers "why is this in my
-   *  inbox", which only a venture address raises. */
-  badge: string | null;
+  /** The venture this arrived at, or null for personal mail. */
+  venture: { host: string; name: string } | null;
+  /** What Priority made of it, when it has been sorted. */
+  sorted: TriageThread | null;
   onOpen: () => void;
 }) {
+  const name = senderName(t.fromName, t.from);
+  const done = !!sorted?.doneAt;
   return (
     <button
       type="button"
       onClick={onOpen}
+      aria-current={active ? "true" : undefined}
       className={cn(
-        "hover:bg-accent/60 flex w-full flex-col gap-0.5 border-b px-3 py-2 text-left",
+        "hover:bg-accent/60 flex w-full items-start gap-3 border-b px-3 py-2.5 text-left",
         active && "bg-accent",
       )}
     >
-      <div className="flex w-full items-baseline gap-2">
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-[13.5px]",
-            unread ? "text-foreground font-semibold" : "text-foreground/90",
-          )}
-          title={t.from}
-        >
-          {t.fromName || t.from || "(no sender)"}
-          {t.messages > 1 && (
-            <span className="text-muted-foreground font-normal"> ({t.messages})</span>
-          )}
-        </span>
-        <span className="text-muted-foreground shrink-0 font-mono text-[11.5px] tabular-nums">
-          {listTime(t.at)}
-        </span>
-      </div>
-      <div className="flex w-full items-baseline gap-1.5">
-        {badge && (
+      <Avatar name={name} address={t.from} size={34} className="mt-0.5" />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex w-full items-baseline gap-2">
+          {unread && <span className="bg-primary size-2 shrink-0 self-center rounded-full" aria-label="Unread" />}
           <span
-            className="text-muted-foreground shrink-0 rounded-[5px] border px-1 py-px text-[11px]"
-            title={`Addressed to ${t.mailbox}`}
+            className={cn(
+              "min-w-0 flex-1 truncate text-[13.5px]",
+              unread ? "text-foreground font-semibold" : "text-foreground/90",
+            )}
+            title={t.from}
           >
-            {badge}
+            {name}
+            {t.messages > 1 && (
+              <span className="text-muted-foreground font-normal"> · {t.messages}</span>
+            )}
           </span>
-        )}
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-[13px]",
-            unread ? "font-medium" : "text-foreground/80",
-          )}
-        >
+          <span className={cn("shrink-0 text-[11.5px] tabular-nums", unread ? "text-foreground font-medium" : "text-muted-foreground")}>
+            {mailTime(t.at)}
+          </span>
+        </span>
+        <span className={cn("w-full truncate text-[13px]", unread ? "font-medium" : "text-foreground/80")}>
           {t.subject || "(no subject)"}
         </span>
-      </div>
-      {t.snippet && (
-        <span className="text-muted-foreground w-full truncate text-[12px]">
-          {t.snippet}
-        </span>
-      )}
+        {t.snippet && (
+          <span className="text-muted-foreground w-full truncate text-[12.5px]">{decodeEntities(t.snippet)}</span>
+        )}
+        {(sorted?.score || done || venture) && (
+          <span className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
+            {sorted?.score && !done && <TriageChip score={sorted.score} urgency={sorted.urgency} />}
+            {done && (
+              <ToneChip tone="muted" title="You marked this done in Priority">
+                <Check /> Done
+              </ToneChip>
+            )}
+            {venture && <VentureTag host={venture.host} name={venture.name} />}
+          </span>
+        )}
+      </span>
     </button>
   );
 }
 
 function SentRow({
   row,
-  label,
+  venture,
   active,
   onOpen,
 }: {
   row: { id: string; domain: string; at: string; to: string[]; subject: string; lastEvent: string | null };
-  label: string;
+  venture: { host: string; name: string };
   active: boolean;
   onOpen: () => void;
 }) {
+  const to = row.to[0] ?? "";
+  const status = deliveryLabel(row.lastEvent);
   return (
     <button
       type="button"
       onClick={onOpen}
+      aria-current={active ? "true" : undefined}
       className={cn(
-        "hover:bg-accent/60 flex w-full flex-col gap-0.5 border-b px-3 py-2 text-left",
+        "hover:bg-accent/60 flex w-full items-start gap-3 border-b px-3 py-2.5 text-left",
         active && "bg-accent",
       )}
     >
-      <div className="flex w-full items-baseline gap-2">
-        <span className="min-w-0 flex-1 truncate text-[13.5px]" title={row.to.join(", ")}>
-          {row.to[0] ?? "(no recipient)"}
-          {row.to.length > 1 && (
-            <span className="text-muted-foreground"> +{row.to.length - 1}</span>
-          )}
+      <Avatar name={senderName(null, to)} address={to} size={34} className="mt-0.5" />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex w-full items-baseline gap-2">
+          <span className="min-w-0 flex-1 truncate text-[13.5px]" title={row.to.join(", ")}>
+            <span className="text-muted-foreground">To </span>
+            {to || "(no recipient)"}
+            {row.to.length > 1 && <span className="text-muted-foreground"> +{row.to.length - 1}</span>}
+          </span>
+          <span className="text-muted-foreground shrink-0 text-[11.5px] tabular-nums">
+            {mailTime(parseStamp(row.at))}
+          </span>
         </span>
-        <span className="text-muted-foreground shrink-0 font-mono text-[11.5px] tabular-nums">
-          {listTime(Date.parse(row.at) || null)}
+        <span className="w-full truncate text-[13px]">{row.subject || "(no subject)"}</span>
+        <span className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
+          <ToneChip tone={status.tone}>{status.label}</ToneChip>
+          <VentureTag host={venture.host} name={venture.name} />
         </span>
-      </div>
-      <div className="flex w-full items-baseline gap-1.5">
-        <span className="text-muted-foreground shrink-0 rounded-[5px] border px-1 py-px text-[11px]">
-          {label}
-        </span>
-        <span className="min-w-0 flex-1 truncate text-[13px]">
-          {row.subject || "(no subject)"}
-        </span>
-      </div>
-      {/* Resend's own word, never reduced to a tick or a cross: "queued" is not
-          "delivered" and neither is a failure. */}
-      <span
-        className={cn(
-          "text-muted-foreground text-[12px]",
-          row.lastEvent === "bounced" && "text-destructive",
-          row.lastEvent === "complained" && "text-warn",
-        )}
-      >
-        {row.lastEvent ?? "no event reported"}
       </span>
     </button>
   );
@@ -697,40 +718,50 @@ function SentRow({
 /*  The reader                                                            */
 /* ====================================================================== */
 
+/** Gmail's own page for one thread, in the right account. Gmail accepts the
+ *  API's thread id in the web address. */
+function gmailLink(threadId: string, address: string | null): string {
+  const who = address ? `?authuser=${encodeURIComponent(address)}` : "";
+  return `https://mail.google.com/mail/u/${who}#all/${encodeURIComponent(threadId)}`;
+}
+
 /**
  * One thread.
  *
  * MARKING READ HAPPENS AFTER A DWELL, NOT ON CLICK. A click is often a
- * mis-click, and a mail client that consumes the unread flag the instant a row
- * is touched is one you stop trusting to open anything. A second and a half of
- * the thread actually being on screen is the signal; the timer is cancelled if
- * the thread closes first, so arrowing past three conversations marks none of
- * them.
+ * mis-click, so a second and a half of the thread actually being on screen is
+ * the signal; the timer is cancelled if the thread closes first. The Mark
+ * unread button puts the flag back.
  *
- * It is also the ONE WRITE this dashboard makes anywhere. The button beside it
- * puts the flag back, because a state you can only ever consume is a state you
- * cannot correct.
+ * THE ACTIONS, LEFT TO RIGHT: Reply (opens the composer in Drafts, addressed
+ * and threaded), Done (takes it off Priority — Gmail is not touched), Mark
+ * read/unread, and Open in Gmail — which is where archiving and deleting live.
  */
 function ThreadReader({
   id,
   onBack,
   onRead,
   venture,
+  sorted,
+  onSortedChange,
+  gmailAddress,
 }: {
   id: string;
   onBack: () => void;
   onRead: (id: string, unread: boolean) => void;
   venture: (key: string | null) => string;
+  sorted: TriageThread | null;
+  onSortedChange: () => void;
+  gmailAddress: (accountId: number) => string | null;
 }) {
   const account = Number(new URLSearchParams(window.location.search).get("account")) || undefined;
   const thread = useApi(() => api.mailboxThread(id, { account }), [id, account]);
-  /** Which message's remote images have been asked for. One at a time: the
-   *  server re-reads the thread to answer, and "load them all" on a nineteen-
-   *  message thread is a decision about eighteen messages nobody looked at. */
+  /** Which message's remote images have been asked for. One at a time. */
   const [images, setImages] = useState<string | null>(null);
   const [unread, setUnread] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
+  const [doneNow, setDoneNow] = useState<boolean | null>(null);
 
   const doc = useApi(
     async () => (images ? await api.mailboxThread(id, { images, account }) : null),
@@ -739,6 +770,7 @@ function ThreadReader({
   const shown = images && doc.data ? doc.data : thread.data;
 
   const isUnread = unread ?? shown?.messages.some((m) => m.unread) ?? false;
+  const isDone = doneNow ?? !!sorted?.doneAt;
 
   const setRead = useCallback(
     async (next: boolean) => {
@@ -749,9 +781,7 @@ function ThreadReader({
         setUnread(next);
         onRead(id, next);
       } catch (e) {
-        /* A failed write says so and changes nothing. Flipping the row anyway
-           would show a state Gmail does not hold, which is the one lie a mail
-           client must not tell. */
+        /* A failed write says so and changes nothing. */
         setFailed(e instanceof Error ? e.message : String(e));
       } finally {
         setBusy(false);
@@ -759,6 +789,20 @@ function ThreadReader({
     },
     [id, account, onRead],
   );
+
+  async function toggleDone(accountId: number) {
+    setBusy(true);
+    setFailed(null);
+    try {
+      await mailflowApi.done(id, { account: accountId, undo: isDone });
+      setDoneNow(!isDone);
+      onSortedChange();
+    } catch (e) {
+      setFailed(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!thread.data) return;
@@ -770,46 +814,85 @@ function ThreadReader({
   }, [thread.data]);
 
   if (thread.error)
-    return <ReaderNote onBack={onBack} title="That thread would not open" body={thread.error} />;
+    return <ReaderNote onBack={onBack} title="This email wouldn't open" body={thread.error} />;
   if (thread.loading || !shown)
-    return <ReaderNote onBack={onBack} title="Reading…" body="Gmail is being asked for the whole conversation." />;
+    return <ReaderNote onBack={onBack} title="Opening…" body="" />;
+
+  const replyTo =
+    shown.messages.findLast((m) => !m.labels.includes("SENT"))?.from ?? shown.messages.at(-1)?.to.split(",")[0] ?? "";
+  const reply = {
+    to: replyTo,
+    subject: /^re:/i.test(shown.subject) ? shown.subject : `Re: ${shown.subject}`,
+    account: shown.accountId,
+    thread: id,
+    back: `/mail/inbox?thread=${encodeURIComponent(id)}&account=${shown.accountId}`,
+  };
 
   return (
     <>
-      <header className="flex flex-wrap shrink-0 items-start gap-2 border-b px-3.5 py-2.5">
-        <Link className="border rounded px-2 py-1 text-xs" to="/mail/outbox" state={{ reply: { to: shown.messages.findLast(m => !m.labels.includes("SENT"))?.from ?? shown.messages.at(-1)?.to.split(",")[0] ?? "", subject: /^re:/i.test(shown.subject) ? shown.subject : `Re: ${shown.subject}`, account: shown.accountId, thread: id, back: `/mail/inbox?thread=${encodeURIComponent(id)}&account=${shown.accountId}` } }}>Draft reply</Link>
-        <button
-          type="button"
-          onClick={onBack}
-          className="hover:bg-accent text-muted-foreground -ml-1 shrink-0 rounded-md p-1 md:hidden"
-          aria-label="Back to the list"
-        >
-          <ArrowLeft className="size-4" />
-        </button>
-        <div className="min-w-0 flex-1">
-          <h2 className="truncate text-[16px] font-normal tracking-[-0.01em]">
-            {shown.subject || "(no subject)"}
-          </h2>
-          <p className="text-muted-foreground mt-0.5 text-[12.5px]">
-            {shown.messages.length} {shown.messages.length === 1 ? "message" : "messages"}
-            {shown.mailbox && ` · ${venture(shown.mailbox)}`}
-            {failed && <span className="text-destructive"> · {failed}</span>}
-          </p>
+      <header className="shrink-0 border-b px-3.5 pt-2.5 pb-2">
+        <div className="flex items-start gap-2">
+          <button
+            type="button"
+            onClick={onBack}
+            className="hover:bg-accent text-muted-foreground -ml-1 shrink-0 rounded-md p-1 md:hidden"
+            aria-label="Back to the list"
+          >
+            <ArrowLeft className="size-4" />
+          </button>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-[16px] leading-snug font-normal tracking-[-0.01em] break-words">
+              {shown.subject || "(no subject)"}
+            </h2>
+            <p className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-[12.5px]">
+              {sorted?.score && !isDone && <TriageChip score={sorted.score} urgency={sorted.urgency} />}
+              {isDone && <ToneChip tone="muted"><Check /> Done</ToneChip>}
+              <span>
+                {shown.messages.length} {shown.messages.length === 1 ? "message" : "messages"}
+                {shown.mailbox && shown.mailbox !== "gmail" && ` · to ${venture(shown.mailbox)}`}
+              </span>
+            </p>
+          </div>
         </div>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void setRead(!isUnread)}
-          className="hover:bg-accent text-muted-foreground flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[12.5px] disabled:opacity-50"
-          title={
-            isUnread
-              ? "Remove the UNREAD label in Gmail"
-              : "Put the UNREAD label back in Gmail — the only write this dashboard makes"
-          }
-        >
-          {isUnread ? <Mail className="size-3.5" /> : <MailOpen className="size-3.5" />}
-          {isUnread ? "Mark read" : "Mark unread"}
-        </button>
+        {sorted?.reason && !isDone && (
+          <p className="text-muted-foreground mt-1.5 text-[12.5px] italic">{sorted.reason}</p>
+        )}
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <Button size="sm" asChild>
+            <Link to="/mail/outbox" state={{ reply }}>
+              <Reply /> Reply
+            </Link>
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() => void toggleDone(shown.accountId)}
+            title={isDone ? "Put it back on your Priority list" : "Take it off your Priority list. Gmail is not changed."}
+          >
+            <Check /> {isDone ? "Not done" : "Done"}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => void setRead(!isUnread)}
+          >
+            {isUnread ? <MailOpen /> : <Mail />}
+            {isUnread ? "Mark read" : "Mark unread"}
+          </Button>
+          <Button size="sm" variant="ghost" asChild>
+            <a
+              href={gmailLink(id, gmailAddress(shown.accountId))}
+              target="_blank"
+              rel="noreferrer"
+              title="Archive, delete or label it in Gmail"
+            >
+              <ExternalLink /> Open in Gmail
+            </a>
+          </Button>
+        </div>
+        {failed && <p role="alert" className="text-destructive mt-1.5 text-[12.5px]">{failed}</p>}
       </header>
 
       {/* THE SECOND OF THE TWO SCROLLERS. */}
@@ -818,10 +901,7 @@ function ThreadReader({
           <MessageBlock
             key={m.id}
             message={m}
-            /* A thread is its latest message plus history. Nineteen alert
-               mails rendered as nineteen frames made the thread most worth
-               opening the one least readable, so everything already read and
-               not last folds to a line. */
+            /* Older, already-read messages in a long thread fold to one line. */
             startFolded={shown.messages.length > 2 && i < shown.messages.length - 1 && !m.unread}
             onImages={() => setImages(m.id)}
             imagesBusy={doc.loading && images === m.id}
@@ -833,29 +913,21 @@ function ThreadReader({
 }
 
 /**
- * One sent email.
- *
- * NO REPLY AND NO COMPOSE, DELIBERATELY. There is no reply to a password
- * reset: the From address is a robot, the recipient never wrote to it, and a
- * composer here would be a control answering a question nobody asked. The
- * reader is the same one the inbox uses — a bounce is half the story and "what
- * did we actually send them" is the other half — and our own template goes
- * through exactly the same sanitiser, because "we sent it" is not a property a
- * renderer can lean on.
+ * One email a product sent through Resend. No reply: it came from a robot
+ * address and nobody wrote to it. The same reader and sanitiser as the inbox.
  */
 function SentReader({ domain, id, onBack }: { domain: string; id: string; onBack: () => void }) {
   const [images, setImages] = useState(false);
   const email = useApi(() => api.mailboxSentEmail(domain, id, images), [domain, id, images]);
 
   if (email.error)
-    return <ReaderNote onBack={onBack} title="That message would not open" body={email.error} />;
+    return <ReaderNote onBack={onBack} title="This email wouldn't open" body={email.error} />;
   if (email.loading || !email.data)
-    return <ReaderNote onBack={onBack} title="Reading…" body="Resend is being asked for the body." />;
+    return <ReaderNote onBack={onBack} title="Opening…" body="" />;
 
   const e: SentEmailDoc = email.data;
-  /* Shaped into the inbox's message so one component renders both. The fields
-     Resend has no answer for are absent rather than invented: no labels, never
-     unread, no Gmail id. */
+  const status = deliveryLabel(e.lastEvent);
+  /* Shaped into the inbox's message so one component renders both. */
   const asMessage: MailMessage = {
     id: e.id,
     messageId: e.messageId,
@@ -864,7 +936,7 @@ function SentReader({ domain, id, onBack }: { domain: string; id: string; onBack
     to: e.to.join(", "),
     cc: e.cc.join(", "),
     subject: e.subject,
-    at: Date.parse(e.at) || null,
+    at: parseStamp(e.at),
     unread: false,
     labels: [],
     text: e.text,
@@ -886,12 +958,12 @@ function SentReader({ domain, id, onBack }: { domain: string; id: string; onBack
           <ArrowLeft className="size-4" />
         </button>
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-[16px] font-normal tracking-[-0.01em]">
+          <h2 className="text-[16px] leading-snug font-normal tracking-[-0.01em] break-words">
             {e.subject || "(no subject)"}
           </h2>
-          <p className="text-muted-foreground mt-0.5 text-[12.5px]">
-            {e.domain} · {e.lastEvent ?? "no event reported"} · sent, not received —
-            there is no reply to a password reset
+          <p className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-[12.5px]">
+            <ToneChip tone={status.tone}>{status.label}</ToneChip>
+            <span>Sent automatically from {e.domain}</span>
           </p>
         </div>
       </header>
@@ -945,7 +1017,7 @@ function MessageBlock({
           {m.text.trim().split("\n").find(Boolean) ?? "(no text)"}
         </span>
         <span className="text-muted-foreground shrink-0 font-mono text-[11px] tabular-nums">
-          {listTime(m.at)}
+          {mailTime(m.at)}
         </span>
       </button>
     );
@@ -976,7 +1048,7 @@ function MessageBlock({
         </pre>
       ) : (
         <p className="text-muted-foreground text-[13px]">
-          This message has no text and no HTML part.
+          This email is empty.
         </p>
       )}
 
@@ -987,7 +1059,7 @@ function MessageBlock({
             onClick={() => setPlain((p) => !p)}
             className="hover:text-foreground underline-offset-2 hover:underline"
           >
-            {plain ? "Rich version" : "Plain text"}
+            {plain ? "Show formatted" : "Show plain text"}
           </button>
         )}
         {/*
@@ -1007,13 +1079,11 @@ function MessageBlock({
             className="hover:text-foreground flex items-center gap-1 disabled:opacity-50"
           >
             <Image className="size-3" strokeWidth={1.7} aria-hidden />
-            {imagesBusy
-              ? "loading…"
-              : `Load ${m.remoteImages} remote ${m.remoteImages === 1 ? "image" : "images"}`}
+            {imagesBusy ? "Loading images…" : `Show images (${m.remoteImages})`}
           </button>
         )}
         {m.imagesLoaded && m.remoteImages > 0 && (
-          <span>{m.remoteImages} remote images loaded</span>
+          <span>Images shown</span>
         )}
         {/* Named and sized, never fetched: an attachment list costs nothing and
             downloading one would be megabytes through the API for something
@@ -1150,7 +1220,7 @@ function ReaderNote({
       <div className="flex flex-1 items-center justify-center px-6 text-center">
         <div className="max-w-[340px]">
           <p className="text-[14.5px]">{title}</p>
-          <p className="text-muted-foreground mt-1.5 text-[13px] leading-relaxed">{body}</p>
+          {body && <p className="text-muted-foreground mt-1.5 text-[13px] leading-relaxed">{body}</p>}
         </div>
       </div>
     </>
