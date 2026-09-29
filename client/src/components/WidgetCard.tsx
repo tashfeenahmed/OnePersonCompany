@@ -12,6 +12,7 @@ import { narrowApps } from "@/lib/api/apps";
 import { AppFilter, AppGrid, ReviewList } from "@/components/apps/AppsWidgets";
 import { ThreadCards } from "@/components/demand/ThreadCards";
 import { AdGallery } from "@/components/ads/AdGallery";
+import { SiteGrid } from "@/components/seo/SiteGrid";
 import { HostMark } from "@/components/HostMark";
 import {
   Bars,
@@ -664,6 +665,10 @@ export function WidgetCard({
 
         {!empty && def.kind === "adgallery" && def.adCards && (
           <AdGallery ads={def.adCards} caption={def.caption} />
+        )}
+
+        {!empty && def.kind === "sitegrid" && def.siteCards && (
+          <SiteGrid sites={def.siteCards} quiet={def.quietSites} caption={def.caption} />
         )}
 
         {!empty && def.kind === "threads" && def.threads && (

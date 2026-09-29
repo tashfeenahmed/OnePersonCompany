@@ -48,7 +48,9 @@ export type WidgetKind =
    *  faster than a caption. */
   | "gallery"
   /** The advertisements as people saw them: image, words, four numbers. */
-  | "adgallery";
+  | "adgallery"
+  /** One small card per website: favicon, audit grade, clicks, three figures. */
+  | "sitegrid";
 
 export type StatusTone = "ok" | "warn" | "bad";
 
@@ -221,6 +223,29 @@ export type AdCard = {
   image: string | null;
   cta: string | null;
   status: string;
+  stats: [string, string][];
+};
+
+/**
+ * One website on a `sitegrid` card (the SEO board). Every figure is already
+ * formatted, and a null is a source that has nothing for the site — drawn
+ * as a dash, never as a nought.
+ */
+export type SiteCard = {
+  host: string;
+  name: string;
+  /** A venture id, for the venture's own favicon. */
+  venture?: string | null;
+  /** The audit's letter, by a stated rule (see the SEO builders); null when
+   *  the site was never audited. */
+  grade: "A" | "B" | "C" | "D" | null;
+  /** "2 errors", "clean", "not audited" — under the ring. */
+  gradeNote: string;
+  /** Search clicks over the window, and the second half against the first. */
+  clicks: string;
+  change: number | null;
+  spark: number[] | null;
+  /** Up to three small figures — [label, value]. */
   stats: [string, string][];
 };
 
@@ -672,6 +697,9 @@ export type Widget = {
   rowHosts?: (string | null)[];
   /** adgallery — the advertisements, as cards. */
   adCards?: AdCard[];
+  /** sitegrid — one card per website, and the quiet ones as chips. */
+  siteCards?: SiteCard[];
+  quietSites?: { name: string; host: string; venture?: string | null }[];
   /** threads — the conversations, as cards. */
   threads?: ThreadCard[];
   /** appfilter / appgrid / reviews — the Apps document (see lib/api/apps). */
@@ -3540,6 +3568,28 @@ export const WIDGETS: Record<string, Widget> = {
     kind: "statuses",
     live: { audit: true },
   },
+
+  /* THE SEO BOARD, REWORKED 2026-09-29 at the owner's word — "more visuals,
+     less text, favicons where you can". Every site as a small card, then what
+     moved, what to fix, and the lists as favicon bars. The audit grade is a
+     stated rule over the error and warning counts (A clean, B warnings only,
+     C one or two errors, D three or more) — never a weighted score. */
+  "seo.clicks": { src: "gsc", name: "Search clicks", kind: "metric", live: { gsc: true } },
+  "seo.impressions": { src: "gsc", name: "Search impressions", kind: "metric", live: { gsc: true } },
+  "seo.needsFix": { src: "audit", name: "Sites with audit errors", kind: "metric", live: { audit: true } },
+  "seo.aiFound": { src: "geo", name: "Found by AI", kind: "metric", live: { seo: true } },
+  "seo.sites": { src: "audit", name: "Every site", kind: "sitegrid", live: { audit: true, gsc: true, bing: true, seo: true } },
+  "seo.clicksDaily": { src: "gsc", name: "Search clicks a day", kind: "daily", live: { gsc: true }, unit: "count" },
+  "seo.movers": { src: "gsc", name: "What moved", kind: "ranked", live: { gsc: true } },
+  "seo.fixFirst": { src: "audit", name: "Fix first", kind: "rows", live: { audit: true, gsc: true, bing: true, seo: true } },
+  "seo.queries": { src: "gsc", name: "Top searches", kind: "ranked", live: { gsc: true } },
+  "seo.striking": { src: "gsc", name: "Almost page one", kind: "ranked", live: { gsc: true } },
+  "seo.grades": { src: "audit", name: "Audit grades", kind: "proportion", live: { audit: true } },
+  "seo.errors": { src: "audit", name: "Audit errors by site", kind: "ranked", live: { audit: true } },
+  "seo.ai": { src: "geo", name: "AI visibility by site", kind: "ranked", live: { seo: true } },
+  "seo.indexed": { src: "bing", name: "Pages in Bing's index", kind: "ranked", live: { bing: true } },
+  "seo.links": { src: "bing", name: "Inbound links · Bing", kind: "ranked", live: { bing: true } },
+  "seo.listed": { src: "presence", name: "Listed on", kind: "ranked", live: { presence: true } },
 
   /* ------------------------------------------------------------------- runs
      WHAT THE AGENT HAS BEEN ASKED TO DO, and how far it got.
