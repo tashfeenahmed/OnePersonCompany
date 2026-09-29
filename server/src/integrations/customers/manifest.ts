@@ -108,12 +108,12 @@ export const manifest: IntegrationManifest = {
         timezone: {
           label: "Timezone",
           hint:
-            "An IANA zone like “Europe/Dublin”, for quiet hours and for the " +
+            "An IANA zone like “America/New_York”, for quiet hours and for the " +
             "local rendering of a dispute deadline. Leave it empty and the " +
             "briefing's timezone is used; with neither set, this machine's own " +
             "zone. Two places to type a timezone is two places for it to be " +
             "wrong, so this only overrides.",
-          ph: "Europe/Dublin",
+          ph: "America/New_York",
           check(value) {
             const t = value.trim();
             if (!t) return null;

@@ -249,14 +249,14 @@ export const manifest: IntegrationManifest = {
         timezone: {
           label: "Time zone",
           hint:
-            `An IANA name — Europe/Dublin, America/New_York. Blank uses this ` +
+            `An IANA name — America/New_York, Europe/Berlin. Blank uses this ` +
             `machine's own, which right now is ${localZone()}.`,
           ph: localZone(),
           check(value) {
             if (!value.trim()) return null;
             return validZone(value.trim())
               ? null
-              : `“${value.trim()}” is not a time zone this machine knows. Use an IANA name like Europe/Dublin.`;
+              : `“${value.trim()}” is not a time zone this machine knows. Use an IANA name like America/New_York.`;
           },
         },
         quiet: {
@@ -291,7 +291,7 @@ export const manifest: IntegrationManifest = {
             `“motion” also works ` +
             `unattended — a motion ` +
             `video drafts its own scene list from the topic. “stewie” hands ` +
-            `the job to OPC's render relay, which may wake the Dell — better ` +
+            `the job to OPC's render relay, which may wake the GPU workstation — better ` +
             `started by hand from the Studio.`,
           ph: "faceless",
           check(value) {

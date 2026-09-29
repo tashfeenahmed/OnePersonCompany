@@ -111,14 +111,14 @@ test("every role tells a dispatcher what its brief is used as, and a standard jo
 test("a dispatch carries the form's defaults, so a teardown asked for in chat reads the default number of pages", async () => {
   const res = await subagentRoutes.request("/dispatch", {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ role: "serp", venture: "business-2", brief: "free llm api" }),
+    body: JSON.stringify({ role: "serp", venture: "business-2", brief: "invoice software" }),
   });
   assert.equal(res.status, 201);
   const made = await res.json() as { run: { id: string } };
   const input = JSON.parse((db.prepare("SELECT input FROM agent_runs WHERE id=?").get(made.run.id) as { input: string }).input);
   assert.equal(input.results, "5");
   /* `queries` is literal — the brief lands as typed, with no preface. */
-  assert.equal(input.queries, "free llm api");
+  assert.equal(input.queries, "invoice software");
 });
 
 test("a dispatch reads its other inputs from a JSON string, which is all the CLI can carry", async () => {

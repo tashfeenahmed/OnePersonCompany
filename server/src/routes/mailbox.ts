@@ -24,10 +24,10 @@
  *     body-free, and nothing here writes to it.
  *
  * ONE INBOX, AND THE VENTURE MAILBOX IS A FILTER RATHER THAN A PLACE. Every
- * domain in this portfolio routes its mail through Cloudflare into a single
+ * domain in a portfolio like this can route its mail through Cloudflare into a single
  * Gmail account, and Resend sends back out as any address on those domains. So
  * there is one list and the per-venture "mailbox" is a Gmail QUERY —
- * `to:(@livetutor.io)` — not a folder, not a second account, and not a
+ * `to:(@cedarstudio.example)` — not a folder, not a second account, and not a
  * client-side filter over rows already fetched. That last one is the trap: 25
  * rows filtered in the browser would show "3 threads" for a venture with
  * hundreds, and the number would be a fact about the page size.
@@ -138,7 +138,7 @@ type MailboxChip = {
   /**
    * THE LABEL IS THE DOMAIN'S OWN NAME AND NOT A PRODUCT'S.
    *
-   * Workdash hard-codes a table — "livetutor.io" → "LiveTutor" — which it can
+   * Workdash hard-codes a table — "cedarstudio.example" → "Cedar Studio" — which it can
    * do because that list is five entries maintained by hand beside the page.
    * This app has ventures, and a venture here has a name, a description and a
    * colour and NO DOMAIN FIELD; there is no join to make. Worse, the ventures
@@ -146,10 +146,10 @@ type MailboxChip = {
    *
    * So the server labels a domain with the domain. The client owns the only
    * honest upgrade available — matching a venture's name against the domain's
-   * own label, so `planintel.ie` reads as "PlanIntel" and a domain matching no
+   * own label, so `acmeapp.example` reads as "AcmeApp" and a domain matching no
    * venture keeps its own name rather than being given an invented one. Doing
    * that here would mean either shipping a hard-coded table this codebase has
-   * no basis for, or inventing "Fityourwit" out of `fityourwit.co` and
+   * no basis for, or inventing "Quizwiz" out of `quizwiz.example` and
    * presenting it as the name of a business.
    */
   label: string;
@@ -232,7 +232,7 @@ mailbox.get("/mailboxes", (c) => {
     gmail,
     accounts: gmailAccounts.map((a) => ({ id: a.id, label: a.label })),
     mailboxes: all,
-    /** Said on the wire because a reader who sees "fityourwit.co" where they
+    /** Said on the wire because a reader who sees "quizwiz.example" where they
      *  expected a product name should find out why in one place. */
     labelling:
       "A chip is labelled with its own domain. Ventures in this app carry no " +
@@ -257,7 +257,7 @@ mailbox.get("/mailboxes", (c) => {
  * matches practically everything. The original To header survives the forward,
  * so `to:` is the term that means what the chip says.
  *
- * The parentheses matter: `to:(@livetutor.io)` groups the term, so free text
+ * The parentheses matter: `to:(@cedarstudio.example)` groups the term, so free text
  * appended after it stays a separate condition rather than being swallowed into
  * the address.
  */

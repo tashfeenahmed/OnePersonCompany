@@ -49,7 +49,7 @@ function carousel(runId: string, ventureId: string, opts: { caption?: string | n
   db.prepare(
     `INSERT INTO studio_carousels (run_id, venture_id, ts, size, width, height, prompt, title, caption, slides)
      VALUES (?,?,?,'portrait',1080,1350,'',?,?,?)`,
-  ).run(runId, ventureId, now(), "Free LLM APIs", opts.caption ?? null, JSON.stringify(plan));
+  ).run(runId, ventureId, now(), "Invoicing tips", opts.caption ?? null, JSON.stringify(plan));
 }
 
 function destination(id: string, ventureId: string, plugin: string, kind: string) {

@@ -230,31 +230,31 @@ test("search growth cards require fresh measured data and a matching opted-in ve
 test("search growth cards skip the queries judged brand, and ask about every venture at once", async () => {
   const time=new Date().toISOString(), today=time.slice(0,10), yesterday=new Date(Date.now()-86400000).toISOString().slice(0,10);
   const venture=db.prepare("INSERT INTO ventures(id,slug,name,host,stage,color,color_source,created_at,updated_at,position) VALUES(?,?,?,?,'launched','#334455','owner',?,?,0)");
-  venture.run("free-v","freellmapi","FreeLLMAPI","freellmapi.co",time,time);
-  venture.run("neu-v","neu","Neu","neu.ie",time,time);
+  venture.run("free-inv-v","freeinvoice","FreeInvoice","freeinvoice.example",time,time);
+  venture.run("acme-v","acme","Acme","acme.example",time,time);
   upsertPlugin("gsc",true,null); const account=insertAccount("gsc","Brand Search");
   const site=db.prepare("INSERT INTO gsc_sites(property,account_id,account_label,window_start,window_end,seen_at) VALUES(?,?,'Brand Search',?,?,?)");
-  site.run("sc-domain:freellmapi.co",account,yesterday,today,time);
-  site.run("sc-domain:neu.ie",account,yesterday,today,time);
+  site.run("sc-domain:freeinvoice.example",account,yesterday,today,time);
+  site.run("sc-domain:acme.example",account,yesterday,today,time);
   const query=db.prepare("INSERT INTO gsc_queries(property,query,clicks,impressions,position,seen_at) VALUES(?,?,1,?,9,?)");
-  query.run("sc-domain:freellmapi.co","freellmapi github",900,time);
-  query.run("sc-domain:freellmapi.co","freelmapi",800,time);
-  query.run("sc-domain:freellmapi.co","free llm api",300,time);
-  query.run("sc-domain:neu.ie","freellmapi",500,time);
-  const model=stubJudge(["free llm api"]);
+  query.run("sc-domain:freeinvoice.example","freeinvoice github",900,time);
+  query.run("sc-domain:freeinvoice.example","freinvoice",800,time);
+  query.run("sc-domain:freeinvoice.example","free invoice",300,time);
+  query.run("sc-domain:acme.example","freeinvoice",500,time);
+  const model=stubJudge(["free invoice"]);
   try {
     const cards=await growthCandidates();
     assert.equal(cards.length,1);
-    assert.equal(cards[0]!.ventureId,"free-v");
-    assert.match(cards[0]!.title,/free llm api/);
+    assert.equal(cards[0]!.ventureId,"free-inv-v");
+    assert.match(cards[0]!.title,/free invoice/);
     /* ONE CALL for both ventures' heads, and the sibling's name travels with it:
-       `freellmapi` on the neu.ie property is the row that used to file a card
-       under the wrong venture, and a model can only see that if it was told Neu
+       `freeinvoice` on the acme.example property is the row that used to file a card
+       under the wrong venture, and a model can only see that if it was told Acme
        is not the only venture the owner has. */
     assert.equal(model.sent.length,1);
-    assert.deepEqual(model.sent[0]!.keys.filter(k=>k==="freellmapi").length,1);
-    for (const name of ["FreeLLMAPI","Neu","neu.ie"]) assert.ok(model.sent[0]!.user.includes(name),`the roster is missing ${name}`);
-    db.prepare("DELETE FROM gsc_queries WHERE query='free llm api'").run();
+    assert.deepEqual(model.sent[0]!.keys.filter(k=>k==="freeinvoice").length,1);
+    for (const name of ["FreeInvoice","Acme","acme.example"]) assert.ok(model.sent[0]!.user.includes(name),`the roster is missing ${name}`);
+    db.prepare("DELETE FROM gsc_queries WHERE query='free invoice'").run();
     assert.equal((await growthCandidates()).length,0);
   } finally { model.restore(); }
 });

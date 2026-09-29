@@ -21,7 +21,7 @@
  * The dropped ones are COUNTED, because "somebody else found this bot" is a
  * fact the owner should be able to read off the plugin page.
  *
- * This mirrors what the previous system's notifier does on the Pi — locked to one
+ * This mirrors what the previous system's notifier does — locked to one
  * Telegram user id, everyone else logged and ignored — with one deliberate
  * difference: that bot's id is pasted into a .env by hand, and this one is
  * discovered, because the product this belongs to is a page where somebody

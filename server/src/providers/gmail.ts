@@ -1256,7 +1256,7 @@ function headerAll(headers: Header[], name: string): string[] {
 /**
  * Addresses out of a header, by shape rather than by splitting on commas.
  *
- * `"Ogbeide, Courage" <c@x.io>` is one recipient with a comma inside a quoted
+ * `"Doe, Jane" <c@x.io>` is one recipient with a comma inside a quoted
  * display name, and comma-splitting turns it into two — one of them a fragment
  * with no `@` and the other an address that has lost its opening quote. Pulling
  * out anything that looks like an address survives that, and survives

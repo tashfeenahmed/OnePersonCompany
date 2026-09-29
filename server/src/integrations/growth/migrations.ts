@@ -5,8 +5,8 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       SERP TEARDOWN — ONE ROW PER QUERY, NOT PER RUN.
 
       A teardown is asked per QUERY because ranking is per query: "we are
-      ninth for planning permission search" and "we are second for planning
-      appeal ireland" are two different facts with two different pages above
+      ninth for invoice software" and "we are second for invoice
+      template free" are two different facts with two different pages above
       us, and a run-level row would have to flatten them into one blob that
       nothing could ever query. So the run is the ledger row over in
       agent_runs and this is the measurement: what was searched, where we

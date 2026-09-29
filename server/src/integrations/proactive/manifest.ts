@@ -107,7 +107,7 @@ export const manifest: IntegrationManifest = {
         timezone: {
           label: "Time zone",
           hint:
-            `An IANA zone name — Europe/Dublin, America/New_York. Left empty ` +
+            `An IANA zone name — America/New_York, Europe/Berlin. Left empty ` +
             `it is this machine's own (${systemZone()}). It decides two things: ` +
             `which hour counts as the briefing's hour, and which calendar day a ` +
             `briefing belongs to. Changing it does not move briefings that were ` +
@@ -116,7 +116,7 @@ export const manifest: IntegrationManifest = {
           check(value) {
             if (!value.trim()) return null;
             if (!validZone(value.trim()))
-              return `“${value.trim()}” is not a time zone this machine knows. It is an IANA name like Europe/Dublin.`;
+              return `“${value.trim()}” is not a time zone this machine knows. It is an IANA name like America/New_York.`;
             return null;
           },
         },

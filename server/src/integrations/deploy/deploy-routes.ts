@@ -156,7 +156,7 @@ deployRoutes.get("/wake", (c) =>
   }),
 );
 
-/** Take a lease by hand — the "I am about to run something on the Dell, leave
+/** Take a lease by hand — the "I am about to run something on the GPU workstation, leave
  *  it alone" button. Named `manual` unless a kind is given. */
 deployRoutes.post("/leases", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;

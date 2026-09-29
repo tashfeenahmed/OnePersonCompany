@@ -2,8 +2,8 @@
  * EVERY APP, BOTH STORES, ONE ROW — the document the Apps board is drawn from.
  *
  * /api/mobile reads the stores as two ledgers and /api/mobilehealth as a pile
- * of slices; neither can answer "how is AI Group Call doing", because the App
- * Store calls it 6801929313 and Play calls it com.aigroupcall. This joins them
+ * of slices; neither can answer "how is Example App doing", because the App
+ * Store calls it 1234567890 and Play calls it com.example.app. This joins them
  * on the bundle id — Apple's bundle id and Play's package are the same string
  * for every app here, give or take a `.ios` / `.android` suffix — and hangs
  * everything the box holds about the app off that one key: the icon and the

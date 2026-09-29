@@ -461,7 +461,7 @@ export async function campaignRun(args: {
   if (!concepts.length) {
     patch(campaign.id, { status: "failed", error: "The planner returned no usable concept." });
     /* WITH WHAT IT SAID. "No usable concept" about a reply nobody kept cannot be
-       diagnosed: run r-i1yose failed this way, passed on the next try, and left
+       diagnosed: one run failed this way, passed on the next try, and left
        nothing to compare. */
     tools.say(
       "\nThe planner returned no usable concept, so nothing was produced.\n\n" +

@@ -9,7 +9,7 @@
  * the calls Hermes or OpenClaw made, because agents/instance.ts handed each
  * agent the provider's own URL and key and the agent called it directly. On a
  * one-GPU box that is the difference between a policy and a suggestion: the
- * Dell serves one request at a time, an agent turn and a run's turn arrive
+ * GPU machine serves one request at a time, an agent turn and a run's turn arrive
  * together, and whichever is second waits with no bytes on the wire until
  * its own stall detector gives up (Hermes: "Stream stale for 900s — no chunks
  * received"; this box: "stopped sending anything for 720 seconds"). Pointed

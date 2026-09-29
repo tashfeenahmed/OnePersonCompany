@@ -58,7 +58,7 @@ import {
 } from "./expenses.ts";
 import { equalSplit, revenueSplit, setAllocations, shareFor, type AllocationRow } from "./allocations.ts";
 import { findVenture, marginOf, portfolioPnl, venturePnl } from "./profit.ts";
-import { powerLine, profile, saveProfile, seedPower } from "./power.ts";
+import { powerLine, profile, saveProfile, seedPower, tariff } from "./power.ts";
 
 function reset() {
   db.exec("DELETE FROM finance_expenses; DELETE FROM finance_allocations; DELETE FROM finance_power_profiles; DELETE FROM ventures;");
@@ -352,26 +352,55 @@ test("observed hours are charged in two bands and the coverage is reported", () 
   assert.match(line.note, /PART-MONTH/);
 });
 
-test("with no tariff typed, the electricity line is priced at the Irish standard rate and says so", () => {
+/** Replace the finance integration's settings with exactly these. */
+function tariffConfig(values: Record<string, string>) {
+  upsertPlugin("finance", true, null);
+  db.exec("DELETE FROM plugin_config WHERE plugin_id = 'finance'");
+  for (const [k, v] of Object.entries(values)) setConfig("finance", k, v);
+}
+
+test("with no tariff typed, the electricity line has kWh but no money, and says a price is missing", () => {
   reset();
   saveProfile({ machineId: "9", label: "Desk", idleWatts: 100, busyWatts: 400, ratePerKwh: null, currency: "EUR" });
   samples(9, [["2026-08-01T00:00:00.000Z", true, 5], ["2026-08-01T01:00:00.000Z", false, null]]);
   const line = powerLine(profile("9")!, "2026-08", "2026-09-06T12:00:00.000Z");
   assert.ok(line.kwh !== null);
+  assert.equal(line.perKwh, null);
+  assert.equal(line.amount, null);
+  assert.equal(tariff().source, "unset");
+  assert.match(line.note, /No price per kWh has been set/);
+});
+
+test("a typed tariff prices every line without a rate of its own, in the typed currency", () => {
+  reset();
+  tariffConfig({ kwh_rate: "0.36", kwh_currency: "EUR" });
+  saveProfile({ machineId: "9", label: "Desk", idleWatts: 100, busyWatts: 400, ratePerKwh: null, currency: "EUR" });
+  const line = powerLine(profile("9")!, "2026-08", "2026-09-06T12:00:00.000Z");
   assert.equal(line.perKwh, 0.36);
   assert.equal(line.currency, "EUR");
-  assert.ok(line.amount !== null && line.amount >= 0);
-  assert.match(line.note, /Irish standard rate/);
+  assert.deepEqual(tariff(), { perKwh: 0.36, currency: "EUR", source: "typed" });
+  tariffConfig({});
+});
+
+test("a blank electricity currency follows the display currency, then USD", () => {
+  reset();
+  tariffConfig({ kwh_rate: "0.2" });
+  assert.equal(tariff().currency, "USD");
+  tariffConfig({ kwh_rate: "0.2", display_currency: "gbp" });
+  assert.equal(tariff().currency, "GBP");
+  tariffConfig({});
 });
 
 test("a home machine needs no workstation account and is priced always-on", () => {
   reset();
-  saveProfile({ machineId: "home:pi", label: "Home Pi", idleWatts: 5, busyWatts: 8, ratePerKwh: null, currency: "EUR", alwaysOn: true });
-  const line = powerLine(profile("home:pi")!, "2026-08", "2026-09-06T12:00:00.000Z");
+  tariffConfig({ kwh_rate: "0.36", kwh_currency: "EUR" });
+  saveProfile({ machineId: "home:server", label: "Home server", idleWatts: 5, busyWatts: 8, ratePerKwh: null, currency: "EUR", alwaysOn: true });
+  const line = powerLine(profile("home:server")!, "2026-08", "2026-09-06T12:00:00.000Z");
   /* 5 W × 744 h = 3.72 kWh × 0.36 = €1.34 */
   assert.equal(line.kwh, 3.72);
   assert.ok(Math.abs(line.amount! - 1.3392) < 1e-6);
   assert.equal(line.source, "always-on");
+  tariffConfig({});
 });
 
 test("the electricity ledger row carries its confidence and is refreshed, not duplicated", () => {

@@ -215,7 +215,7 @@ async function renderVideo(opts: {
   }
 
   if (format === "stewie") {
-    /* Rendered by Workdash's reel worker on the Dell, through the Pi — see
+    /* Rendered by Workdash's reel worker on the GPU workstation, through the render relay — see
        videoplus/stewie.ts. `url` holds the pages in pages mode, as it does
        for a reel; addresses present means pages, none means images. */
     const urls = (opts.input.url ?? "").trim();

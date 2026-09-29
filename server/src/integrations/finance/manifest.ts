@@ -142,8 +142,8 @@ export const manifest: IntegrationManifest = {
           label: "Electricity price per kWh",
           hint:
             "What your supplier charges for a kilowatt-hour, as a number — 0.32 for 32 cents. Used for any " +
-            "machine power profile that carries no price of its own. With nothing here every electricity line is " +
-            "priced at the Irish standard rate, 0.36 EUR incl. VAT.",
+            "machine power profile that carries no price of its own. With nothing here electricity lines show " +
+            "kWh but no money: there is no built-in default, because tariffs differ too much by country and supplier.",
           ph: "0.32",
           check(value) {
             if (!value.trim()) return null;
@@ -153,8 +153,10 @@ export const manifest: IntegrationManifest = {
         },
         kwh_currency: {
           label: "Electricity currency",
-          hint: "Three letters. Defaults to EUR. It is never converted into anything without a rate above.",
-          ph: "EUR",
+          hint:
+            "Three letters. Blank means the display currency (USD when that is unset). It is never converted " +
+            "into anything without a rate above.",
+          ph: "USD",
           check(value) {
             const v = value.trim();
             if (!v) return null;

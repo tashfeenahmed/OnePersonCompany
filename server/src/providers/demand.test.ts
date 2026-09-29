@@ -2,10 +2,10 @@
  * THE MATCHER — the whole-phrase rule, tested against the false positives it
  * was written for.
  *
- * The three refusals at the top are the exact pairs measured on demand run
- * r-1edbgc and reported by the owner: "trending in my niche" (18 HN threads)
+ * The three refusals at the top are the exact pairs measured on a real demand
+ * run and reported by the owner: "trending in my niche" (18 HN threads)
  * fed by a Python tutorial and a Claude release, "trying to conceive app"
- * (9) fed by an AI-criticism story, "planning permission ireland" (1) fed by
+ * (9) fed by an AI-criticism story, "planning permission london" (1) fed by
  * a paint article. A matcher change that fixed the counts but broke the
  * legitimate rows below would be a matcher that measures less, which is not
  * the ticket.
@@ -21,7 +21,7 @@ test("the three counts the ticket named are refused", () => {
   assert.equal(matchesPhrase("trending in my niche", "Jev in 25 Lines of Python"), false);
   assert.equal(matchesPhrase("trending in my niche", "Claude Opus 5.5"), false);
   assert.equal(matchesPhrase("trying to conceive app", "Feds Target AI Critics"), false);
-  assert.equal(matchesPhrase("planning permission ireland", "A new line of interior paint"), false);
+  assert.equal(matchesPhrase("planning permission london", "A new line of interior paint"), false);
 });
 
 test("a substring that is not a word never matches", () => {
@@ -35,7 +35,7 @@ test("a substring that is not a word never matches", () => {
 
 test("the whole phrase inside a sentence matches", () => {
   assert.equal(
-    matchesPhrase("planning permission ireland", "Ask HN: Who understands planning permission in Ireland?"),
+    matchesPhrase("planning permission london", "Ask HN: Who understands planning permission in London?"),
     true,
   );
 });
@@ -51,7 +51,7 @@ test("phrase words split by a clause still match, in any order", () => {
 });
 
 test("punctuation and case do not break a match", () => {
-  assert.equal(matchesPhrase("AI Group Call", "Introducing “AI Group Call” — beta"), true);
+  assert.equal(matchesPhrase("Acme Group Chat", "Introducing “Acme Group Chat” — beta"), true);
   assert.equal(matchesPhrase("c++", "What happened to C++?"), true);
 });
 

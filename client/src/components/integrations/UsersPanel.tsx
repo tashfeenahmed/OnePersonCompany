@@ -42,7 +42,7 @@ const CONTRACT = `{
       "plan": "pro",
       "paid": true,
       "lastSeenAt": "2026-09-01T14:20:00Z",
-      "country": "IE" }
+      "country": "US" }
   ],
   "total": 4873,
   "generatedAt": "2026-09-05T19:00:00Z"

@@ -12,7 +12,7 @@
  *
  * THE VENTURE A HANDLE BELONGS TO is the owner's link when there is one, and
  * otherwise the venture whose own host the account names in its bio
- * ("More: FreeLLMAPI.co"). The second is the account's own claim about
+ * ("More: ExampleApp.com"). The second is the account's own claim about
  * itself, not a guess from its name, and `ventureVia` says which it was.
  */
 import { Hono } from "hono";

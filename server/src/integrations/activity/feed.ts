@@ -105,7 +105,7 @@ function cutoff(): string {
 }
 
 const money = (n: number, currency: string) =>
-  `${n < 0 ? "-" : ""}${Math.abs(n).toLocaleString("en-IE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency.toUpperCase()}`;
+  `${n < 0 ? "-" : ""}${Math.abs(n).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency.toUpperCase()}`;
 
 /* ------------------------------------------------------------------ signups */
 

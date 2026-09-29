@@ -75,7 +75,7 @@ export function senderName(name: string | null | undefined, address: string | nu
   return "Unknown sender";
 }
 
-/** `LiveTutor <hello@livetutor.io>` → `hello@livetutor.io`. */
+/** `Acme <hello@acme.example>` → `hello@acme.example`. */
 export function bareAddress(value: string | null | undefined): string {
   const v = (value ?? "").trim();
   const m = v.match(/<([^>]+)>/);

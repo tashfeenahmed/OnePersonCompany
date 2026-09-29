@@ -22,20 +22,20 @@ function row(p: Partial<BusinessEventRecord> & Pick<BusinessEventRecord, "id" | 
 }
 
 const SUBS: Record<string, Partial<SubscriptionFacts>> = {
-  sub_known: { product: "FreeLLMAPI Premium", plan: "annual-19-tax-inclusive", bill_interval: "year", interval_count: 1, status: "active", listed_monthly_usd: 1.5833 },
-  sub_trial: { product: "CircleChat Cloud Starter", plan: "CircleChat Cloud Starter", bill_interval: "month", interval_count: 1, status: "canceled", listed_monthly_usd: 29, trial_end: "2026-09-22T23:50:04.000Z", paid_cents: 0 },
-  sub_lt: { product: "LiveTutor: 3 lessons a week", bill_interval: "month", interval_count: 1, status: "canceled", listed_monthly_usd: 180, paid_cents: 18000 },
+  sub_known: { product: "Example App Premium", plan: "annual-19-tax-inclusive", bill_interval: "year", interval_count: 1, status: "active", listed_monthly_usd: 1.5833 },
+  sub_trial: { product: "Cedar Cloud Starter", plan: "Cedar Cloud Starter", bill_interval: "month", interval_count: 1, status: "canceled", listed_monthly_usd: 29, trial_end: "2026-09-22T23:50:04.000Z", paid_cents: 0 },
+  sub_lt: { product: "Acme Tutoring: 3 lessons a week", bill_interval: "month", interval_count: 1, status: "canceled", listed_monthly_usd: 180, paid_cents: 18000 },
 };
 const lu: Lookup = {
   subscription: (id) => (SUBS[id] ? ({ currency: "usd", plan: null, trial_end: null, paid_cents: null, cancel_at: null, ...SUBS[id] } as SubscriptionFacts) : null),
-  productOfPrice: (id) => (id === "price_pro" ? "Sosho Pro" : null),
-  plan: (plan) => (plan === "annual-19-tax-inclusive" ? { product: "FreeLLMAPI Premium", bill_interval: "year", interval_count: 1 } : null),
-  ventureOfProduct: (p) => (p.startsWith("FreeLLMAPI") ? "FreeLLMAPI" : p.startsWith("CircleChat") ? "CircleChat" : p.startsWith("LiveTutor") ? "LiveTutor" : p.startsWith("Sosho") ? "Sosho" : null),
-  ventureName: (id) => ({ "v-3s7ufr": "CircleChat", "v-ccpnln": "FreeLLMAPI" })[id] ?? null,
+  productOfPrice: (id) => (id === "price_pro" ? "Maple Pro" : null),
+  plan: (plan) => (plan === "annual-19-tax-inclusive" ? { product: "Example App Premium", bill_interval: "year", interval_count: 1 } : null),
+  ventureOfProduct: (p) => (p.startsWith("Example App") ? "Example App" : p.startsWith("Cedar") ? "Cedar" : p.startsWith("Acme Tutoring") ? "Acme Tutoring" : p.startsWith("Maple") ? "Maple" : null),
+  ventureName: (id) => ({ "v-cedar": "Cedar", "v-example-app": "Example App" })[id] ?? null,
   failedCharge: () => ({ code: "card_declined", message: "Your card has insufficient funds." }),
 };
 
-/* The three rows Stripe wrote for one real sale on 24 Sep, as they were stored
+/* The three rows Stripe wrote for one sale on 24 Sep, as they were stored
    before migration 255 — no detail, the subscription not yet collected. */
 const T = "2026-09-24T21:38:58.000Z";
 const NOW = new Date("2026-09-24T21:45:00Z");
@@ -51,7 +51,7 @@ test("checkout, first invoice and new subscription for one customer are one sale
   const fail = row({ id: "e6", type: "invoice.payment_failed", at: T });
   const groups = groupSales([...sale, other, fail, later]);
   assert.deepEqual(groups.map((g) => g.map((r) => r.id)), [["e1", "e2", "e3"], ["e4"], ["e6"], ["e5"]]);
-  assert.equal(noticeText(groups[0]!, lu, Z, 1, NOW), "💰 New sale: FreeLLMAPI Premium, $19/yr");
+  assert.equal(noticeText(groups[0]!, lu, Z, 1, NOW), "💰 New sale: Example App Premium, $19/yr");
 });
 
 test("the product comes from the subscription row, a price id, or a plan another subscription carries", () => {
@@ -59,35 +59,35 @@ test("the product comes from the subscription row, a price id, or a plan another
     id: "d1", type: "customer.subscription.created", at: T, object_id: "sub_x", summary: "ignored",
     detail: JSON.stringify({ priceId: "price_pro", interval: "month", unitAmount: 49, status: "active" }), currency: "eur",
   });
-  assert.equal(noticeText([withDetail], lu, Z, 1, NOW), "💰 New sale: Sosho Pro, €49/mo");
+  assert.equal(noticeText([withDetail], lu, Z, 1, NOW), "💰 New sale: Maple Pro, €49/mo");
   const nothing = row({ id: "d2", type: "checkout.session.completed", at: T, amount: 12, summary: "Checkout completed (payment) — USD 12.00." });
   assert.equal(noticeText([nothing], lu, Z, 1, NOW), "💰 New sale: a one-off payment, $12", "no raw id when nothing names it");
   const renewal = row({ id: "d3", type: "invoice.paid", at: T, amount: 19, subscription: "sub_known", detail: JSON.stringify({ billingReason: "subscription_cycle" }) });
-  assert.equal(noticeText([renewal], lu, Z, 1, NOW), "🔁 Renewed: FreeLLMAPI Premium, $19/yr");
+  assert.equal(noticeText([renewal], lu, Z, 1, NOW), "🔁 Renewed: Example App Premium, $19/yr");
 });
 
 test("a failed payment names the product, the bank's reason and the trial it followed", () => {
   const fail = row({
-    id: "f1", type: "invoice.payment_failed", at: "2026-09-23T00:52:21.000Z", venture_id: "v-3s7ufr", amount: 29,
+    id: "f1", type: "invoice.payment_failed", at: "2026-09-23T00:52:21.000Z", venture_id: "v-cedar", amount: 29,
     subscription: "sub_trial", summary: "Invoice payment failed for USD 29.00 on attempt 1.",
   });
   assert.equal(
     noticeText([fail], lu, Z, 1, new Date("2026-09-23T00:55:00Z")),
-    "❌ Payment failed: $29 for CircleChat Cloud Starter (not enough funds on the card)\nIt was the first charge after the free trial.",
+    "❌ Payment failed: $29 for Cedar Cloud Starter (not enough funds on the card)\nIt was the first charge after the free trial.",
   );
   assert.match(noticeText([fail], lu, Z, 3, new Date("2026-09-23T00:55:00Z")), /It failed 3 times in the last hour\./);
 });
 
 test("cancellations, scheduled cancellations and disputes", () => {
   const ended = row({ id: "c1", type: "customer.subscription.deleted", at: T, object_id: "sub_lt", summary: "Subscription ended, reason recorded by Stripe as “cancellation_requested”." });
-  assert.equal(noticeText([ended], lu, Z, 1, NOW), "📉 Cancelled: LiveTutor: 3 lessons a week ($180/mo)\nThey cancelled it themselves.");
+  assert.equal(noticeText([ended], lu, Z, 1, NOW), "📉 Cancelled: Acme Tutoring: 3 lessons a week ($180/mo)\nThey cancelled it themselves.");
   const trial = row({ id: "c2", type: "customer.subscription.deleted", at: T, object_id: "sub_trial", summary: "Subscription ended, reason recorded by Stripe as “cancellation_requested”." });
-  assert.equal(noticeText([trial], lu, Z, 1, NOW), "📉 Trial ended without paying: CircleChat Cloud Starter ($29/mo)");
+  assert.equal(noticeText([trial], lu, Z, 1, NOW), "📉 Trial ended without paying: Cedar Cloud Starter ($29/mo)");
   const leaving = row({
     id: "c3", type: "customer.subscription.updated", at: T, object_id: "sub_known",
     detail: JSON.stringify({ mode: "cancel-scheduled", cancelAt: "2027-08-27T12:12:39.000Z" }),
   });
-  assert.equal(noticeText([leaving], lu, Z, 1, NOW), "👋 Cancelling: FreeLLMAPI Premium ($19/yr)\nThey turned off renewal, so it ends on Fri 27 Aug 2027.");
+  assert.equal(noticeText([leaving], lu, Z, 1, NOW), "👋 Cancelling: Example App Premium ($19/yr)\nThey turned off renewal, so it ends on Fri 27 Aug 2027.");
   const dispute = row({
     id: "c4", type: "charge.dispute.created", at: T, amount: 19.53, customer: null,
     summary: "Dispute opened for USD 19.53, reason “product_not_received”. Evidence due 2026-10-04 23:59 UTC.",
@@ -96,7 +96,7 @@ test("cancellations, scheduled cancellations and disputes", () => {
 });
 
 test("a notice told late says when it happened, in the owner's zone", () => {
-  assert.equal(noticeText(sale, lu, Z, 1, new Date("2026-09-25T07:00:00Z")), "💰 New sale: FreeLLMAPI Premium, $19/yr\nThat was yesterday at 10:38pm.");
+  assert.equal(noticeText(sale, lu, Z, 1, new Date("2026-09-25T07:00:00Z")), "💰 New sale: Example App Premium, $19/yr\nThat was yesterday at 10:38pm.");
 });
 
 test("several notices at once are one digest with a headline", () => {
@@ -112,10 +112,10 @@ test("several notices at once are one digest with a headline", () => {
   assert.equal(
     text,
     "⚠️ 2 new sales, 1 failed payment and 1 cancellation\n" +
-      "• 💰 New sale: FreeLLMAPI Premium, $19/yr\n" +
-      "• 📉 Cancelled: LiveTutor: 3 lessons a week ($180/mo)\n" +
-      "• 💰 New sale: FreeLLMAPI Premium, $19/yr\n" +
-      "• ❌ Payment failed: $29 for CircleChat Cloud Starter (not enough funds on the card)",
+      "• 💰 New sale: Example App Premium, $19/yr\n" +
+      "• 📉 Cancelled: Acme Tutoring: 3 lessons a week ($180/mo)\n" +
+      "• 💰 New sale: Example App Premium, $19/yr\n" +
+      "• ❌ Payment failed: $29 for Cedar Cloud Starter (not enough funds on the card)",
   );
 });
 

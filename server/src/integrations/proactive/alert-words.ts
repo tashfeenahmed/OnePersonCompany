@@ -4,7 +4,7 @@
  * The engine's sentence is written for the Alerts page, beside the rule that
  * produced it: "totals.fullestDisk.percent is 86.6 — the rule trips when it is
  * > 85, and it is." Exact, and useless on a lock screen: which box? which
- * sites? A person says "💾 Disk is 87% full on Demo box".
+ * sites? A person says "💾 Disk is 87% full on Web box".
  *
  * THE SPECIFICS COME FROM THE SNAPSHOT, NOT FROM A GUESS. The engine keeps the
  * document each rule read (`alert_snapshots`), taken in the same cycle as the

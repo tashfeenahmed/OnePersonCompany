@@ -133,7 +133,7 @@ export type CompleteOptions = {
    * switched off on the routers that take the knob, exactly as `jsonObject`
    * does: the competitor landscape on a local 27B reasoning model spent its
    * whole allowance in the scratchpad, emitted no content, and the wire's
-   * fallback returned the scratchpad as the report (run r-c9zwqm — "The user
+   * fallback returned the scratchpad as the report ("The user
    * wants only the completed HTML document. Let me draft…"). And the output
    * allowance is the ceiling rather than the workspace default, because a
    * designed page with its own stylesheet and tables is several thousand
@@ -146,7 +146,7 @@ export type CompleteOptions = {
    *
    * A structured writer is not a chat turn. Asked for a scene list, a reasoning
    * model can spend the workspace's whole `maxOutputTokens` thinking and emit no
-   * JSON at all — which is what happened on run r-c4k493, and what 179 of 486
+   * JSON at all — which is what happened on a real run, and what hundreds of
    * stored checkpoints stopping at exactly 4096 completion tokens look like.
    *
    * ONLY UPWARDS, AND ONLY SO FAR. `runtime/budgets.ts` raises a smaller request
@@ -520,9 +520,9 @@ async function completeUnmetered(turns: VisionTurn[], opts: CompleteOptions, max
       raw provider write. It is streamed because Node's fetch gives up on a
       response whose HEADERS take more than five minutes to arrive (undici's
       headersTimeout), and a whole page from a 27B model on a P40 is longer
-      than that: the competitor landscape r-l0e44a died four and a half
+      than that: one competitor landscape run died four and a half
       minutes into its write with `Could not reach … (TypeError)` while the
-      Dell was still generating, whatever the deadline above said. A stream
+      GPU machine was still generating, whatever the deadline above said. A stream
       answers its headers at once and then takes as long as it takes, bounded
       by the idle and hard timers the stream reader already has. An endpoint
       that will not stream says so with a 406 (or refuses `stream_options`

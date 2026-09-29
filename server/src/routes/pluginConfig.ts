@@ -65,7 +65,7 @@ function termsKey(source: string): Key {
       "changes it there, because a phrase is the same phrase whichever site it " +
       "was said on. Reddit's anonymous feed allows one query a minute, so a " +
       "long list is asked across several collections rather than all at once.",
-    ph: "free llm api, video to reel, planning permission ireland",
+    ph: "invoice software, video editor, meal planner app",
     check(value) {
       const terms = parseTerms(value);
       const long = terms.filter((t) => t.length > 80);
@@ -193,7 +193,7 @@ const BUILTIN: Record<
           "them — that is the whole point of them, and it is the one question " +
           "Search Console cannot answer. Volumes come back as BING impressions " +
           "for one market, not Google's and not a world total.",
-        ph: "team chat, ai video generator, planning permission ireland",
+        ph: "team chat, ai video generator, meal planner app",
         check(value) {
           const phrases = parseKeywords(value);
           /*

@@ -57,7 +57,7 @@ import {
 } from "./money.ts";
 import { crossRate, priceListMeta, referenceRates, refreshReferenceRates, refreshTldPrices } from "./prices.ts";
 import { findVenture, portfolioPnl, venturePnl } from "./profit.ts";
-import { deleteProfile, isHomeMachine, machinesAvailable, powerLines, profiles, saveProfile, tariff } from "./power.ts";
+import { deleteProfile, isHomeMachine, machinesAvailable, powerLines, profiles, saveProfile, tariff, tariffCurrency } from "./power.ts";
 import { seedPower } from "./power.ts";
 
 export const financeRoutes = new Hono();
@@ -540,7 +540,7 @@ financeRoutes.put("/power/:machineId", async (c) => {
   if (!Number.isFinite(busy) || busy < idle || busy > 10_000) return bad(c, "Busy watts is at least the idle figure and under 10,000 — what it draws with the GPU working.");
   const rate = body.ratePerKwh === null || body.ratePerKwh === undefined || body.ratePerKwh === "" ? null : Number(body.ratePerKwh);
   if (rate !== null && (!Number.isFinite(rate) || rate <= 0)) return bad(c, "A price per kWh is a positive number, or null to use the tariff on the integration's page.");
-  const currency = String(body.currency ?? "EUR").trim();
+  const currency = String(body.currency || tariffCurrency()).trim();
   if (!/^[A-Za-z]{3}$/.test(currency)) return bad(c, "A three-letter currency code, please.");
   const saved = saveProfile({
     machineId,

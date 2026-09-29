@@ -152,13 +152,13 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       --
       -- A worker's name is "<Venture> <Suffix>" at provisioning, and the org
       -- chart takes the venture's name off the front WHEN IT MATCHES so a card
-      -- headed "ScallopBot" does not say ScallopBot eight more times. Both
+      -- headed "HelpDock" does not say HelpDock eight more times. Both
       -- statements below touch only rows still carrying a DEFAULT name; a name
       -- the owner changed is theirs and is not matched.
       --
-      -- 1. THE VENTURE WAS RENAMED AFTER ITS TEAM WAS MADE. ScallopBot's rows
-      --    were provisioned as "Scallopbot Researcher" and the venture is now
-      --    spelled "ScallopBot", so the strip missed and that one card drew
+      -- 1. THE VENTURE WAS RENAMED AFTER ITS TEAM WAS MADE. One venture's rows
+      --    were provisioned as "Helpdock Researcher" and the venture is now
+      --    spelled "HelpDock", so the strip missed and that one card drew
       --    the venture's name on every row while the other twenty-three did
       --    not. The prefix is re-cased to the venture's current spelling
       --    wherever it matches ignoring case. (The client strips

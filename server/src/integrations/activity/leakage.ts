@@ -8,7 +8,7 @@
  *
  * NOTHING HERE IS STORED. Every figure below is computed from the Stripe
  * tables at the moment somebody asks, for the reason the uptime route computes
- * its availability on read: a stored "money on the floor: $9,271" is wrong ten
+ * its availability on read: a stored "money on the floor: $9,000" is wrong ten
  * minutes later and badly wrong after a week of failed collections — which is
  * the week somebody looks at it.
  *

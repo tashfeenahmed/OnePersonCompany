@@ -70,7 +70,7 @@ const now = () => Math.floor(Date.now() / 1000)
  */
 const JOBS = [
   { id: "nightly", name: "Nightly analysis", cadence: "nightly 03:00 window" },
-  { id: "enrich", name: "AI enrichment", cadence: "hourly when the Dell is awake + nightly" },
+  { id: "enrich", name: "AI enrichment", cadence: "hourly when the GPU machine is awake + nightly" },
   { id: "seo", name: "SEO analysis", cadence: "on demand + nightly" },
   { id: "competitors", name: "Competitor analysis", cadence: "on demand + nightly" },
   { id: "gardening", name: "Gardening rounds", cadence: "on demand + nightly" },
@@ -81,7 +81,7 @@ const JOBS = [
   { id: "projectgarden", name: "Project rounds", cadence: "on demand" },
   { id: "research", name: "Deep research", cadence: "on demand + nightly" },
   /* The academic room — read the year's literature, write a paper. The daily
-     literature sweep is pure Pi and unrecorded here on purpose (it is HTTP,
+     literature sweep is pure relay-host work and unrecorded here on purpose (it is HTTP,
      not GPU); what this row counts is the WRITING, which is four completions
      and the most expensive thing in the room. */
   { id: "academic", name: "Academic papers", cadence: "on demand + nightly rotation" },
@@ -103,7 +103,7 @@ const JOBS = [
   { id: "digest", name: "Morning digest", cadence: "daily 07:00" },
   /*
     Faceless videos — owner-triggered, full stop. Nothing schedules it and
-    nothing should: one press is a Dell wake and half an hour of that box's
+    nothing should: one press is a GPU machine wake and half an hour of that box's
     GPU, which is a decision a person makes and not a cadence. The row exists
     because faceless.js already calls jobStart/jobLog/jobEnd, and the verbs are
     silent no-ops for an id this registry does not carry — without it the
@@ -113,14 +113,14 @@ const JOBS = [
   { id: "faceless", name: "Faceless videos", cadence: "on demand" },
   /*
     Motion graphics — owner-triggered like the other video rows, but the only
-    one that renders on this Pi: one completion for the spec, then Remotion in
+    one that renders on this relay host: one completion for the spec, then Remotion in
     the system Chromium. No wake and no GPU, so the row is here purely so the
     ledger hears about the minutes of CPU each press spends.
   */
   { id: "motion", name: "Motion graphics", cadence: "on demand" },
   /*
     The video autopilot — one press walks every project through all three
-    generators and sends each video to Telegram. Hours of the Dell per run,
+    generators and sends each video to Telegram. Hours of the GPU machine per run,
     started by a person, never by a clock; the row exists for the same reason
     faceless's does.
   */
@@ -131,7 +131,7 @@ const JOBS = [
   { id: "shorts", name: "YouTube shorts", cadence: "on demand" },
   /*
     Reading a homepage's own colours, fonts and tone. On the studio tick
-    rather than in the nightly, because it is headless Chromium on the Pi and
+    rather than in the nightly, because it is headless Chromium on the relay host and
     needs no GPU — see branddna.js. One project per hour at most, and the
     cadence below is what a project is re-read on, not how often the sweep
     looks.
@@ -192,7 +192,7 @@ function load() {
 
 /**
  * Atomic, and 0600 — actions.js's and nightly.json's write, verbatim: temp
- * then rename so a Pi that loses power mid-write comes back holding the old
+ * then rename so a host that loses power mid-write comes back holding the old
  * document whole, and the explicit chmod because writeFileSync's mode only
  * applies when it CREATES the file and the temp may have survived a kill.
  * 0600 rather than the analysis files' 0644 because run histories quote

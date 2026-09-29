@@ -10,47 +10,47 @@ const key = (name: string, usd: number) => ({
 });
 
 test("an OpenRouter key names a venture by name, slug or host and by nothing looser", () => {
-  const v = { name: "Viral Video Maker", slug: "viral-video-maker", host: "viralvideomaker.co", website: "https://viralvideomaker.co" };
-  assert.equal(keyNamesVenture("ViralVideoMaker", v), true);
-  assert.equal(keyNamesVenture("viral video maker", v), true);
-  assert.equal(keyNamesVenture("viralvideomaker.co", v), true);
-  assert.equal(keyNamesVenture("VVM", v), false);
-  assert.equal(keyNamesVenture("Viral", v), false);
+  const v = { name: "Reel Maker Pro", slug: "reel-maker-pro", host: "reelmakerpro.example", website: "https://reelmakerpro.example" };
+  assert.equal(keyNamesVenture("ReelMakerPro", v), true);
+  assert.equal(keyNamesVenture("reel maker pro", v), true);
+  assert.equal(keyNamesVenture("reelmakerpro.example", v), true);
+  assert.equal(keyNamesVenture("RMP", v), false);
+  assert.equal(keyNamesVenture("Reel", v), false);
   assert.equal(keyNamesVenture("", v), false);
-  const ue = { name: "User Evaluation", slug: "user-evaluation", host: null, website: "https://www.userevaluation.com" };
-  assert.equal(keyNamesVenture("UserEvaluation.com", ue), true);
-  assert.equal(keyNamesVenture("GetPreg", { name: "GetPregnant", slug: "getpregnant", host: null, website: null }), false);
+  const ue = { name: "Survey Kit", slug: "survey-kit", host: null, website: "https://www.surveykit.example" };
+  assert.equal(keyNamesVenture("SurveyKit.example", ue), true);
+  assert.equal(keyNamesVenture("FitTrack", { name: "FitTracker", slug: "fittracker", host: null, website: null }), false);
 });
 
 test("the ventures section lists every venture, the pseudo-ventures and the legacy null rows, and joins keys by name only", () => {
   db.exec("DELETE FROM budget_usage; DELETE FROM ventures; DELETE FROM agent_runs; DELETE FROM chat_messages");
   const at0 = "2026-09-01T00:00:00.000Z";
   const ins = db.prepare("INSERT INTO ventures (id, slug, name, website, host, stage, color, color_source, created_at, updated_at, position) VALUES (?,?,?,?,?,?,'#000','owner',?,?,?)");
-  ins.run("v-bet", "betaware-ai", "Betaware AI", "https://betaware.ai", "betaware.ai", "launched", at0, at0, 1);
-  ins.run("v-vvm", "viral-video-maker", "Viral Video Maker", "https://viralvideomaker.co", "viralvideomaker.co", "launched", at0, at0, 2);
-  ins.run("v-mva", "my-voice-agents", "My Voice Agents", null, null, "pre-launch", at0, at0, 3);
+  ins.run("v-acme", "acme-ai", "Acme AI", "https://acme.example", "acme.example", "launched", at0, at0, 1);
+  ins.run("v-reel", "reel-maker-pro", "Reel Maker Pro", "https://reelmakerpro.example", "reelmakerpro.example", "launched", at0, at0, 2);
+  ins.run("v-cedar", "cedar-studio", "Cedar Studio", null, null, "pre-launch", at0, at0, 3);
   const use = db.prepare("INSERT INTO budget_usage (run_id, venture_id, automation, at, tokens, usd, status) VALUES (?,?,?,?,?,?,?)");
   const at = new Date().toISOString();
-  use.run("r-1", "v-bet", 0, at, 600, 0, "reported");
-  use.run("r-2", "v-vvm", 0, at, 200, 0, "estimated");
+  use.run("r-1", "v-acme", 0, at, 600, 0, "reported");
+  use.run("r-2", "v-reel", 0, at, 200, 0, "estimated");
   use.run("direct:old", null, 1, at, 100, 0, "reported");
   use.run("chat:x", CHIEF_VENTURE, 0, at, 50, 0, "reported");
   use.run("pipeline:p:wf-triage", PORTFOLIO_VENTURE, 1, at, 50, 0, "unmetered-agent");
   use.run("r-3", "v-gone", 0, at, 0, 0, "reported");
-  use.run("r-old", "v-bet", 0, "2020-01-01T00:00:00.000Z", 9999, 0, "reported");
+  use.run("r-old", "v-acme", 0, "2020-01-01T00:00:00.000Z", 9999, 0, "reported");
 
   const from = new Date(Date.now() - 86_400_000).toISOString();
-  const s = venturesSection(from, [key("ViralVideoMaker", 8), key("FLA", 30)], [{ id: "p", name: "Default project", usd: 94.06 }]);
+  const s = venturesSection(from, [key("ReelMakerPro", 8), key("FLA", 30)], [{ id: "p", name: "Default project", usd: 94.06 }]);
 
   assert.equal(s.metered.tokens, 1000);
   assert.equal(s.metered.calls, 6);
   const by = new Map(s.list.map((r) => [r.name, r]));
-  assert.equal(by.get("Betaware AI")?.metered.tokens, 600);
-  assert.equal(by.get("Betaware AI")?.metered.share, 0.6);
-  assert.equal(by.get("Betaware AI")?.openrouterKeys, null);
-  assert.equal(by.get("My Voice Agents")?.metered.tokens, 0);
-  assert.equal(by.get("Viral Video Maker")?.openrouterKeys?.usd, 8);
-  assert.deepEqual(by.get("Viral Video Maker")?.openrouterKeys?.names, ["ViralVideoMaker"]);
+  assert.equal(by.get("Acme AI")?.metered.tokens, 600);
+  assert.equal(by.get("Acme AI")?.metered.share, 0.6);
+  assert.equal(by.get("Acme AI")?.openrouterKeys, null);
+  assert.equal(by.get("Cedar Studio")?.metered.tokens, 0);
+  assert.equal(by.get("Reel Maker Pro")?.openrouterKeys?.usd, 8);
+  assert.deepEqual(by.get("Reel Maker Pro")?.openrouterKeys?.names, ["ReelMakerPro"]);
   assert.equal(by.get("Chief of staff")?.kind, "pseudo");
   assert.equal(by.get("Chief of staff")?.metered.tokens, 50);
   assert.equal(by.get("Portfolio")?.metered.agentCalls, 1);

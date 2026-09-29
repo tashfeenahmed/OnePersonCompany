@@ -35,8 +35,8 @@
  *   that costs nothing is the one that keeps working when the other changes.
  *
  *   THE QUERY ROWS DO NOT ADD UP TO THE PROPERTY. Google withholds queries
- *   too rare to be anonymised and caps the rows it returns. Probed across all
- *   nineteen properties on this account on 2026-09-04, the ranked query rows
+ *   too rare to be anonymised and caps the rows it returns. Probed across every
+ *   property on a real account, the ranked query rows
  *   carried between 0% and 77% of their property's impressions — as low as 2% on
  *   a property whose long tail dwarfs two hundred rows. So the property's own total is asked for SEPARATELY, as a
  *   dimensionless query, and the two figures are never mixed: the ranked rows

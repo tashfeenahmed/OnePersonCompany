@@ -41,48 +41,48 @@ import {
 
 const INSTALLS_COUNTRY = [
   "Date,Package name,Country,Daily Device Installs,Daily Device Uninstalls,Daily Device Upgrades,Total User Installs,Daily User Installs,Daily User Uninstalls,Active Device Installs,Install events,Update events,Uninstall events",
-  "2026-08-05,co.freellmapi.app,PK,0,0,0,0,0,0,14,0,0,0",
-  "2026-08-06,co.freellmapi.app,PK,3,0,0,0,2,1,13,1,0,1",
-  "2026-08-06,co.freellmapi.app,US,2,1,0,0,2,0,5,2,0,1",
+  "2026-08-05,com.example.app,PK,0,0,0,0,0,0,14,0,0,0",
+  "2026-08-06,com.example.app,PK,3,0,0,0,2,1,13,1,0,1",
+  "2026-08-06,com.example.app,US,2,1,0,0,2,0,5,2,0,1",
   // A row whose install cell is blank: that column was not reported for this
   // slice on this day, which is not a measured zero.
-  "2026-08-07,co.freellmapi.app,IN,,,,,,,7,,,",
+  "2026-08-07,com.example.app,IN,,,,,,,7,,,",
   // A country Play could not resolve. The installs happened.
-  "2026-08-07,co.freellmapi.app,,4,0,0,0,4,0,2,4,0,0",
+  "2026-08-07,com.example.app,,4,0,0,0,4,0,2,4,0,0",
 ].join("\n");
 
 const CRASHES_APP_VERSION = [
   "Date,Package Name,App Version Code,Daily Crashes,Daily ANRs",
-  "2026-08-08,co.freellmapi.app,7,1,0",
-  "2026-08-14,co.freellmapi.app,9,0,1",
+  "2026-08-08,com.example.app,7,1,0",
+  "2026-08-14,com.example.app,9,0,1",
 ].join("\n");
 
 const STORE_PERFORMANCE_COUNTRY = [
   "Date,Package name,Country / region,Store listing acquisitions,Store listing visitors,Store listing conversion rate",
-  "2026-08-07,co.freellmapi.app,Other,0,1,0.0",
-  "2026-08-14,co.freellmapi.app,Other,26,45,0.5777244444444445",
-  "2026-08-14,co.freellmapi.app,PK,4,10,0.4",
+  "2026-08-07,com.example.app,Other,0,1,0.0",
+  "2026-08-14,com.example.app,Other,26,45,0.5777244444444445",
+  "2026-08-14,com.example.app,PK,4,10,0.4",
 ].join("\n");
 
 const STORE_PERFORMANCE_TRAFFIC = [
   "Date,Package name,Traffic source,Search term,UTM source,UTM campaign,Store listing acquisitions,Store listing visitors,Store listing conversion rate",
-  "2026-08-14,co.freellmapi.app,Other,Other,Other,Other,26,45,0.577",
-  "2026-08-14,co.freellmapi.app,Other,freellm,Other,Other,4,5,0.8",
-  "2026-08-14,co.freellmapi.app,Play Store search,api,Other,Other,10,20,0.5",
+  "2026-08-14,com.example.app,Other,Other,Other,Other,26,45,0.577",
+  "2026-08-14,com.example.app,Other,invoice,Other,Other,4,5,0.8",
+  "2026-08-14,com.example.app,Play Store search,api,Other,Other,10,20,0.5",
 ].join("\n");
 
 const RATINGS_OVERVIEW = [
   "Date,Package name,Daily Average Rating,Total Average Rating",
-  "2026-08-05,co.freellmapi.app,0.0,4.5",
-  "2026-08-06,co.freellmapi.app,5.0,4.6",
+  "2026-08-05,com.example.app,0.0,4.5",
+  "2026-08-06,com.example.app,5.0,4.6",
 ].join("\n");
 
 /** No account this was built against carries this export, so the fixture is
  *  written from Google's documented column families — both word orders. */
 const RETAINED = [
   "Date,Package name,Installers,Retained Installers (1 day),Day 7 retained users,Retained Installers (30 days)",
-  "2026-08-05,co.freellmapi.app,100,60,25,10",
-  "2026-08-06,co.freellmapi.app,50,30,12,5",
+  "2026-08-05,com.example.app,100,60,25,10",
+  "2026-08-06,com.example.app,50,30,12,5",
 ].join("\n");
 
 /** Downloaded from Apple's segment URL for App Downloads Standard, 2026-08-25. */
@@ -98,10 +98,10 @@ const APPLE_DOWNLOADS = [
 
 test("indexStatsReports captures the slice, not just the overview", () => {
   const found = indexStatsReports([
-    { name: "stats/installs/installs_co.freellmapi.app_202608_country.csv" },
-    { name: "stats/installs/installs_co.freellmapi.app_202608_overview.csv" },
-    { name: "stats/store_performance/store_performance_co.freellmapi.app_202608_traffic_source.csv" },
-    { name: "stats/crashes/crashes_co.freellmapi.app_202609_app_version.csv" },
+    { name: "stats/installs/installs_com.example.app_202608_country.csv" },
+    { name: "stats/installs/installs_com.example.app_202608_overview.csv" },
+    { name: "stats/store_performance/store_performance_com.example.app_202608_traffic_source.csv" },
+    { name: "stats/crashes/crashes_com.example.app_202609_app_version.csv" },
     { name: "earnings/earnings_202608.zip" },
     { name: "sales/salesreport_202608.zip" },
   ]);
@@ -110,7 +110,7 @@ test("indexStatsReports captures the slice, not just the overview", () => {
     found.map((f) => `${f.kind}/${f.slice}`),
     ["installs/country", "installs/overview", "store_performance/traffic_source", "crashes/app_version"],
   );
-  assert.equal(found[0]!.package, "co.freellmapi.app");
+  assert.equal(found[0]!.package, "com.example.app");
   assert.equal(found[0]!.month, "202608");
 });
 
@@ -173,7 +173,7 @@ test("parseDimension honours the since bound and the overview shape", () => {
 test("parseDimension falls back to the first non-metric column when the slice is renamed", () => {
   const renamed = [
     "Date,Package name,Handset Marketing Name,Daily Device Installs",
-    "2026-08-05,co.freellmapi.app,Pixel 9,4",
+    "2026-08-05,com.example.app,Pixel 9,4",
   ].join("\n");
   const rows = parseDimension(renamed, { dimension: "device", metrics: INSTALL_METRICS });
   assert.deepEqual(rows, [
@@ -336,7 +336,7 @@ test("both Apple state vocabularies reduce to one phase", () => {
 });
 
 test("a Play review keeps its reply and never invents a star", () => {
-  const r = playReview("co.freellmapi.app", {
+  const r = playReview("com.example.app", {
     reviewId: "abc-123",
     authorName: "Someone",
     comments: [
@@ -434,8 +434,8 @@ test("a daily average rating of 0.0 is nobody rating, not zero stars", () => {
 test("a rating column sliced by country drops its zeroes too", () => {
   const byCountry = [
     "Date,Package name,Country,Daily Average Rating,Total Average Rating",
-    "2026-08-05,co.freellmapi.app,PK,0.0,4.5",
-    "2026-08-05,co.freellmapi.app,US,4.0,4.5",
+    "2026-08-05,com.example.app,PK,0.0,4.5",
+    "2026-08-05,com.example.app,US,4.0,4.5",
   ].join("\n");
   const rows = parseDimension(byCountry, { dimension: "country", metrics: RATING_METRICS });
   assert.deepEqual(

@@ -1013,7 +1013,7 @@ function configureHermes(s: Spec, pl: Plan) {
     /* THE MOST ONE REPLY MAY RUN TO. Unset, Hermes lets the model write to its
        native ceiling, and a reasoning model that loses the thread thinks until
        the run's clock stops it: one SERP write-up took a whole fifteen-minute
-       job in a single call and returned nothing (run r-9xeyvi). This is the
+       job in a single call and returned nothing. This is the
        ceiling the app's own writers are held to — runtime/budgets.ts. */
     `  max_tokens: ${OUTPUT_TOKENS_CEILING}`,
     "",

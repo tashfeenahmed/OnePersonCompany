@@ -433,7 +433,7 @@ export function dispatch(row: SubagentRow, body: DispatchBody) {
      prefills every input with its `default`, so a run started there always
      carries `channels: "page"`; a dispatch carries only what the dispatcher
      thought to send, and a campaign asked for in chat died in nine
-     milliseconds with "A campaign needs at least one channel" (r-optkfj). The
+     milliseconds with "A campaign needs at least one channel". The
      kind already says what an unset field means, so that is what is sent — and
      a required field with no default is refused HERE, with its hint, where the
      dispatcher can still correct it, rather than as a failed run nobody reads. */
@@ -490,7 +490,7 @@ export function dispatch(row: SubagentRow, body: DispatchBody) {
      runs/kinds.ts. The goals and the standing orders are prose for a model to
      read; in a field that is asked, searched or matched as typed they are not
      context, they are the query. Those workers lose the preface rather than
-     have it corrupt the run (r-4ddfp6 asked a model the brief as a question). */
+     have it corrupt the run (one run asked a model the brief as a question). */
   input[field.key] = field.literal ? brief : preface.length ? `${preface.join("\n\n")}\n\n${asked}` : brief ? brief : "";
   if (!input[field.key]) delete input[field.key];
 

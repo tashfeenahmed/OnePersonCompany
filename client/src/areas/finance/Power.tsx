@@ -24,6 +24,7 @@ export function Power() {
   const [draft, setDraft] = useState<Record<string, { idle: string; busy: string; rate: string; currency: string; alwaysOn: boolean }>>({});
   const [error, setError] = useState<string | null>(null);
   const [rate, setRate] = useState<string | null>(null);
+  const [rateCurrency, setRateCurrency] = useState<string | null>(null);
   const [home, setHome] = useState({ label: "", idle: "", busy: "" });
 
   if (doc.error) return <p className="text-muted-foreground text-[14px]">The API is not answering: {doc.error}</p>;
@@ -39,20 +40,32 @@ export function Power() {
       {/* THE TARIFF, editable here: it is the one number every line is multiplied by. */}
       <div className="bg-card mb-4 flex flex-wrap items-end gap-2 rounded-[14px] px-4.5 py-3.5">
         <label className="text-[12px]">
-          <div className="text-muted-foreground mb-1">Price per kWh (EUR)</div>
+          <div className="text-muted-foreground mb-1">Price per kWh</div>
           <Input
             value={rate ?? (d.tariff.source === "typed" && d.tariff.perKwh !== null ? String(d.tariff.perKwh) : "")}
-            placeholder={d.tariff.source === "irish-average" ? `${d.tariff.perKwh} — Irish standard rate` : "0.36"}
+            placeholder="your supplier's unit rate, e.g. 0.30"
             onChange={(e) => setRate(e.target.value)}
             className="h-8 w-56 text-[13.5px]"
+          />
+        </label>
+        <label className="text-[12px]">
+          <div className="text-muted-foreground mb-1">Currency</div>
+          <Input
+            value={rateCurrency ?? d.tariff.currency}
+            onChange={(e) => setRateCurrency(e.target.value)}
+            className="h-8 w-20 text-[13.5px]"
           />
         </label>
         <button
           onClick={async () => {
             setError(null);
             try {
-              await api.savePluginConfig("finance", { kwh_rate: (rate ?? "").trim(), kwh_currency: "EUR" });
+              await api.savePluginConfig("finance", {
+                kwh_rate: (rate ?? (d.tariff.source === "typed" && d.tariff.perKwh !== null ? String(d.tariff.perKwh) : "")).trim(),
+                kwh_currency: (rateCurrency ?? d.tariff.currency).trim().toUpperCase(),
+              });
               setRate(null);
+              setRateCurrency(null);
               await finance.refresh().catch(() => null);
               doc.reload();
             } catch (err) {
@@ -64,9 +77,9 @@ export function Power() {
           Save rate
         </button>
         <span className="text-muted-foreground mb-1.5 text-[12.5px]">
-          {d.tariff.source === "irish-average"
-            ? "Using the Irish standard unit rate (incl. VAT). Type your supplier's rate to replace it; empty goes back to the Irish rate."
-            : `Your rate: ${d.tariff.perKwh} ${d.tariff.currency}/kWh. Empty it to use the Irish standard rate.`}
+          {d.tariff.source === "typed" && d.tariff.perKwh !== null
+            ? `Your rate: ${d.tariff.perKwh} ${d.tariff.currency}/kWh. Empty it to stop pricing electricity.`
+            : "No price set yet: lines show kWh but no money. Type the unit rate from your electricity bill."}
         </span>
       </div>
 
@@ -169,12 +182,12 @@ export function Power() {
       </div>
 
       {/* A HOME MACHINE: anything plugged in at home that nothing samples — the
-          Pi, the inference box, a mini PC. Priced always-on at its idle watts. */}
+          single-board computer, the inference box, a mini PC. Priced always-on at its idle watts. */}
       <div className="bg-card mt-3 flex flex-wrap items-end gap-2 rounded-[14px] px-4.5 py-3.5">
         <div className="w-full text-[13.5px] font-medium">Add a home machine</div>
         <label className="text-[12px]">
           <div className="text-muted-foreground mb-1">Name</div>
-          <Input value={home.label} placeholder="Home Pi" onChange={(e) => setHome({ ...home, label: e.target.value })} className="h-8 w-44 text-[13.5px]" />
+          <Input value={home.label} placeholder="Home server" onChange={(e) => setHome({ ...home, label: e.target.value })} className="h-8 w-44 text-[13.5px]" />
         </label>
         <label className="text-[12px]">
           <div className="text-muted-foreground mb-1">Idle watts</div>
@@ -195,7 +208,7 @@ export function Power() {
                 idleWatts: Number(home.idle),
                 busyWatts: Number(home.busy.trim() || home.idle),
                 ratePerKwh: null,
-                currency: "EUR",
+                currency: d.tariff.currency,
                 alwaysOn: true,
               });
               setHome({ label: "", idle: "", busy: "" });

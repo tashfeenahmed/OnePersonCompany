@@ -67,7 +67,7 @@ export function delegationLines(sessionId: string, managed: boolean, cliPath?: s
     ...roleInfos().map(r => `- role \`${r.role}\` — ${r.title}; ${r.portfolio ? "no venture" : "requires a venture"}. ${r.what}` +
       (r.brief ? ` BRIEF = ${r.brief.label}${r.brief.required ? " (required)" : " (optional)"}: ${r.brief.hint}` : "") +
       /* ONLY THE CLOSED LISTS. Naming every input here invited a model to fill
-         them: run r-l0w3rc got a whole invented scene list in `spec`, which is
+         them: one run got a whole invented scene list in `spec`, which is
          the id of a SAVED spec. A choice with listed values cannot be
          misread; a free-text field with no explanation can, so those stay in
          the roster (with their hints) for a dispatcher that has a reason. */

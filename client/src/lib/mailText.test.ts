@@ -38,18 +38,18 @@ test("mailTime says it the way people do", () => {
 });
 
 test("sender names and addresses", () => {
-  assert.equal(senderName("LiveTutor", "hello@livetutor.io"), "LiveTutor");
-  assert.equal(senderName("", "hello@livetutor.io"), "hello@livetutor.io");
+  assert.equal(senderName("Cedar Studio", "hello@cedarstudio.example"), "Cedar Studio");
+  assert.equal(senderName("", "hello@cedarstudio.example"), "hello@cedarstudio.example");
   assert.equal(senderName(null, null), "Unknown sender");
-  assert.equal(bareAddress("LiveTutor <hello@livetutor.io>"), "hello@livetutor.io");
-  assert.equal(addressDomain("LiveTutor <hello@LiveTutor.io>"), "livetutor.io");
+  assert.equal(bareAddress("Cedar Studio <hello@cedarstudio.example>"), "hello@cedarstudio.example");
+  assert.equal(addressDomain("Cedar Studio <hello@CedarStudio.example>"), "cedarstudio.example");
   assert.equal(addressDomain(""), "");
 });
 
 test("initials", () => {
-  assert.equal(initials("Paula Cavero"), "PC");
-  assert.equal(initials("LiveTutor"), "L");
-  assert.equal(initials("jalil.rizvi@sinnott.ie"), "JR");
+  assert.equal(initials("Alex Rivera"), "AR");
+  assert.equal(initials("Cedar Studio"), "CS");
+  assert.equal(initials("jane.doe@example.com"), "JD");
   assert.equal(initials(""), "?");
 });
 

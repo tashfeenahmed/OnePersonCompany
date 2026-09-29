@@ -208,7 +208,7 @@ export const EXAMPLE_SOURCES: BoxSource[] = [
     id: "example-app-8",
     product: "Example App 8",
     site: "example-app-8.example.test",
-    box: "Apps box",
+    box: "Example host 8",
     idField: "fields.id",
     /* THE ONLY SOURCE HERE THAT CAN ANSWER "ACTIVE". Its users table is the one
        with a last_seen_at, which is what makes the active and returned figures
@@ -220,7 +220,7 @@ export const EXAMPLE_SOURCES: BoxSource[] = [
     id: "example-app-9",
     product: "Example App 9",
     site: "example-app-9.example.test",
-    box: "Apps box",
+    box: "Example host 8",
     idField: "fields.id",
     cannot: [NO_PAID, NO_SEEN, NO_COUNTRY, NO_CONSENT, "plan: this table records an auth provider, not a plan."],
   },
@@ -228,7 +228,7 @@ export const EXAMPLE_SOURCES: BoxSource[] = [
     id: "example-app-10",
     product: "Example App 10",
     site: "example-app-10.example.test",
-    box: "Apps box",
+    box: "Example host 8",
     idField: "fields.id",
     planField: "extra",
     cannot: [NO_PAID, NO_SEEN, NO_COUNTRY, NO_CONSENT],
@@ -265,7 +265,7 @@ export const EXAMPLE_SOURCES: BoxSource[] = [
     id: "example-app-13",
     product: "Example App 13",
     site: "example-app-13.example.test",
-    box: "Apps box",
+    box: "Example host 8",
     idField: "fields.id",
     /* WP_USERS ARE NOT CUSTOMERS. This is a WordPress site and its user table
        holds the people who write the posts. Counting them as signups would put
@@ -548,7 +548,7 @@ export type StripeDocument = { doc: unknown; matched: string[]; error: string | 
  * every half hour; asking Stripe again here would mean a second credential and
  * a second copy of the same numbers that could disagree with the Payments
  * board. Matched by PREFIX against the product name, the same way the previous
- * dashboard attributes revenue — "FreeLLMAPI Premium" and "FreeLLMAPI Team" are
+ * dashboard attributes revenue — "Example App Premium" and "Example App Team" are
  * one product's plans.
  *
  * IT IS THE COUNTS FORM AND NOT A LIST OF PEOPLE, and that is the one decision

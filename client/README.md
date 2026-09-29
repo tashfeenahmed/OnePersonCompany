@@ -416,7 +416,7 @@ repelled.
 Two cards exist only to keep the others honest. **"What is not churn · 90d"**
 puts the cancelled trials and the expired checkouts beside the real losses:
 neither ever collected a penny, so neither lost one, and counting them is how a
-$430 monthly churn turns out to be $415 of revenue that never existed. It also
+large monthly churn figure can turn out to be mostly revenue that never existed. It also
 names how many cancellations have not yet had their invoices checked, because
 those count as real churn until they have. **"What Stripe will not say"** is the
 same card the costs board carries for its own providers — a reader who goes
@@ -424,7 +424,7 @@ looking for a per-product figure that includes one-off sales finds out why there
 isn't one instead of assuming the collector is broken.
 
 **AdSense shows samples, and one card says why.** The catalog claimed
-"Connected"; nothing has ever authorised it, on this box or on the Pi. That flag
+"Connected"; nothing has ever authorised it, on this box or anywhere else. That flag
 is now false, `adsense.earnings` and `adsense.rpm` return null from their
 builders in every state but `authorised` — so they keep their sample values and
 wear no live dot — and a third card, **"AdSense access"**, is live today: it
@@ -436,7 +436,7 @@ confident `$0`.
 
 ## The Cloudflare widgets
 
-Twenty-three zones is a lot of material, and the two catalog mocks that
+A couple of dozen zones is a lot of material, and the two catalog mocks that
 described them both had to change what they claim in order to become
 measurements.
 
@@ -447,7 +447,7 @@ or yesterday's finished one. Seven complete days is the window that exists;
 captioning it 24h would have been a unit nobody measured.
 
 **"DNS drift"** kept its name and changed what it measures. The sample promised
-`neu.so → stale A`, and a record being stale is relative to where a service
+`example.net → stale A`, and a record being stale is relative to where a service
 actually lives — which nothing on this box knows. What *is* knowable, and is the
 more serious failure, is **delegation** drift: Cloudflare knows the nameservers
 it assigned a zone, the registrars know where the domain actually points, and
@@ -459,9 +459,9 @@ The card carries **five lines rather than "clean / not clean"**, because three
 of the states are neither: a registrar that would not report nameservers is
 *unknown*, a zone whose domain is registered somewhere with no API here has
 nothing to compare against, and a name pointed at a *different* pair of
-Cloudflare nameservers is on Cloudflare and still not on this zone. On this
-account it reads 16 aligned, 7 zones no connected registrar holds, and 5
-registered names with no zone at all — and **"Zones and names that do not pair
+Cloudflare nameservers is on Cloudflare and still not on this zone. On a typical
+account it reads some aligned, some zones no connected registrar holds, and a
+few registered names with no zone at all — and **"Zones and names that do not pair
 up"** names them, because both of those gaps are invisible everywhere else on
 the board.
 
@@ -606,7 +606,7 @@ they claim in order to become measurements.**
   Organic Page reach is unavailable twice over: Meta retired
   `page_impressions_unique` in November 2025, and every Page metric that still
   exists needs a Page Access Token this system user's role is not permitted to
-  mint. The paid figure is real — 92,416 people over Meta's own window — and the
+  mint. The paid figure is real — people reached over Meta's own window — and the
   card is titled for the reach it draws, because ad reach and Page reach are two
   measurements of two things and a paid figure under an organic name is worse
   than no card. It carries **no sparkline**: every point of a reach series is
@@ -790,9 +790,9 @@ sends from.
   250 is a queue somebody stops trusting the day they find out.
 - **"New contacts · 30d — first-time senders"** is the one that could not
   survive as written. "First-time" is a claim about every sender the mailbox has
-  ever had — 97,472 messages of history — and counting senders at all makes a
-  mailing-list census out of an inbox where 24,901 of 83,299 messages are
-  promotions. The card keeps its key, because a saved board points at it, and
+  ever had — tens of thousands of messages of history — and counting senders at
+  all makes a mailing-list census out of an inbox where a large share of the
+  messages are promotions. The card keeps its key, because a saved board points at it, and
   answers the neighbouring question honestly: **"People you wrote to · 30d"**,
   counted from sent mail, which gets the subscription filter for free. "New"
   survives against a stated lookback, and the subtitle names the date the

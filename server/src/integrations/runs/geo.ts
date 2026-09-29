@@ -427,7 +427,7 @@ function resultsText(query: string, results: SearchHit[]): string {
  *
  * WHY EVERY ANSWER IS FILTERED ANYWAY. A model asked for questions that do not
  * name the product names it about a third of the time — "What's the best tool
- * for support chat, like Scallopbot?" — and such a question measures nothing,
+ * for support chat, like Helpdock?" — and such a question measures nothing,
  * because the name in the question is the name in the answer. Anything
  * carrying the name, the host, or the host's stem is dropped without argument.
  *
@@ -443,8 +443,8 @@ async function genericQuestions(opts: { v: VentureRow; category: string; tools: 
   const step = tools.startStep("write", "questions a stranger would ask");
 
   /* The product's own words, kept out of the generated questions. The host's
-     stem matters on its own: a model handed `scallopbot.com` writes questions
-     about "Scallopbot" without ever repeating the domain. */
+     stem matters on its own: a model handed `helpdock.example` writes questions
+     about "Helpdock" without ever repeating the domain. */
   const banned = [v.name, v.host, v.host ? v.host.split(".")[0] : null]
     .map((s) => (s ?? "").trim().toLowerCase())
     .filter((s) => s.length >= 4);
@@ -520,8 +520,8 @@ function templateQuestions(subject: string): string[] {
  *
  * The category defaults to the first sentence of the venture's description,
  * and a description almost always opens with the product's own name —
- * "Scallopbot is a support chatbot widget for websites". Dropped into a
- * template unchanged that produces "What's the best tool for Scallopbot is a
+ * "Helpdock is a support chatbot widget for websites". Dropped into a
+ * template unchanged that produces "What's the best tool for Helpdock is a
  * support chatbot widget?", which names the product and reads as nonsense. So
  * the name and the host come out, and the copula that was holding them on
  * comes out with them.

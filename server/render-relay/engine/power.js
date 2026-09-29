@@ -1,8 +1,8 @@
 /**
- * Dell power state and control.
+ * GPU machine power state and control.
  *
  * State is probed over TCP rather than ICMP: `ping` needs either root or a
- * sysctl on the Pi, and a successful ping would anyway only prove the box
+ * sysctl on the relay host, and a successful ping would anyway only prove the box
  * answers, not that llama-swap is accepting requests. Two ports give us the
  * distinction that matters to the UI:
  *
@@ -66,8 +66,8 @@ export function wake() {
  * minute), so an idle-timeout shutdown would kill jobs that have nothing to
  * do with this dashboard.
  *
- * The key is pinned to a forced `shutdown` command on the Dell, so this is
- * the only thing it can do even if the Pi is compromised.
+ * The key is pinned to a forced `shutdown` command on the GPU machine, so this is
+ * the only thing it can do even if the relay host is compromised.
  */
 export function sleep() {
   wakingUntil = 0

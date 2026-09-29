@@ -85,8 +85,8 @@ export function assertMeterable(kind: string) {
  * The workspace's `maxOutputTokens` is a budget setting and the right default
  * for a chat turn. It is the wrong number for a STRUCTURED writer: a reasoning
  * model asked for a scene list spends the whole allowance thinking out loud and
- * the run ends with no JSON at all and a full charge (run r-c4k493, and 179 of
- * 486 stored checkpoints stopping at exactly 4096 completion tokens).
+ * the run ends with no JSON at all and a full charge (seen on real runs, with hundreds of
+ * stored checkpoints stopping at exactly 4096 completion tokens).
  *
  * So a caller may ask for more — and only more. The request is raised to the
  * workspace default when it is smaller (a caller must not quietly tighten an

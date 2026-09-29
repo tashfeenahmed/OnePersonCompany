@@ -121,7 +121,7 @@ export type AskOptions = {
    * ten minutes is a runaway. A queued RUN already has a whole-job deadline —
    * the owner's `runSeconds`, enforced by the run's own signal — and a second,
    * shorter one underneath it failed every agent run on a slow local model at
-   * exactly 600 seconds however large the budget had been set (run r-wzd6ml).
+   * exactly 600 seconds however large the budget had been set.
    * So the executor passes the run's budget here and the adapters forward it.
    */
   maxMs?: number;
@@ -132,8 +132,8 @@ export type AskOptions = {
    * Ninety seconds is a chat's: a person is waiting, and an agent that has
    * said nothing for a minute and a half has lost its model. It was kept for
    * runs too — "silence is a fault at any speed" — until a research run on
-   * the Dell died at ninety seconds of silence while Hermes was holding a
-   * shell command for approval (run r-wt5uag): the guardian waits up to ten
+   * a local GPU model died at ninety seconds of silence while Hermes was holding a
+   * shell command for approval: the guardian waits up to ten
    * minutes, sends no keepalive while it waits, and the tool then returns an
    * error and the agent carries on. That is not a dead gateway, it is a slow
    * tool, and a run has a whole-job deadline above it. So the executor passes
@@ -293,7 +293,7 @@ export function backendReadiness(id: ChatBackendId): BackendReadiness | null { r
  * interrupted agent task` — and does NOT when a plain request is abandoned. So
  * a `POST /api/chat` or a Telegram message that timed out left the agent
  * running with nobody listening: on 2026-09-17 one carried on, dispatched a
- * sub-agent run, and its answer was never stored (run r-wzd6ml). Reading the
+ * sub-agent run, and its answer was never stored. Reading the
  * same turn as a stream makes the timeout a disconnect the agent can see.
  *
  * The caller still gets one `ChatReply` and the same 504 sentence. An endpoint

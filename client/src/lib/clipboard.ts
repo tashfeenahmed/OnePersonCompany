@@ -1,4 +1,4 @@
-/** Clipboard API on HTTPS/localhost; selection-based copy on the Pi's HTTP URL. */
+/** Clipboard API on HTTPS/localhost; selection-based copy on a plain-HTTP LAN URL. */
 export async function copyText(text: string): Promise<boolean> {
   try {
     if (navigator.clipboard?.writeText) {

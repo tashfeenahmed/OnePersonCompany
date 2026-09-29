@@ -213,7 +213,7 @@ function ScheduleForm({ schedule, onSaved }: { schedule: PipelineDoc["schedule"]
     hour: String(schedule.hour),
     /* EMPTY WHEN THE OWNER NEVER CHOSE ONE. `timezone` is now always a real
        zone, so filling the box with it would turn "this machine's, whatever it
-       is" into "Europe/Dublin, chosen" the next time Save is pressed. */
+       is" into "Europe/Berlin, chosen" the next time Save is pressed. */
     timezone: schedule.zoneWasSet ? schedule.timezone : "",
     blackouts: schedule.blackouts.map((b) => b.raw).join("\n"),
     "max-minutes": schedule.maxMinutes === null ? "0" : String(schedule.maxMinutes),

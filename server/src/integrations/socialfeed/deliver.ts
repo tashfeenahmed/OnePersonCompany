@@ -139,7 +139,7 @@ async function sweepOnce(): Promise<SweepResult> {
     const filingError = !venture ? "The video's venture no longer exists." : filed.filter(item => !item.itemId).map(item => item.note).join(" · ") || null;
 
     /* Worded for a phone: what it is and for whom, then where it went. The
-       title is shown only when it says more than "Video — FreeLLMAPI". */
+       title is shown only when it says more than "Video — Example App". */
     const dash = /^(.+?) — (.+)$/.exec(row.title);
     const made = (dash?.[1] ?? "video").toLowerCase();
     const drafts = filed.filter(item => item.itemId).length;

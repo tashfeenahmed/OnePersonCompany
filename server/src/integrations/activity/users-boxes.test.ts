@@ -208,20 +208,20 @@ test("a prefix that matches no Stripe product is refused with the ones there are
 });
 
 test("prefixes are typed one per line or comma separated, because both are natural", () => {
-  assert.deepEqual(parsePrefixes("freellm, free llm\n Acme "), ["freellm", "free llm", "Acme"]);
+  assert.deepEqual(parsePrefixes("exampleapp, example app\n Acme "), ["exampleapp", "example app", "Acme"]);
 });
 
 /* ------------------------------------------------------------- the three kinds */
 
 test("an account naming two kinds is refused rather than resolved by precedence", () => {
-  const got = kindOf({ url: "https://a.example/u.json", box: "Apps box", product: "example-app-8" });
+  const got = kindOf({ url: "https://a.example/u.json", box: "Example host 8", product: "example-app-8" });
   assert.equal(got.kind, "none");
   if (got.kind !== "none") return;
   assert.match(got.why, /an endpoint and a box/);
 });
 
 test("a box with no product, and a product with no box, each say what is missing", () => {
-  const noProduct = kindOf({ box: "Apps box" });
+  const noProduct = kindOf({ box: "Example host 8" });
   assert.equal(noProduct.kind, "none");
   if (noProduct.kind === "none") assert.match(noProduct.why, /no product is/);
   const noBox = kindOf({ product: "example-app-8" });
@@ -231,8 +231,8 @@ test("a box with no product, and a product with no box, each say what is missing
 
 test("each kind is derived from the fields present and nothing else", () => {
   assert.equal(kindOf({ url: "https://a.example/u.json" }).kind, "endpoint");
-  assert.equal(kindOf({ box: "Apps box", product: "example-app-8" }).kind, "box");
-  assert.equal(kindOf({ stripe: "FreeLLMAPI" }).kind, "stripe");
+  assert.equal(kindOf({ box: "Example host 8", product: "example-app-8" }).kind, "box");
+  assert.equal(kindOf({ stripe: "Example App" }).kind, "stripe");
   assert.equal(kindOf({}).kind, "none");
 });
 
@@ -240,14 +240,14 @@ test("one box is probed once however many products are read off it", async () =>
   const reader = boxReader();
   /* The same promise, not merely the same answer: two accounts on one box must
      share one connection and one scan of the four databases on it. */
-  const first = reader("Apps box");
-  const second = reader("apps box");
+  const first = reader("Example host 8");
+  const second = reader("example host 8");
   assert.equal(first, second);
   const got = await first;
   /* No fleet account exists in this test's database, so it fails — and the
      message names the fleet rather than sending the owner to a source file. */
   assert.equal(got.ok, false);
-  assert.match(got.error ?? "", /no box called “Apps box” on the Fleet plugin/);
+  assert.match(got.error ?? "", /no box called “Example host 8” on the Fleet plugin/);
 });
 
 const sourceFor = (id: string) => lookupSource(id, EXAMPLE_SOURCES);

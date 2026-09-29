@@ -178,15 +178,15 @@ export const manifest: IntegrationManifest = {
           label: "Timezone",
           hint:
             "The zone the calendar is drawn in and the one an auto-schedule slot means. An IANA " +
-            "name — Europe/Dublin, America/New_York. Empty uses this machine's own zone. Times " +
+            "name — America/New_York, Europe/Berlin. Empty uses this machine's own zone. Times " +
             "on the wire stay UTC instants either way; this only decides which local day a post " +
             "appears on.",
-          ph: "Europe/Dublin",
+          ph: "America/New_York",
           check(value) {
             if (!value.trim()) return null;
             return validZone(value.trim())
               ? null
-              : `“${value.trim()}” is not a timezone this machine knows. Use an IANA name like Europe/Dublin.`;
+              : `“${value.trim()}” is not a timezone this machine knows. Use an IANA name like America/New_York.`;
           },
         },
         maxAttempts: {

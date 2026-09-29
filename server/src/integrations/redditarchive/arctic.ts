@@ -1,7 +1,7 @@
 /**
  * ARCTIC SHIFT — how an agent on this box reads Reddit.
  *
- * WHY NOT REDDIT ITSELF. Measured from demand runs on the Dell, 20–22 Sep 2026:
+ * WHY NOT REDDIT ITSELF. Measured from demand runs on a local GPU workstation, 20–22 Sep 2026:
  * `web_extract` on a www.reddit.com thread times out, the browser tool lands on
  * a CAPTCHA, old.reddit answers a "network security" block page and every
  * `*.json` endpoint answers 403 (see providers/demand.ts for the history). The

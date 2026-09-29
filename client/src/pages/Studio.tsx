@@ -145,7 +145,7 @@ const MAKES: { key: Make; label: string; icon: typeof Sparkles; about: string }[
      SEARCH — the cutting is the row above. */
   { key: "youtube", label: "YouTube Shorts", icon: Scissors, about: "One to five vertical clips cut out of a long video — search YouTube and tick the keepers, or paste a link." },
   { key: "motion", label: "Motion", icon: Shapes, about: "Animated typography from a scene list, in the venture's colours." },
-  { key: "stewie", label: "Stewie", icon: Tv, about: "Peter explains, Stewie interrupts, over gameplay footage — cloned voices, rendered by OPC's worker on the Dell." },
+  { key: "stewie", label: "Stewie", icon: Tv, about: "Peter explains, Stewie interrupts, over gameplay footage — cloned voices, rendered by OPC's render relay on your GPU machine." },
 ];
 
 const PLATFORMS = ["Instagram", "LinkedIn", "X", "Facebook", "TikTok"];
@@ -721,7 +721,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
     () => (make === "motion" ? motionApi.list(venture?.id ?? null).catch(() => null) : Promise.resolve(null)),
     [make, venture?.id ?? null],
   );
-  /* What the Pi and the Dell can do right now. Asking wakes nothing. */
+  /* What the render relay and the GPU machine can do right now. Asking wakes nothing. */
   const stewie = useApi(() => (make === "stewie" ? stewieApi.read().catch(() => null) : Promise.resolve(null)), [make]);
   const carouselModel = useApi(() => (make === "carousel" ? carouselApi.model().catch(() => null) : Promise.resolve(null)), [make]);
   const footage = useApi(() => (make === "stewie" ? stewieApi.backgrounds().catch(() => null) : Promise.resolve(null)), [make]);
@@ -858,7 +858,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
     faceless: "Your workspace AI writes the script; stock footage and narration are assembled into a video.",
     youtube: "AI selects complete moments from the transcript. Clips are vertical by default; missing transcript or framing support is noted in the result.",
     motion: "AI writes the scene list from your brief. Vertical and silent by default.",
-    stewie: "AI writes both voices. The render worker wakes the Dell if needed; rendering takes a few minutes.",
+    stewie: "AI writes both voices. The render worker wakes the GPU machine if needed; rendering takes a few minutes.",
   }[make];
 
   return (

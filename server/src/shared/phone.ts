@@ -4,7 +4,7 @@
  * The owner reads these on a lock screen, so each helper answers one question
  * a person would ask rather than printing what the machine stored: "$19/yr"
  * and not "USD 19.00", "at 10:32pm" and not "2026-09-24 21:32 UTC", "couldn't
- * reach Dell 5820, it may be switched off" and not a URL and an exception class.
+ * reach GPU box, it may be switched off" and not a URL and an exception class.
  *
  * NOTHING HERE READS THE DATABASE. The zone is the caller's (every pusher
  * already holds the customers area's `settings().timezone`), so each helper is
@@ -123,7 +123,7 @@ export const clip = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0,
  * caller should put it on its own last line rather than in the headline.
  *
  * ORDER MATTERS: the unreachable-machine line is checked before the generic
- * "connection" one, because "Hermes stopped mid-answer — Local · Dell 5820
+ * "connection" one, because "Hermes stopped mid-answer — Local · GPU box
  * could not be reached" is both, and the useful answer is which machine.
  */
 export function plainCause(raw: string | null | undefined): { text: string; known: boolean } {

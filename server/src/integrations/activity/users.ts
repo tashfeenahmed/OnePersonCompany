@@ -88,8 +88,8 @@ export const PLUGIN = "users";
  * How much of a document is kept and parsed.
  *
  * A megabyte rather than product_docs' 64 KB, because this one legitimately
- * carries thousands of rows — the largest product on this box is ~4,900 users
- * and 478 KB. It is still a cap and it is still refused rather than truncated: half
+ * carries thousands of rows — a product with a few thousand users
+ * is several hundred KB. It is still a cap and it is still refused rather than truncated: half
  * a JSON document parsed as if it were whole would report a user base that had
  * halved overnight.
  */

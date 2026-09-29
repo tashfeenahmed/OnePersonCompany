@@ -4,7 +4,7 @@
  *
  * Search Console returns a venture's own brand and every misspelling of it
  * alongside the queries that describe what it does, and the two want opposite
- * treatment. "improve the page targeting 'freellmapi github'" is not work: the
+ * treatment. "improve the page targeting 'freeinvoice github'" is not work: the
  * searcher already knew the name and typed it, the page they wanted is the one
  * they got, and a card proposing to rewrite a title for it is a card that
  * cannot be done. The growth source used to file those because its only filter
@@ -25,11 +25,11 @@
  * question a competent reader answers instantly.
  *
  * The dials could not answer it. The old header spent forty lines arguing with
- * itself about a single pair of queries, because `free llm api` concatenates to
- * `freellmapi` EXACTLY — the venture's name is the generic phrase it serves.
+ * itself about a single pair of queries, because `free invoice` concatenates to
+ * `freeinvoice` EXACTLY — the venture's name is the generic phrase it serves.
  * The resolution was a rule with no meaning behind it: apply the whole-query
- * comparison only to queries of one or two words. That rule is why `free llmapi`
- * was brand and `best free llm api` was not, and nothing about the number two
+ * comparison only to queries of one or two words. That rule is why `free invoice`
+ * was brand and `best free invoice` was not, and nothing about the number two
  * explains the difference. A model is told what the difference IS: a name typed
  * with a stray space is a typo, a category typed in words is a person
  * describing the category.
@@ -72,8 +72,8 @@ export const queryKey = (query: string): string =>
 /**
  * THE HOSTNAME A STORED PROPERTY OR VENTURE FIELD MEANS.
  *
- * Parsing, not judging: `sc-domain:freellmapi.co`, `https://freellmapi.co/` and
- * `www.freellmapi.co` are three spellings of one hostname, and which one a row
+ * Parsing, not judging: `sc-domain:freeinvoice.example`, `https://freeinvoice.example/` and
+ * `www.freeinvoice.example` are three spellings of one hostname, and which one a row
  * carries depends on which API wrote it.
  */
 const hostname = (raw: string | null | undefined): string =>
@@ -83,7 +83,7 @@ const hostname = (raw: string | null | undefined): string =>
 /**
  * THE PART THAT IS A FACT AND NOT A JUDGMENT, so the model is never asked it.
  *
- * `site:freellmapi.co` is a person asking Google to list a site's own pages.
+ * `site:freeinvoice.example` is a person asking Google to list a site's own pages.
  * That is what the operator DOES; no reading of intent is involved, and there is
  * no page to improve either way. And a query that is exactly one of our
  * hostnames is somebody who typed the address into the search box — an exact
@@ -120,7 +120,7 @@ const question = [
   "You are triaging Google Search Console queries for a one-person software portfolio. For each query, decide what the searcher was doing.",
   '"brand" — they were navigating to one of the ventures listed below: they typed its name, a misspelling or mistyping of it, its domain, a repository path, or its name with a modifier such as "login", "app", "github", "pricing", "reddit" or "review". A query that names ANY venture on the list is brand, even when it was measured on a different venture\'s property. There is nothing to improve for these: the page the searcher wanted is the page they already got.',
   '"need" — they described a problem, a category, a comparison or a product they wanted, without naming one of the ventures. These are the queries a better page could win.',
-  'THE HARD CASE, and the reason this is your judgment and not a spelling comparison: a venture named after the generic phrase it serves. "freellmapi" is brand; "free llm api" is a person describing the category and is a need, as are "best free llm api" and "openrouter alternative". A name typed with a stray space ("freell mapi", "jot thespot") is still a mistyped name and is brand. Judge which of the two the words read as.',
+  'THE HARD CASE, and the reason this is your judgment and not a spelling comparison: a venture named after the generic phrase it serves. "freeinvoice" is brand; "free invoice" is a person describing the category and is a need, as are "best free invoice" and "quickbooks alternative". A name typed with a stray space ("freeinv oice", "cedars tudio") is still a mistyped name and is brand. Judge which of the two the words read as.',
   'WHEN YOU GENUINELY CANNOT TELL, ANSWER "brand". A wrongly filed navigational query becomes a card on the owner\'s board that he has to read and clear by hand, and it is filed permanently. A missed opportunity is offered again on the next sweep.',
 ].join("\n\n");
 
@@ -167,7 +167,7 @@ export async function judgeSearchIntent(
 
   /* THE WHOLE ROSTER, NOT THIS VENTURE'S NAME. A property that ranks for a
      sibling venture's name used to file a card under the wrong venture —
-     "neu.ie: improve the page targeting 'freellmapi'" — so the model is shown
+     "acme.example: improve the page targeting 'freeinvoice'" — so the model is shown
      every launched venture and every name it answers to. */
   const roster = brands
     .map(b => [b.name, b.slug && b.slug !== b.name ? `slug ${b.slug}` : "", b.host ? `site ${hostname(b.host)}` : ""]

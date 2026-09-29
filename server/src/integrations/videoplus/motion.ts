@@ -136,7 +136,7 @@ export async function writeSceneSpec(opts: {
        JSON, so 8192 is not about the answer being long — it is about the answer
        arriving at all. `jsonObject` asks the router to turn optional thinking
        off, but a model whose reasoning is not optional spends it first anyway,
-       and on the workspace's 4096 default that left run r-c4k493 with a full
+       and on the workspace's 4096 default that left one run with a full
        charge and no JSON. runtime/budgets.ts clamps the figure and reserves it,
        so the larger ask is visible to the budget rather than hidden from it. */
     const reply = await complete([
@@ -213,7 +213,7 @@ export async function drawScene(opts: {
     };
     /* ONE MORE TRY BEFORE THE VIDEO IS LOST. A sheet is the same local file
        either time, so a failure is the machine — a small box that was busy for
-       twenty seconds — and not the page. Run r-gc062x drew 98 frames and was
+       twenty seconds — and not the page. One run drew 98 frames and was
        thrown away over the 99th; the second launch costs seconds. */
     let shot = await shootSheet(sheet);
     if (!shot.ok && !opts.signal?.aborted) shot = await shootSheet(sheet);

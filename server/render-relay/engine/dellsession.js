@@ -1,5 +1,5 @@
 /**
- * Who woke the Dell, and when it may be put back.
+ * Who woke the GPU machine, and when it may be put back.
  *
  * This used to live inside reel.js as three module-level variables, which was
  * correct exactly as long as reels were the only thing that woke the box. They
@@ -25,7 +25,7 @@
  * it is mid-job, and a pending sleep that comes due while any of them says yes
  * is abandoned rather than honoured.
  *
- * Lost on restart, deliberately unrecovered: a pm2 restart leaves a woken Dell
+ * Lost on restart, deliberately unrecovered: a pm2 restart leaves a woken GPU machine
  * running, which is the safe direction to fail. The alternative is persisting a
  * timer that could power off a box somebody else is by then using.
  */
@@ -69,7 +69,7 @@ export function ownsPower() {
   return weOwnPower
 }
 
-/** Unix seconds when the Dell is currently due to be powered off, or null. */
+/** Unix seconds when the GPU machine is currently due to be powered off, or null. */
 export function sleepDueAt() {
   return dueAt
 }
@@ -81,7 +81,7 @@ export function cancelSleep() {
 }
 
 /**
- * Power the Dell off, but not yet. Cancels any timer already pending so the
+ * Power the GPU machine off, but not yet. Cancels any timer already pending so the
  * newest job sets the deadline rather than the oldest.
  *
  * Sleeping the instant a job lands is the wrong economy — videos are made in
@@ -98,7 +98,7 @@ export function scheduleSleep(lingerMs, { onDue, onSlept, log } = {}) {
   }
   dueAt = Math.floor((Date.now() + lingerMs) / 1000)
   onDue?.(dueAt)
-  log?.(`leaving the Dell up for ${Math.round(lingerMs / 60000)} minutes`)
+  log?.(`leaving the GPU machine up for ${Math.round(lingerMs / 60000)} minutes`)
   sleepTimer = setTimeout(() => void doSleep({ onSlept }), lingerMs)
 }
 
@@ -118,7 +118,7 @@ async function doSleep({ onSlept } = {}) {
 
 /** The "sleep it now" button — only ever offered for a box we woke. */
 export async function sleepNow({ onSlept } = {}) {
-  if (!weOwnPower) return { ok: false, error: "this dashboard did not wake the Dell" }
+  if (!weOwnPower) return { ok: false, error: "this dashboard did not wake the GPU machine" }
   if (anyoneBusy()) return { ok: false, error: "something is still rendering" }
   await doSleep({ onSlept })
   return { ok: true }

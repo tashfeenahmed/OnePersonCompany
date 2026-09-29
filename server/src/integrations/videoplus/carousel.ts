@@ -8,8 +8,8 @@
  * browser this box already drives for Motion and for venture captures, and
  * every letter in the PNG is a letter the model typed.
  *
- * ONE DOCUMENT FOR ALL SIX SLIDES, CUT APART AFTERWARDS (2026-09-22, Tash's
- * call after the first version coded six separate pages). The coder writes a
+ * ONE DOCUMENT FOR ALL SIX SLIDES, CUT APART AFTERWARDS (2026-09-22, the
+ * owner's call after the first version coded six separate pages). The coder writes a
  * single page six slides wide — 6480×1350 for Portrait — with the slides side
  * by side at exact offsets; Chrome draws it once; `tools/png.ts` cuts the
  * strip into six PNGs at those offsets. One stylesheet means one type system
@@ -708,7 +708,7 @@ export async function renderStrip(opts: {
  * text that sits across a cut between two slides, and text that a box with
  * overflow hidden cuts off. A container a few pixels taller than its content
  * is NOT a fault by itself — an inline SVG's descender gap did exactly that on
- * the first Pi run and cost a slide all three attempts over nothing visible.
+ * the first run on a small ARM server and cost a slide all three attempts over nothing visible.
  *
  * THE FRAME IS THE KNOWN SIZE, NOT `innerHeight`. Measured on Chrome 146 on
  * macOS, a page with text hanging off its right edge reported an innerHeight
@@ -1114,8 +1114,8 @@ export async function carouselRun(opts: {
       const ask = async (withSlides: boolean) => {
         const pictures = [strip, ...(withSlides ? slides.filter((x): x is NonNullable<typeof x> => !!x) : [])];
         /* EVERY PICTURE IS NAMED IN TEXT RIGHT BEFORE IT. Sent as a bare run
-           of seven images, qwen3.8 on the Pi blended them and failed clean
-           slides as "mixed with slide 1" (run r-23dkyo); a label per image
+           of seven images, a local model blended them and failed clean
+           slides as "mixed with slide 1"; a label per image
            is what lets a model keep them apart. */
         const content: ContentPart[] = [
           { type: "text", text: verifyText(brand, size, p, !withSlides) },

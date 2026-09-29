@@ -10,7 +10,7 @@
  * profile a RIVAL — company-level, one profile per business. This is per
  * QUERY, because ranking is per query: the pages above us for "planning
  * permission search" are a different set from the pages above us for "planning
- * appeal ireland", and the reason we sit behind each set is different.
+ * appeal deadline", and the reason we sit behind each set is different.
  *
  * WHERE THE QUERIES COME FROM, in the order they are tried, and the ORIGIN IS
  * RECORDED because the three are not equally good evidence:

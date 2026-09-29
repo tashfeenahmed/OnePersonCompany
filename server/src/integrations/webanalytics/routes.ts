@@ -218,7 +218,7 @@ webAnalyticsRoutes.get("/events", (c) => {
       propertyValues: umami.PROPERTY_VALUE_LIMIT,
     },
     rules: [
-      "`occurrences` and `participants` are two different counts from two different endpoints. On the connected instance one event fired 5,978 times in 4,434 sessions; publishing the first as though it were people overstates that step by a third.",
+      "`occurrences` and `participants` are two different counts from two different endpoints. For example, one event can fire 6,000 times in 4,500 sessions; publishing the first as though it were people overstates that step by a third.",
       "A PARTICIPANT IS A SESSION IDENTITY, NOT A PERSON. Umami hashes the site, the address and the user agent: one person on two devices is two, one office behind one address may be one.",
       "`participants: null` with a `participantsError` means the figure was not asked for or the endpoint refused. It is not nought and it is not the occurrence count.",
       "A numeric property's sum, mean and range are computed from Umami's complete value list and are exact — unless `truncated` is true, in which case the aggregate is refused rather than published short.",

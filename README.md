@@ -190,6 +190,8 @@ Defaults work without an environment file. To customize them, copy `server/.env.
 
 For LAN access, set an owner password in Settings → Security before enabling the listening interface, and permit the port only from your trusted network in the host firewall. Add the exact URL you will open to `OPC_ALLOWED_ORIGINS` so browser controls work from that address.
 
+Currency, electricity price and time zones are in-app settings rather than environment variables, and nothing defaults to a particular country: see [regional and personal settings](docs/deployment.md#regional-and-personal-settings).
+
 Run `npm run doctor` to check local readiness. If a port is occupied, stop the other process or set different ports in `server/.env`. If a widget has no data, check the integration's connection and collection status.
 
 </details>
@@ -245,6 +247,7 @@ The server runs TypeScript directly on Node. Add a source through an integration
 ## Documentation
 
 - [Deployment, configuration, and backups](docs/deployment.md)
+- [Onboarding and automatic setup](docs/onboarding.md)
 - [Security and data ownership](docs/security.md)
 - [Venture stages and checklist extension points](docs/venture-journeys.md)
 - [Insights, anomaly detection, journals, and custom metrics](docs/workspace-insights.md)
