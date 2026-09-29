@@ -1084,6 +1084,7 @@ const PART_COLOURS = [
   "#f59e0b",
 ];
 const OTHER = "Other";
+type DailyApp = NonNullable<NonNullable<DailyBar["parts"]>[number]["app"]>;
 
 /**
  * BARS PER DAY, the owner's preferred reading for spend and tokens over a
@@ -1116,10 +1117,10 @@ export function DailyBars({
   const splitOn = hasParts && tab === "split";
 
   /* The window's top six parts, in size order, with their marks. */
-  const sums = new Map<string, { value: number; mark?: string | null; host?: string | null }>();
+  const sums = new Map<string, { value: number; mark?: string | null; host?: string | null; app?: DailyApp }>();
   for (const d of days)
     for (const p of d.parts ?? []) {
-      const cur = sums.get(p.label) ?? { value: 0, mark: p.mark, host: p.host };
+      const cur = sums.get(p.label) ?? { value: 0, mark: p.mark, host: p.host, app: p.app };
       cur.value += p.value;
       sums.set(p.label, cur);
     }
@@ -1128,8 +1129,8 @@ export function DailyBars({
   const index = new Map(named.map(([label], i) => [label, i]));
   const hasOther = ranked.length > named.length;
   const legend = [
-    ...named.map(([label, v], i) => ({ label, mark: v.mark, host: v.host, colour: PART_COLOURS[i]! })),
-    ...(hasOther ? [{ label: OTHER, mark: null, host: null, colour: "var(--border)" }] : []),
+    ...named.map(([label, v], i) => ({ label, mark: v.mark, host: v.host, app: v.app, colour: PART_COLOURS[i]! })),
+    ...(hasOther ? [{ label: OTHER, mark: null, host: null, app: undefined, colour: "var(--border)" }] : []),
   ];
 
   /* Each day's stack, in legend order, so the colours sit in the same place. */
@@ -1264,6 +1265,7 @@ export function DailyBars({
               <i aria-hidden className="size-2 rounded-[2px]" style={{ background: l.colour }} />
               {l.mark && <ModelMark name={l.mark} size={12} />}
               {l.host && <HostMark host={l.host} size={12} />}
+              {l.app && <AppIcon app={l.app} size={12} />}
               {l.label}
             </span>
           ))}
