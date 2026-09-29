@@ -4841,7 +4841,7 @@ export const WIDGETS: Record<string, Widget> = {
   "users.signups": {
     src: "users",
     name: "Signups per day",
-    kind: "chart",
+    kind: "daily",
     window: "selected",
     live: { users: true },
     unit: "count",

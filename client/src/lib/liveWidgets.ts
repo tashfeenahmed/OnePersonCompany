@@ -12608,6 +12608,17 @@ function nameThem(products: UserProduct[], cap = 3): string {
   return `${names.slice(0, cap).join(", ")} and ${names.length - cap} more`;
 }
 
+/** "NG" → "🇳🇬 Nigeria". Unknown codes come back as they were. */
+const REGIONS = typeof Intl !== "undefined" && "DisplayNames" in Intl ? new Intl.DisplayNames(["en"], { type: "region" }) : null;
+function countryName(code: string): string {
+  const c = code.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(c)) return code;
+  const flag = String.fromCodePoint(...[...c].map((ch) => 0x1f1e6 + ch.charCodeAt(0) - 65));
+  let name = c;
+  try { name = REGIONS?.of(c) ?? c; } catch { /* not a region code */ }
+  return `${flag} ${name}`;
+}
+
 /** How a product is filed under a venture, in the words the server used. A
  *  host match is EVIDENCE THAT TWO STRINGS LOOK ALIKE and says so. */
 const filedBy = (how: "setting" | "link" | "host"): string =>
@@ -12665,8 +12676,8 @@ function basePoints(U: UsersReport, grid: string[]): Partial<Widget> {
     seriesAt: grid.map((d) => `${d}T00:00:00Z`),
     unit: "count",
     seriesLabel: countsOnly.length
-      ? `The ${count(now)} of them that are LISTED, walked back through each day's signups — it cannot see anybody deleted since, so it only ever rises. ${nameThem(countsOnly)} are not in the line at all: a total with no signup dates`
-      : `Walked back through each day's signups — it cannot see anybody deleted since, so it only ever rises`,
+      ? `Growth of the ${count(now)} listed users over the window (${nameThem(countsOnly, 2)} can't date signups)`
+      : `Growth over the window, from each day's signups`,
   };
 }
 
@@ -12730,8 +12741,8 @@ Object.assign(LIVE_BUILDERS, {
          so the figure is the smallest the portfolio could be. */
       tag: U.summary.complete === false ? "floor" : "measured",
       sub: also(
-        `across ${count(U.summary.configured)} product${U.summary.configured === 1 ? "" : "s"} — two products' users are two sets of people, so this adds`,
-        missing.length ? `${nameThem(missing)} left out entirely, not counted as zero` : "",
+        `across ${count(U.summary.configured)} product${U.summary.configured === 1 ? "" : "s"}`,
+        missing.length ? `${nameThem(missing, 2)} not counted` : "",
       ),
       partsLabel: "Users by product",
       parts,
@@ -12755,10 +12766,8 @@ Object.assign(LIVE_BUILDERS, {
       value: `+${count(n)}`,
       tag: "metered",
       sub: also(
-        `off the daily lines, over ${U.window.days} UTC days${W !== undefined && W !== "all" && U.window.days < W ? ` — the route holds ${U.window.days}, not ${W}` : ""}`,
-        absentOnes.length
-          ? `${nameThem(absentOnes, 2)} cannot date a signup — absent, never a zero`
-          : "every connected product can date a signup",
+        `signed up in the last ${U.window.days} days${W !== undefined && W !== "all" && U.window.days < W ? ` (the most the route holds)` : ""}`,
+        absentOnes.length ? `not counting ${nameThem(absentOnes, 2)}` : "",
       ),
     };
   },
@@ -12781,10 +12790,8 @@ Object.assign(LIVE_BUILDERS, {
       value: count(U.summary.active),
       tag: "measured",
       sub: also(
-        "a lastSeenAt inside the window — a level, not a daily active count",
-        silent.length
-          ? `${nameThem(silent, 2)} list users and publish none — absent, not zero`
-          : "every product that lists its users publishes one",
+        `seen in the last ${U.window.days} days`,
+        silent.length ? `${count(silent.length)} product${silent.length === 1 ? "" : "s"} don't report activity` : "",
       ),
     };
   },
@@ -12801,15 +12808,15 @@ Object.assign(LIVE_BUILDERS, {
        `paid` is not free; it is a row nobody has said anything about, and
        folding it into "free" would be the one arithmetic this card exists to
        refuse. */
-    if (s.paidUnknown) parts.push({ label: "not said", value: s.paidUnknown, text: count(s.paidUnknown) });
+    if (s.paidUnknown) parts.push({ label: "unknown", value: s.paidUnknown, text: count(s.paidUnknown) });
     return {
       value: count(s.paid),
       tag: "measured",
       sub: also(
-        `of ${count(s.paid + s.free)} rows whose product said either way`,
-        s.paidUnknown ? `${count(s.paidUnknown)} rows say nothing — not free` : "every listed row answered",
+        `paying, out of ${count(s.paid + s.free)} users with a known plan`,
+        s.paidUnknown ? `${count(s.paidUnknown)} unknown` : "",
       ),
-      partsLabel: "The listed rows by what their product said about paying",
+      partsLabel: "Paying, free, and unknown",
       parts,
     };
   },
@@ -12826,10 +12833,7 @@ Object.assign(LIVE_BUILDERS, {
       /* PAID SHARE AND NOT CONVERSION. Conversion is a rate out of everyone
          who could have paid; this is a rate out of everyone a product said
          something about, and the difference is `paidUnknown`. */
-      sub: also(
-        `${count(s.paid)} of ${count(said)} rows whose product answered — a share of those, not a conversion rate`,
-        s.paidUnknown ? `${count(s.paidUnknown)} rows are outside the denominator entirely` : "",
-      ),
+      sub: `${count(s.paid)} of ${count(said)} users with a known plan pay`,
     };
   },
 
@@ -12845,8 +12849,8 @@ Object.assign(LIVE_BUILDERS, {
          together for exactly that reason. The address itself is nowhere on
          this board: the collector stores a salted hash and the domain. */
       sub: also(
-        `${pct(s.withEmail / held, { digits: 0 })} of the ${count(held)} rows held — a hash and a domain, never an address`,
-        `${count(s.contactPermitted)} may lawfully be written to, which is the figure that sizes a campaign`,
+        `${pct(s.withEmail / held, { digits: 0 })} of listed users`,
+        `${count(s.contactPermitted)} opted in to email`,
       ),
     };
   },
@@ -12862,10 +12866,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       value: pct(U.summary.returned / joined),
       tag: "measured",
-      sub: also(
-        `${count(U.summary.returned)} of ${count(joined)} who joined in the window were seen again a day or more later`,
-        "the first point of a retention curve — the contract publishes one lastSeenAt, so there is no second point",
-      ),
+      sub: `${count(U.summary.returned)} of ${count(joined)} new users came back a day or more later`,
     };
   },
 
@@ -12886,23 +12887,23 @@ Object.assign(LIVE_BUILDERS, {
       signup, so it can draw them apart, and the caption carries whatever did
       not fit rather than dropping it silently.
     */
-    const drawn = drawable.slice(0, 4);
-    const over = drawable.slice(4).map((x) => x.p);
+    /* STACKED BARS PER DAY, one colour per product (the six biggest, the
+       rest as Other), with a Total tab — since 2026-09-29, when four
+       overlapping lines were the hardest card on the board to read. */
     const cannot = U.products.filter((p) => p.shape !== "users");
+    const total = drawable.reduce((n, x) => n + x.values.reduce((m, v) => m + v, 0), 0);
     return {
-      chart: drawn.map((x) => ({
-        label: x.p.product,
-        points: grid.map((day, i) => ({ ts: `${day}T00:00:00Z`, value: x.values[i]! })),
+      daily: grid.map((day, i) => ({
+        day,
+        total: drawable.reduce((n, x) => n + x.values[i]!, 0),
+        parts: drawable.map((x) => ({ label: x.p.product, value: x.values[i]! })),
       })),
-      caption: [
-        `Signups per UTC day, from the rows each product listed. The last day is the collection day and is still filling.`,
-        over.length ? `Not drawn: ${nameThem(over, 4)} — the plot holds four colours and a fifth would repeat one.` : "",
-        cannot.length
-          ? `Not in any line: ${nameThem(cannot)} — a product that cannot list its users cannot date a signup, so it is left out whole rather than contributing zeros.`
-          : "",
-      ]
-        .filter(Boolean)
-        .join(" "),
+      dailySplit: "By product",
+      unit: "count" as const,
+      caption: also(
+        `${count(total)} signups · the last day is still filling`,
+        cannot.length ? `${nameThem(cannot, 2)} can't date signups` : "",
+      ),
     };
   },
 
@@ -12916,23 +12917,20 @@ Object.assign(LIVE_BUILDERS, {
     if (!sized.length) return null;
     const whole = sized.reduce((n, x) => n + x.n, 0);
     const silent = U.products.filter((p) => (p.total ?? p.rowsHeld) === 0);
+    const top = sized.slice(0, 8);
+    const rest = sized.slice(8);
     return {
-      ranked: sized.map((x) => ({
+      ranked: top.map((x) => ({
         label: x.p.product,
         value: x.n,
         text: count(x.n),
         sub: pct(x.n / whole, { digits: 0 }),
+        venture: x.p.venture?.id,
       })),
-      caption: [
-        sized.length === 1
-          ? "One product answered, so this is the whole base."
-          : `${sized[0]!.p.product} is ${pct(sized[0]!.n / whole, { digits: 0 })} of the ${count(whole)} users these products reported — worth knowing before reading any average.`,
-        silent.length
-          ? `${nameThem(silent)} report no figure at all and have no bar: nobody could read them, which is a different fact from nobody having signed up.`
-          : "",
-      ]
-        .filter(Boolean)
-        .join(" "),
+      caption: also(
+        rest.length ? `+ ${count(rest.length)} smaller products with ${count(rest.reduce((n, x) => n + x.n, 0))} users` : "",
+        silent.length ? `${nameThem(silent, 2)} report no count` : "",
+      ) || undefined,
     };
   },
 
@@ -12955,7 +12953,7 @@ Object.assign(LIVE_BUILDERS, {
          nothing. A row published without a population is a customer — that is
          what the contract always implied — so this splits the listed rows and
          never the counts-only totals, which carry no population. */
-      caption: `Who these ${count(whole)} listed people are to the business, as their own products classified them. A row that said nothing is a customer, which is what the contract always implied. Counts-only products are not in this: a bare total carries no populations.`,
+      caption: `${count(whole)} listed users, by the role their product gave them`,
     };
   },
 
@@ -12966,16 +12964,18 @@ Object.assign(LIVE_BUILDERS, {
       .sort((a, b) => b.n - a.n)
       .slice(0, 10);
     if (!rows.length) return null;
+    const ventureOf = new Map(listedUsers(U).map((p) => [p.product, p.venture?.id]));
     return {
       ranked: rows.map((r) => ({
-        label: `${r.product} · ${r.plan}`,
+        label: `${r.plan} · ${r.product}`,
         value: r.n,
         text: count(r.n),
+        venture: ventureOf.get(r.product),
       })),
       /* EVERY ROW NAMES ITS PRODUCT AND NOTHING IS ADDED. Two products' "pro"
          plans are two words two people chose independently, and a bar holding
          both would be a bar in no unit. */
-      caption: "Every row is one product's own plan name. Nothing here is added across products: two owners chose the word “pro” independently, and a total of them would be a number about a coincidence of spelling.",
+      caption: "Each product's own plan names — not added across products",
     };
   },
 
@@ -12989,11 +12989,11 @@ Object.assign(LIVE_BUILDERS, {
     const placed = listedUsers(U).reduce((n, p) => n + p.countries.reduce((m, c) => m + c.n, 0), 0);
     const held = listedUsers(U).reduce((n, p) => n + p.rowsHeld, 0);
     return {
-      ranked: rows.map(([code, n]) => ({ label: code, value: n, text: count(n), sub: pct(n / placed, { digits: 0 }) })),
+      ranked: rows.map(([code, n]) => ({ label: countryName(code), value: n, text: count(n), sub: pct(n / placed, { digits: 0 }) })),
       /* THE ONE PER-ROW FACT THAT DOES ADD ACROSS PRODUCTS. A person in IE is
          in IE whoever they signed up with, which is exactly what a plan name
          is not. */
-      caption: `${count(placed)} of the ${count(held)} rows held carry a country, and these add across products — a person in IE is in IE whoever they signed up with. Only the top ten are drawn; the rest of each product's list is on its own page.`,
+      caption: `Top 10 · ${count(placed)} of ${count(held)} listed users have a country`,
     };
   },
 
@@ -13003,7 +13003,10 @@ Object.assign(LIVE_BUILDERS, {
     const grid = dayGrid(U.window.days);
     const rows: string[][] = [];
     const tones: (StatusTone | null)[] = [];
-    for (const p of U.products) {
+    /* Biggest first: the table is read top-down and the big products are
+       the ones anybody asks about. */
+    const byUsers = U.products.slice().sort((a, b) => (b.total ?? b.rowsHeld) - (a.total ?? a.rowsHeld));
+    for (const p of byUsers) {
       const s = endpointState(p);
       const countsOnly = p.shape === "counts";
       rows.push([
@@ -13023,7 +13026,11 @@ Object.assign(LIVE_BUILDERS, {
             ? `+${count(newInWindow(p, grid))}`
             : DASH,
         count(p.active, { nullText: DASH }),
-        p.paid === null ? DASH : `${count(p.paid)}${p.paidUnknown ? ` · ${count(p.paidUnknown)} not said` : ""}`,
+        p.paid === null
+          ? DASH
+          : p.paidUnknown && p.paid === 0 && p.paidUnknown >= (p.total ?? p.rowsHeld)
+            ? "unknown"
+            : `${count(p.paid)}${p.paidUnknown ? ` (${count(p.paidUnknown)} unknown)` : ""}`,
         when(p.lastSignupAt),
         s.text,
       ]);
@@ -13037,7 +13044,7 @@ Object.assign(LIVE_BUILDERS, {
          except on a counts-only row, which quotes the window the PRODUCT chose
          in the product's own words. */
       headers: ["Product", "Users", `New · ${windowLabel(U.window.days)}`, "Active", "Paying", "Last signup", "State"],
-      caption: "“Users” is the product's own count where it published one, and a count of the rows held here otherwise — which is a floor. A dash is a product that cannot answer that column, never a zero.",
+      caption: "A dash means the product doesn't report that figure",
     };
   },
 
@@ -13056,13 +13063,13 @@ Object.assign(LIVE_BUILDERS, {
         r.emailDomain ?? "no address on file",
         r.plan ?? DASH,
         r.paid === null ? DASH : r.paid ? "yes" : "no",
-        r.country ?? DASH,
+        r.country ? countryName(r.country) : DASH,
       ]),
       /* THERE IS NO ADDRESS HERE AND THERE CANNOT BE. The collector stores a
          salted hash and the mail domain; "gmail.com" identifies nobody, and
          there is no route in this application that takes or returns an
          address. That is the capability being declined, not a gap. */
-      caption: "Merged and re-sorted by the route — five from each of four products is not the newest twenty overall. The mail DOMAIN and nothing more: addresses are stored as a salted hash and no route here takes or returns one.",
+      caption: "Newest first across every product · only the mail domain is stored, never the address",
     };
   },
 

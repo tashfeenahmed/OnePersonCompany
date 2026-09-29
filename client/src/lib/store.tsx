@@ -1363,7 +1363,10 @@ const SEED: StoreState = {
            across up to five products, and five keys under a one-column tile
            wrap to five lines. Nothing tops this board up, so there is no
            second layout for it to disagree with. */
-        { id: "us1", type: "users.worth", w: 2 },
+        /* Reordered 2026-09-29 for reading at a glance: the base and the
+           window's movement first, the money and reach tiles, the daily bars,
+           then who and where, then the tables; plumbing (alerts, endpoint
+           states) at the foot, and the refusals card gone. */
         { id: "us2", type: "users.total", w: 2 },
         { id: "us3", type: "users.new", w: 1 },
         { id: "us4", type: "users.active", w: 1 },
@@ -1371,21 +1374,18 @@ const SEED: StoreState = {
         { id: "us6", type: "users.conversion", w: 1 },
         { id: "us7", type: "users.email", w: 1 },
         { id: "us8", type: "users.returned", w: 1 },
-        { id: "us9", type: "users.sources", w: 2 },
         { id: "us10", type: "users.signups", w: 4 },
         { id: "us12", type: "users.share", w: 2 },
+        { id: "us15", type: "users.countries", w: 2 },
         { id: "us13", type: "users.populations", w: 2 },
         { id: "us14", type: "users.plans", w: 2 },
-        { id: "us15", type: "users.countries", w: 2 },
         { id: "us16", type: "users.table", w: 4 },
         { id: "us17", type: "users.recent", w: 4 },
-        /* PER PROJECT, with no venture chosen — the Search board's rule. The
-           seed cannot know which venture the owner reads first, and a card
-           that has to be found in the palette is a card nobody finds. */
+        { id: "us1", type: "users.worth", w: 2 },
+        { id: "us9", type: "users.sources", w: 2 },
+        /* PER PROJECT, with no venture chosen — the Search board's rule. */
         { id: "us18", type: "users.project", w: 2 },
         { id: "us19", type: "users.products", w: 2 },
-        /* The refusals close the board, the way `gsc.cannot` closes SEO. */
-        { id: "us20", type: "users.cannot", w: 2 },
       ],
     },
     /*
