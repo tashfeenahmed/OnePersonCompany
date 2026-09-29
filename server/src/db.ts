@@ -6285,6 +6285,8 @@ export type DemandItemRow = {
   tier: string;
   first_seen_at: string;
   seen_at: string;
+  /** The post's own words, plain text — see providers/demand `plainBody`. */
+  body: string | null;
 };
 
 export type DemandItemWrite = Omit<DemandItemRow, "first_seen_at" | "seen_at">;
@@ -6302,8 +6304,8 @@ export function writeDemandItems(rows: DemandItemWrite[]): number {
   const stmt = db.prepare(
     `INSERT INTO demand_items
        (source, id, term, title, url, context, created_at, points, comments,
-        tier, first_seen_at, seen_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        tier, first_seen_at, seen_at, body)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(source, id, term) DO UPDATE SET
        title      = excluded.title,
        url        = excluded.url,
@@ -6311,6 +6313,7 @@ export function writeDemandItems(rows: DemandItemWrite[]): number {
        created_at = COALESCE(excluded.created_at, demand_items.created_at),
        points     = COALESCE(excluded.points, demand_items.points),
        comments   = COALESCE(excluded.comments, demand_items.comments),
+       body       = COALESCE(excluded.body, demand_items.body),
        tier       = excluded.tier,
        seen_at    = excluded.seen_at`,
   );
@@ -6330,6 +6333,7 @@ export function writeDemandItems(rows: DemandItemWrite[]): number {
         r.tier,
         seen,
         seen,
+        r.body ?? null,
       );
     db.exec("COMMIT");
   } catch (err) {

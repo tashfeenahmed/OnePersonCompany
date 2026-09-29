@@ -1228,8 +1228,8 @@ const SEED: StoreState = {
         { id: "de23", type: "demand.daily", w: 4 },
         { id: "de24", type: "demand.phrases", w: 2 },
         { id: "de25", type: "demand.searchRanked", w: 2 },
-        { id: "de26", type: "demand.open", w: 2 },
-        { id: "de27", type: "demand.top", w: 2 },
+        { id: "de26", type: "demand.open", w: 4 },
+        { id: "de27", type: "demand.top", w: 4 },
         { id: "de28", type: "demand.subs", w: 2 },
         { id: "de7", type: "demand.coverage", w: 2 },
         { id: "de9", type: "reddit.tier", w: 2 },
@@ -1495,7 +1495,7 @@ export function defaultWidth(type: string): 1 | 2 | 4 {
   const kind = WIDGETS[type]?.kind;
   if (kind === "metric") return 1;
   /* A section heading runs across the whole board. */
-  if (kind === "heading" || kind === "daily" || kind === "appfilter" || kind === "appgrid") return 4;
+  if (kind === "heading" || kind === "daily" || kind === "appfilter" || kind === "appgrid" || kind === "threads") return 4;
   if (kind === "chart" || kind === "table" || kind === "runway") return 4;
   /* A feed carries a picture, three lines of copy and a strip of figures per
      row: at two columns the copy wraps to six lines and the figures stack. */
