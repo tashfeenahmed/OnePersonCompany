@@ -964,6 +964,25 @@ export type StripeReport = {
     mrr: StripeMoney[];
     note: string;
   };
+  /** Trials whose trial period ENDED inside each window, split into the ones
+   *  that turned into a paying subscription and the ones that never paid a
+   *  cent (ChartMogul, Baremetrics). Judged by the same confirmed-zero rule
+   *  as churn, so the two sections never disagree about a subscription. */
+  trialConversion: {
+    inFlight: number;
+    windows: {
+      days: number;
+      currency: string;
+      cohort: number;
+      converted: number;
+      neverPaid: number;
+      /** Past the trial, first charge failing: in the cohort, not converted. */
+      failing: number;
+      ratePct: number;
+      convertedMrr: number;
+    }[];
+    basis: string;
+  };
   /** One row per window per currency. `ratePct` is REVENUE churn over a
    *  reconstructed starting book — `basis` says exactly which, because a rate
    *  quoted without its denominator is not a measurement. */

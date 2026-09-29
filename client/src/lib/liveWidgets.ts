@@ -3209,6 +3209,42 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
+  "stripe.trialConversion": ({ stripe: S, window: W }: LiveInputs) => {
+    const tc = S?.trialConversion;
+    if (!tc) return null;
+    /*
+      WHETHER THE PRODUCT SURVIVES THE FREE LOOK. ChartMogul and Baremetrics
+      publish trial conversion as its own tile: acquisition spend buys either
+      customers or tourists, and this is the number that says which. The
+      cohort is trials that ENDED inside the selected window — a trial still
+      running has no verdict yet and is counted in the subtitle instead, so
+      the rate never moves with billing dates.
+    */
+    /* The route cuts at 7, 30 and 90 like churn, and a window with no ended
+       trial has no row — which reads as a dash, never as another window's
+       rate under this window's label. */
+    const days = churnDays(W);
+    const row = tc.windows.find((r) => r.days === days) ?? null;
+    const name = isAll(W) ? { name: `Trial conversion · ${days}d` } : {};
+    const running = tc.inFlight
+      ? `${count(tc.inFlight)} trial${tc.inFlight === 1 ? "" : "s"} still running`
+      : "";
+    if (!row)
+      return { ...name, value: "—", tone: undefined, sub: also("no trials ended in the window", running) };
+    return {
+      ...name,
+      value: `${row.ratePct.toFixed(0)}%`,
+      tone: row.ratePct >= 40 ? ("ok" as StatusTone) : row.ratePct >= 20 ? ("warn" as StatusTone) : ("bad" as StatusTone),
+      sub: also(
+        also(
+          `${count(row.converted)} of ${count(row.cohort)} trials converted`,
+          row.failing ? `${count(row.failing)} with a failing first charge` : "",
+        ),
+        running,
+      ),
+    };
+  },
+
   "stripe.declines": ({ stripe: S, window: W }: LiveInputs) => {
     const c = firstCurrency(S?.charges);
     if (!c) return null;
