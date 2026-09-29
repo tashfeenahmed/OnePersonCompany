@@ -184,6 +184,10 @@ export type AdsBoardDocs = {
   health: { accounts: AdsHealth[]; note: string } | null;
   creatives: CreativesDoc | null;
   map: CampaignMapDoc | null;
+  /** The same creatives over the longest span the route keeps (90 days), so
+   *  the board can show the last campaign even when the picked window is
+   *  quiet — every campaign here was paused for weeks at a time. */
+  history: CreativesDoc | null;
   /** When the bundle was assembled. Not a source's clock — the cards quote
    *  the ad account's own `seenAt`, which is when Meta was last read. */
   fetchedAt: string;
@@ -200,11 +204,12 @@ const settled = async <T,>(p: Promise<T>): Promise<T | null> => {
 export const adsboard = {
   /** All three, each null on its own failure and never on a neighbour's. */
   docs: async (days: number): Promise<AdsBoardDocs> => {
-    const [health, creatives, map] = await Promise.all([
+    const [health, creatives, map, history] = await Promise.all([
       settled(growthApi.ads()),
       settled(call<CreativesDoc>(`/webanalytics/creatives?days=${days}`)),
       settled(call<CampaignMapDoc>("/webanalytics/campaigns")),
+      settled(call<CreativesDoc>("/webanalytics/creatives?days=90")),
     ]);
-    return { health, creatives, map, fetchedAt: new Date().toISOString() };
+    return { health, creatives, map, history, fetchedAt: new Date().toISOString() };
   },
 };
