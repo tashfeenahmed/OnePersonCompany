@@ -229,6 +229,9 @@ function appStore(days: number) {
           (p) => p.amount,
         ),
       })),
+      /** The same estimate per day and per app, in the buyer's currency —
+       *  what a per-day chart stacks. Days Apple has not generated are absent. */
+      days: proceeds.map((p) => ({ day: p.day, appId: p.app_id, currency: p.currency, amount: round(p.amount) })),
       note:
         "Apple's estimated developer proceeds from the daily sales report — a preview of the payout, before settlement and Apple's own currency conversion. Not revenue.",
     },
@@ -428,6 +431,16 @@ function play(days: number) {
         ),
         orders: sales.filter((s) => isoMonth(s.month) === m).reduce((n, s) => n + s.orders, 0),
         refunds: sales.filter((s) => isoMonth(s.month) === m).reduce((n, s) => n + s.refunds, 0),
+        /** The same estimate per app, so a card can put each package's money
+         *  beside its App Store twin. Never added across currencies. */
+        packages: [...new Set(sales.filter((s) => isoMonth(s.month) === m).map((s) => s.package))].sort().map((pkg) => ({
+          package: pkg,
+          currencies: byCurrency(
+            sales.filter((s) => isoMonth(s.month) === m && s.package === pkg),
+            (s) => s.currency,
+            (s) => s.charged,
+          ),
+        })),
       })),
       /** The month still running, which has orders and no payout — Google
        *  writes the earnings export only once a month has closed. */

@@ -36,8 +36,10 @@ import {
   stripeRecentCharges,
   stripeState,
   stripeSubscriptions,
+  ventureRows,
   type StripeSubscriptionRecord,
 } from "../db.ts";
+import { linkIndex, normaliseEntity } from "../integrations/ventures/links.ts";
 import { HISTORY_CHUNK_DAYS, WALK_DAYS, isBilling } from "../providers/stripe.ts";
 import { stripeSettled, ventureStripeBook } from "../integrations/finance/attribution.ts";
 import { currencyCode, money } from "../shared/money.ts";
@@ -561,8 +563,13 @@ function chargeSection(days: number, nowMs: number) {
  */
 function recentSection() {
   const { rows, total, oldest } = stripeRecentCharges(RECENT_CAP);
+  const owner = productOwner();
   return {
     recent: rows.map((r) => ({
+      /** What the charge bought and whose it is — null where no Checkout
+       *  Session or invoice named a product, or nobody linked it. */
+      product: r.product ?? null,
+      ...owner(r.product),
       id: r.id,
       amount: r.amount,
       currency: currencyCode(r.currency),
@@ -589,6 +596,82 @@ function recentSection() {
         "the window. The day aggregates above keep the whole history.",
     },
   };
+}
+
+/* ------------------------------------------------------ product per day */
+
+/**
+ * A PRODUCT'S VENTURE, by the same `venture_links` join `byVenture` uses —
+ * one owner or none. A product linked to two ventures is nobody's here, as it
+ * is in the P&L, rather than the first one's.
+ */
+function productOwner() {
+  const index = linkIndex("stripe");
+  const byId = new Map(ventureRows().map((v) => [v.id, v]));
+  return (product: string | null | undefined) => {
+    const owners = product ? (index.get(normaliseEntity(product)) ?? []) : [];
+    const v = owners.length === 1 ? byId.get(owners[0]!) : undefined;
+    return { ventureId: v?.id ?? null, venture: v?.name ?? null, host: v?.host ?? null };
+  };
+}
+
+/**
+ * SUCCEEDED CHARGES PER DAY, PER PRODUCT — the split under `charges.series`.
+ *
+ * Read off the individual charges, which the collector keeps for the ninety
+ * days it rewalks; `from` is the first day this cut can see, so a wider
+ * window draws its older days as totals with no split rather than as a
+ * product that stopped selling. Gross, before fees and refunds, dated by the
+ * charge — the same basis as `charges.series[].gross`, so each day's parts
+ * add up to that day's bar. A charge with no product is `product: null`.
+ */
+function productDaysSection(days: number, nowMs: number) {
+  const from = utcDay(nowMs - (days - 1) * 86_400_000);
+  const rows = db
+    .prepare(
+      `SELECT substr(created_at, 1, 10) AS day, product, currency, COUNT(*) AS n,
+              COALESCE(SUM(amount), 0) AS gross
+         FROM stripe_charges
+        WHERE status = 'succeeded' AND created_at >= ?
+        GROUP BY 1, 2, 3
+        ORDER BY 1`,
+    )
+    .all(`${from}T00:00:00.000Z`) as unknown as {
+    day: string;
+    product: string | null;
+    currency: string;
+    n: number;
+    gross: number;
+  }[];
+  const owner = productOwner();
+  const held = db
+    .prepare("SELECT MIN(created_at) AS oldest FROM stripe_charges")
+    .get() as unknown as { oldest: string | null };
+  const byCurrency = new Map<string, Map<string, { product: string | null; count: number; gross: number }[]>>();
+  for (const r of rows) {
+    const code = currencyCode(r.currency);
+    const cur = byCurrency.get(code) ?? new Map<string, { product: string | null; count: number; gross: number }[]>();
+    const list = cur.get(r.day) ?? [];
+    /* One part per product under the spelling `venture_links` compares by. */
+    const same = list.find((p) => normaliseEntity(p.product) === normaliseEntity(r.product) && !p.product === !r.product);
+    if (same) {
+      same.count += r.n;
+      same.gross = money(same.gross + r.gross);
+    } else list.push({ product: r.product, count: r.n, gross: money(r.gross) });
+    cur.set(r.day, list);
+    byCurrency.set(code, cur);
+  }
+  return [...byCurrency].map(([currency, dayMap]) => ({
+    currency,
+    /** The first day individual charges are held for. */
+    from: held.oldest ? held.oldest.slice(0, 10) : null,
+    days: [...dayMap].map(([day, parts]) => ({
+      day,
+      parts: parts
+        .map((p) => ({ ...p, ...owner(p.product) }))
+        .sort((a, b) => b.gross - a.gross),
+    })),
+  }));
 }
 
 /* ------------------------------------------------------------ per venture */
@@ -621,8 +704,9 @@ function recentSection() {
  */
 function ventureSection(days: number) {
   const rows = ventureStripeBook(days);
+  const hosts = new Map(ventureRows().map((v) => [v.id, v.host]));
   return {
-    byVenture: Object.fromEntries(rows.map((r) => [r.ventureId, r])),
+    byVenture: Object.fromEntries(rows.map((r) => [r.ventureId, { ...r, host: hosts.get(r.ventureId) ?? null }])),
     byVentureNote:
       "One entry per venture with a Stripe product linked to it, keyed by venture id so an " +
       "alert rule can address it (byVenture.<ventureId>.mrrAbsDelta). `mrr` is this venture's " +
@@ -774,6 +858,7 @@ stripeRoutes.get("/", (c) => {
     ...ventureSection(days),
     revenue: revenueSection(days, nowMs),
     charges: chargeSection(days, nowMs),
+    productDays: productDaysSection(days, nowMs),
     ...recentSection(),
     products: [...byProduct.entries()]
       .map(([name, v]) => ({

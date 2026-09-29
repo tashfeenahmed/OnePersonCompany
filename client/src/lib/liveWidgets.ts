@@ -2844,10 +2844,8 @@ Object.assign(LIVE_BUILDERS, {
          total that quietly became a sum is a total that changed meaning. */
       sub: also(
         also(
-          `${count(m.subscriptions)} billing subscription${m.subscriptions === 1 ? "" : "s"}`,
-          annual.subscriptions
-            ? `${count(annual.subscriptions)} annual, counted as a twelfth a month`
-            : "",
+          `${count(m.subscriptions)} subscription${m.subscriptions === 1 ? "" : "s"}`,
+          annual.subscriptions ? `${count(annual.subscriptions)} annual (÷12)` : "",
         ),
         across(S?.accounts.length),
       ),
@@ -2856,12 +2854,15 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "stripe.arr": ({ stripe: S }: LiveInputs) => {
+  "stripe.arr": ({ points, stripe: S }: LiveInputs) => {
     const m = firstCurrency(S?.mrr);
     if (!m) return null;
+    /* `points` are the MRR readings (the catalog's metric), drawn × 12. */
     return {
       value: inCurrency(m.arr, m.currency, 0),
-      sub: "MRR × 12 — the same contracted revenue, not a forecast",
+      sub: "MRR × 12, not a forecast",
+      series: points.length > 1 ? points.map((p) => p.value * 12) : undefined,
+      seriesAt: points.length > 1 ? points.map((p) => p.ts) : undefined,
     };
   },
 
@@ -3072,9 +3073,7 @@ Object.assign(LIVE_BUILDERS, {
       sub: also(
         `${inCurrency(b.pending, b.currency, 0)} pending`,
         also(
-          last
-            ? `last payout ${inCurrency(last.amount, last.currency, 0)} on ${dayShort(last.arrivalDate)}${last.automatic ? "" : ", sent by hand"}`
-            : "",
+          last ? `last paid out ${inCurrency(last.amount, last.currency, 0)} on ${dayShort(last.arrivalDate)}` : "",
           across(S?.accounts.length),
         ),
       ),
@@ -13348,18 +13347,10 @@ Object.assign(LIVE_BUILDERS, {
          was rebuilt to lose. What stays is the two things a reader can get
          WRONG from the figure alone: that it is a level rather than a window,
          and that it crossed a currency to exist. */
-      caption: [
-        "A level, not a window: what the book and the stores bill as things stand, × 12 — not money collected, and the picker does not move it.",
-        rateUsed
-          ? `Converted into ${ring} ${rateWords(rateUsed)}, which is what the ≈ is.`
-          : "",
-        unpriced.length
-          ? `${unpriced.join(", ")} could be priced by neither a rate you typed nor the ECB file, so ${unpriced.length === 1 ? "that stream is" : "those streams are"} left OUT of the total.`
-          : "",
-        "Each store contributes its newest COMPLETE month; a month still being written is never read as a rate.",
-      ]
-        .filter(Boolean)
-        .join(" "),
+      caption: also(
+        "What everything bills as it stands, × 12",
+        also(rateUsed ? `≈ converted to ${ring} ${rateWords(rateUsed)}` : "", unpriced.length ? `${unpriced.join(", ")} not priced, left out` : ""),
+      ),
     };
   },
 
@@ -17112,6 +17103,497 @@ Object.assign(LIVE_BUILDERS, {
           };
         }),
       caption: undated ? `${undated} without a registration date` : undefined,
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* =============================================================== revenue
+   THE REVENUE BOARD, DRAWN RATHER THAN WRITTEN — what we earn, from which
+   product, whether it is growing, and where money leaks. Every product row
+   carries its venture's favicon or its app's icon. Money from different
+   currencies is added only through the Finance FX rates (typed, else the
+   ECB file) and then wears "≈"; a currency neither can price is left out
+   and named, never guessed.
+   ======================================================================== */
+
+type RevApp = AppsDoc["apps"][number];
+
+/** A bank's decline sentence as a few words: "Card declined". */
+function revReason(text: string): string {
+  const t = text.toLowerCase();
+  if (t.includes("insufficient funds")) return "Insufficient funds";
+  if (t.includes("security code")) return "Wrong security code";
+  if (t.includes("card number")) return "Wrong card number";
+  if (t.includes("expired card") || t.includes("card has expired")) return "Card expired";
+  if (t.includes("does not support")) return "Card does not support this";
+  if (t.includes("attempt") && t.includes("expired")) return "Checkout abandoned";
+  if (t.includes("declined")) return "Card declined";
+  if (t.includes("payment failed")) return "Payment failed";
+  const clause = shortReason(text).replace(/\.$/, "");
+  return clause.charAt(0).toUpperCase() + clause.slice(1);
+}
+
+/** Into the display currency, remembering what was converted and what could
+ *  not be priced. */
+function revFx(F: FinanceReport | null | undefined) {
+  const ring = displayCurrency(F);
+  const rates = F?.summary.fx.rates ?? [];
+  const reference = F?.summary.fx.reference ?? null;
+  const state = { converted: false, unpriced: new Set<string>() };
+  const to = (amount: number, currency: string): number | null => {
+    const c = currency.toUpperCase();
+    if (c === ring) return amount;
+    const r = rateBetween(c, ring, rates, reference);
+    if (!r) {
+      state.unpriced.add(c);
+      return null;
+    }
+    state.converted = true;
+    return amount * r.rate;
+  };
+  const fmt = (n: number, approx = state.converted) =>
+    `${approx ? "≈" : ""}${money(n, ring, { digits: Math.abs(n) < 10 ? 2 : 0 })}`;
+  const note = () =>
+    also(
+      state.converted ? `≈ converted to ${ring} at Finance FX rates` : "",
+      state.unpriced.size ? `${[...state.unpriced].join(", ")} not priced, left out` : "",
+    );
+  return { ring, to, fmt, note, state };
+}
+
+/** "LLMAPI: AI Chat & API" → "LLMAPI". */
+const revAppName = (name: string) => name.split(/[:–—]/)[0]!.trim();
+
+const revAppStore = (A: AppsDoc | null | undefined, id: string) => A?.apps.find((a) => a.appstore?.id === id) ?? null;
+const revPlay = (A: AppsDoc | null | undefined, pkg: string) =>
+  A?.apps.find((a) => a.play?.package.toLowerCase() === pkg.toLowerCase()) ?? null;
+const revAppMark = (a: RevApp) => ({ icon: a.icon, name: a.name, ventureId: a.ventureId });
+
+/** A Stripe product's venture, by the product lists `byVenture` publishes. */
+function revProductVenture(S: StripeReport | null | undefined, product: string | null) {
+  if (!product || !S?.byVenture) return null;
+  const key = product.trim().toLowerCase();
+  return Object.values(S.byVenture).find((v) => v.products.some((p) => p.trim().toLowerCase() === key)) ?? null;
+}
+
+/** The label a Stripe part is grouped under: its venture, else its product. */
+function revStripeKey(p: { ventureId: string | null; venture: string | null; product: string | null }) {
+  if (p.ventureId) return { key: `v:${p.ventureId}`, label: p.venture ?? p.product ?? "Stripe" };
+  if (p.product) return { key: `p:${p.product.toLowerCase()}`, label: p.product };
+  return { key: "stripe:none", label: "Stripe · no product" };
+}
+
+type RevPart = { label: string; value: number; host?: string | null; app?: ReturnType<typeof revAppMark>; venture?: string };
+
+/**
+ * EVERY DAY OF THE WINDOW, SPLIT BY WHAT EARNED IT: Stripe charges by
+ * venture (before fees), App Store proceeds by app (Apple's estimate, after
+ * its cut) and AdSense (Google's estimate). Google Play reports a month at a
+ * time and has no day to stand on, so it is not here.
+ */
+function revDays(d: LiveInputs) {
+  const { stripe: S, mobile: M, adsense: A, apps: APPS, finance: F } = d;
+  const fx = revFx(F);
+  const days = new Map<string, Map<string, RevPart>>();
+  const add = (day: string, key: string, part: RevPart) => {
+    const m = days.get(day) ?? new Map<string, RevPart>();
+    const cur = m.get(key);
+    if (cur) cur.value += part.value;
+    else m.set(key, { ...part });
+    days.set(day, m);
+  };
+  for (const c of S?.charges ?? []) {
+    const split = new Map((S?.productDays ?? []).filter((p) => p.currency.toUpperCase() === c.currency.toUpperCase()).flatMap((p) => p.days.map((x) => [x.day, x.parts] as const)));
+    for (const s of c.series) {
+      const parts = split.get(s.day) ?? [];
+      let seen = 0;
+      for (const p of parts) {
+        const v = fx.to(p.gross, c.currency);
+        if (v === null) continue;
+        seen += p.gross;
+        const k = revStripeKey(p);
+        add(s.day, k.key, { label: k.label, value: v, host: p.host, venture: p.ventureId ?? undefined });
+      }
+      const rest = s.gross - seen;
+      if (rest > 0.5) {
+        const v = fx.to(rest, c.currency);
+        if (v !== null) add(s.day, "stripe:none", { label: "Stripe · no product", value: v });
+      }
+      if (!days.has(s.day)) days.set(s.day, new Map());
+    }
+  }
+  const from = M?.window.from ?? null;
+  for (const p of M?.appstore.estimated.days ?? []) {
+    if (from && p.day < from) continue;
+    const v = fx.to(p.amount, p.currency);
+    if (v === null) continue;
+    const app = revAppStore(APPS, p.appId);
+    const name = app ? revAppName(app.name) : (M?.appstore.apps.find((a) => a.id === p.appId)?.name ?? "App Store");
+    add(p.day, `ios:${p.appId}`, { label: `${name} · iOS`, value: v, app: app ? revAppMark(app) : undefined });
+  }
+  if (A?.state === "authorised") {
+    const site = A.sites.length === 1 ? A.sites[0]!.site : null;
+    for (const x of A.days) {
+      if (!x.usd) continue;
+      const v = fx.to(x.usd, A.currency ?? "USD");
+      if (v !== null) add(x.day, "adsense", { label: site ? `${site} · AdSense` : "AdSense", value: v, host: site });
+    }
+  }
+  const list = [...days.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([day, m]) => ({ day, parts: [...m.values()] }));
+  return { fx, list };
+}
+
+Object.assign(LIVE_BUILDERS, {
+  "revenue.gross": ({ stripe: S, finance: F }: LiveInputs) => {
+    const cs = S?.charges ?? [];
+    if (!cs.length) return null;
+    const fx = revFx(F);
+    let total = 0;
+    const byDay = new Map<string, number>();
+    for (const c of cs) {
+      const v = fx.to(c.gross, c.currency);
+      if (v !== null) total += v;
+      for (const s of c.series) {
+        const x = fx.to(s.gross, c.currency);
+        if (x !== null) byDay.set(s.day, (byDay.get(s.day) ?? 0) + x);
+      }
+    }
+    const succeeded = cs.reduce((n, c) => n + c.succeeded, 0);
+    const refunds = cs.reduce((n, c) => n + c.refunds, 0);
+    const series = [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    return {
+      value: fx.fmt(total),
+      sub: also(`${count(succeeded)} payments`, refunds ? `${count(refunds)} refunded` : "no refunds"),
+      series: series.length > 1 ? series.map(([, v]) => v) : undefined,
+      seriesAt: series.length > 1 ? series.map(([d]) => at(d)) : undefined,
+      unit: "usd" as const,
+    };
+  },
+
+  "revenue.net": ({ stripe: S }: LiveInputs) => {
+    const r = firstCurrency(S?.revenue);
+    if (!r) return null;
+    return {
+      value: inCurrency(r.net, r.currency, 0),
+      sub: also(
+        `${inCurrency(r.feesTotal + r.refunds + r.disputes, r.currency, 0)} off in fees, tax & refunds`,
+        r.gross > 0 ? `keeps ${pct(r.net / r.gross, { digits: 0 })}` : "",
+      ),
+      series: r.series.length > 1 ? r.series.map((x) => x.net) : undefined,
+      seriesAt: r.series.length > 1 ? r.series.map((x) => at(x.day)) : undefined,
+      unit: "usd" as const,
+    };
+  },
+
+  "revenue.daily": (d: LiveInputs) => {
+    const { fx, list } = revDays(d);
+    if (list.length < 2) return null;
+    const total = list.reduce((n, x) => n + x.parts.reduce((m, p) => m + p.value, 0), 0);
+    if (!total) return null;
+    const best = list.reduce((b, x) => {
+      const t = x.parts.reduce((m, p) => m + p.value, 0);
+      return t > b.t ? { day: x.day, t } : b;
+    }, { day: list[0]!.day, t: -1 });
+    return {
+      daily: list.map((x) => ({
+        day: x.day,
+        total: x.parts.reduce((m, p) => m + p.value, 0),
+        parts: x.parts.map((p) => ({ label: p.label, value: p.value, host: p.host ?? null, app: p.app })),
+      })),
+      dailySplit: "By product",
+      unit: "usd" as const,
+      caption: also(
+        also(`${fx.fmt(total)} in ${count(list.length)} days`, `best ${dayShort(best.day)} ${fx.fmt(best.t)}`),
+        also("Stripe before fees, App Store and AdSense are estimates, Play reports monthly", fx.note()),
+      ),
+    };
+  },
+
+  "revenue.byProduct": (d: LiveInputs) => {
+    const { fx, list } = revDays(d);
+    if (!list.length) return null;
+    const S = d.stripe;
+    const rows = new Map<string, RevPart & { spark: number[] }>();
+    list.forEach((x, i) => {
+      for (const p of x.parts) {
+        const key = p.venture ? `v:${p.venture}` : p.app ? `a:${p.label}` : p.label;
+        const row = rows.get(key) ?? { ...p, value: 0, spark: new Array<number>(list.length).fill(0) };
+        row.value += p.value;
+        row.spark[i]! += p.value;
+        rows.set(key, row);
+      }
+    });
+    const ranked = [...rows.values()].filter((r) => r.value > 0.005).sort((a, b) => b.value - a.value);
+    if (!ranked.length) return null;
+    const whole = ranked.reduce((n, r) => n + r.value, 0);
+    return {
+      ranked: ranked.slice(0, 10).map((r): RankedRow => {
+        const v = r.venture ? S?.byVenture?.[r.venture] : undefined;
+        const mrr = v?.mrr ? `MRR ${inCurrency(v.mrr, v.currency ?? "USD", 0)}` : "";
+        return {
+          label: r.label,
+          value: r.value,
+          text: fx.fmt(r.value),
+          sub: also(pct(r.value / whole, { digits: 0 }), mrr || (r.app ? "App Store est." : r.label.includes("AdSense") ? "est." : "")),
+          spark: r.spark.some((x) => x > 0) ? r.spark : undefined,
+          ...(r.venture ? { venture: r.venture } : r.app ? { app: r.app } : { host: r.host ?? null }),
+        };
+      }),
+      caption: also(ranked.length > 10 ? `${count(ranked.length - 10)} more not drawn` : "", fx.note()) || undefined,
+    };
+  },
+
+  "revenue.mrrByProduct": ({ stripe: S }: LiveInputs) => {
+    const m = firstCurrency(S?.mrr);
+    const products = (S?.products ?? []).filter((p) => p.mrr > 0);
+    if (!m || !products.length) return null;
+    const perVenture = new Map<string, number>();
+    for (const p of products) {
+      const v = revProductVenture(S, p.name);
+      if (v) perVenture.set(v.ventureId, (perVenture.get(v.ventureId) ?? 0) + 1);
+    }
+    return {
+      ranked: products.slice(0, 10).map((p): RankedRow => {
+        const v = revProductVenture(S, p.name);
+        const moved = v && perVenture.get(v.ventureId) === 1 && v.mrrDelta ? v.mrrDelta : null;
+        return {
+          label: p.name,
+          value: p.mrr,
+          text: `${inCurrency(p.mrr, p.currency, 0)}/mo`,
+          sub: also(
+            `${count(p.subscribers)} sub${p.subscribers === 1 ? "" : "s"}`,
+            moved ? `${moved > 0 ? "+" : "−"}${inCurrency(Math.abs(moved), p.currency, 0)} in ${v!.days}d` : "",
+          ),
+          ...(v ? { venture: v.ventureId } : {}),
+        };
+      }),
+      caption: products.length > 10 ? `${count(products.length - 10)} more products` : undefined,
+    };
+  },
+
+  "revenue.plans": ({ stripe: S }: LiveInputs) => {
+    const m = firstCurrency(S?.mrr);
+    if (!m) return null;
+    const i = m.byInterval;
+    const parts: ProportionPart[] = [
+      { label: "annual", value: i.annual.amount, text: `${inCurrency(i.annual.amount, m.currency, 0)} · ${count(i.annual.subscriptions)}` },
+      { label: "monthly", value: i.monthly.amount, text: `${inCurrency(i.monthly.amount, m.currency, 0)} · ${count(i.monthly.subscriptions)}` },
+    ];
+    if (i.other.amount > 0) parts.push({ label: "other", value: i.other.amount, text: inCurrency(i.other.amount, m.currency, 0) });
+    const pretty = (name: string) => {
+      const s = name.replace(/[_-]+/g, " ").trim().toLowerCase();
+      return s.charAt(0).toUpperCase() + s.slice(1);
+    };
+    const plans = (S?.plans ?? []).filter((p) => p.mrr > 0).slice(0, 6);
+    return {
+      value: m.amount > 0 ? pct(i.annual.amount / m.amount, { digits: 0 }) : DASH,
+      sub: "of MRR is billed yearly",
+      partsLabel: "MRR by billing interval · MRR · subscriptions",
+      parts,
+      ranked: plans.map((p) => ({
+        label: pretty(p.name),
+        value: p.mrr,
+        text: `${inCurrency(p.mrr, p.currency, 0)}/mo`,
+        sub: `${count(p.subscribers)} sub${p.subscribers === 1 ? "" : "s"}`,
+      })),
+    };
+  },
+
+  "revenue.movement": ({ stripe: S, window: W }: LiveInputs) => {
+    const c = churnRow(S, churnDays(W));
+    if (!c) return null;
+    const m = (n: number) => inCurrency(n, c.currency, 0);
+    const start = c.startBookMrr;
+    const other = c.mrr - (start + c.newMrr - c.churnedFromStartMrr);
+    const steps: WaterfallStep[] = [
+      { label: "Start", sub: `${c.days}d ago`, value: start, text: m(start), total: true },
+      { label: "New", sub: `${count(c.newSubs)} subs`, value: c.newMrr, text: m(c.newMrr) },
+      { label: "Churned", sub: `${count(c.churnedFromStartSubs)} subs`, value: -c.churnedFromStartMrr, text: m(c.churnedFromStartMrr) },
+    ];
+    if (Math.abs(other) >= 1) steps.push({ label: "Other", sub: "price changes", value: other, text: m(Math.abs(other)) });
+    steps.push({ label: "Now", sub: `${count(c.startSubs + c.newSubs - c.churnedFromStartSubs)} subs`, value: c.mrr, text: m(c.mrr), total: true });
+    const rows: [string, string][] = [];
+    const inside = c.churnedMrr - c.churnedFromStartMrr;
+    if (inside > 0.5) rows.push(["Started and cancelled inside the window", `${m(inside)}/mo`]);
+    const p = S?.subscriptions.pendingCancellation;
+    const pm = firstCurrency(p?.mrr);
+    if (p?.count) rows.push(["Asked to cancel, still billing", `${count(p.count)} · ${pm ? `${m(pm.amount)}/mo` : DASH}`]);
+    return { name: `MRR movement · ${c.days}d`, tag: "approx", steps, rows };
+  },
+
+  "revenue.leaks": ({ stripe: S }: LiveInputs) => {
+    const r = firstCurrency(S?.revenue);
+    if (!r || !r.gross) return null;
+    const m = (n: number) => inCurrency(n, r.currency, 0);
+    const steps: WaterfallStep[] = [{ label: "Gross", value: r.gross, text: m(r.gross), total: true }];
+    const cut = (label: string, n: number, sub?: string) => {
+      if (n > 0.5) steps.push({ label, sub, value: -n, text: m(n) });
+    };
+    cut("Stripe fees", r.fees, r.feeRatePct === null ? undefined : `${r.feeRatePct.toFixed(1)}%`);
+    cut("Sales tax", r.taxWithheld, "remitted");
+    cut("Refunds", r.refunds);
+    cut("Disputes", r.disputes);
+    if (Math.abs(r.other) > 0.5) steps.push({ label: "Other", value: r.other, text: m(Math.abs(r.other)) });
+    steps.push({ label: "Net", sub: pct(r.net / r.gross, { digits: 0 }), value: r.net, text: m(r.net), total: true });
+    return { steps, caption: "The Stripe balance ledger, dated by settlement" };
+  },
+
+  "revenue.churn": ({ stripe: S, window: W }: LiveInputs) => {
+    const days = churnDays(W);
+    const c = churnRow(S, days);
+    if (!c || c.ratePct === null) return null;
+    const cur = c.currency;
+    const human: Record<string, string> = {
+      too_expensive: "Too expensive", missing_features: "Missing features", switched_service: "Switched service",
+      unused: "Not using it", customer_service: "Customer service", too_complex: "Too complicated",
+      low_quality: "Quality", other: "Other", involuntary: "Card failed", no_feedback: "No answer",
+    };
+    const feedback = c.byFeedback ?? [];
+    const latest = c.comments?.[0];
+    return {
+      ...(isAll(W) ? { name: `Churn · ${days}d` } : {}),
+      value: `${c.ratePct.toFixed(1)}%`,
+      tone: c.ratePct >= 5 ? ("warn" as StatusTone) : undefined,
+      sub: c.churnedMrr > 0
+        ? `${inCurrency(c.churnedMrr, cur, 0)}/mo cancelled · ${count(c.churnedSubs)} subs`
+        : "nothing cancelled",
+      partsLabel: feedback.length ? "Why they left" : undefined,
+      parts: feedback.map((f) => ({ label: human[f.feedback] ?? f.feedback.replace(/_/g, " "), value: f.mrr, text: `${inCurrency(f.mrr, cur, 0)}/mo` })),
+      ranked: c.byProduct.slice(0, 5).map((p): RankedRow => {
+        const v = revProductVenture(S, p.product);
+        return {
+          label: p.product,
+          value: p.mrr,
+          text: `−${inCurrency(p.mrr, cur, 0)}/mo`,
+          sub: `${count(p.subscriptions)} sub${p.subscriptions === 1 ? "" : "s"}`,
+          ...(v ? { venture: v.ventureId } : {}),
+        };
+      }),
+      rows: latest ? ([["Latest comment", `“${latest.comment.replace(/\s+/g, " ").slice(0, 90)}”`]] as [string, string][]) : undefined,
+    };
+  },
+
+  "revenue.failures": ({ stripe: S, window: W }: LiveInputs) => {
+    const c = firstCurrency(S?.charges);
+    if (!c) return null;
+    const attempts = c.succeeded + c.failed;
+    if (!attempts) return { value: DASH, sub: "no payment attempts", parts: [] };
+    const neither = Math.max(0, c.failed - c.blocked - c.declined);
+    const parts: ProportionPart[] = [
+      { label: "paid", value: c.succeeded, text: count(c.succeeded), tone: "ok" },
+      { label: "blocked by Radar", value: c.blocked, text: count(c.blocked), tone: "warn" },
+      { label: "declined by bank", value: c.declined, text: count(c.declined), tone: "bad" },
+    ];
+    if (neither) parts.push({ label: "other", value: neither, text: count(neither) });
+    const daily = c.series.filter((s) => s.succeeded + s.failed > 0);
+    const failedList = chargesInWindow(S?.recent ?? [], W ?? c.days, Date.now()).filter((r) => r.status === "failed" && r.failure);
+    const reasons = new Map<string, number>();
+    for (const r of failedList) {
+      const k = revReason(r.failure!);
+      reasons.set(k, (reasons.get(k) ?? 0) + 1);
+    }
+    const top = [...reasons.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+    return {
+      value: pct(c.failed / attempts, { digits: 0 }),
+      tone: c.declined / attempts >= 0.2 ? ("bad" as StatusTone) : undefined,
+      sub: `${count(c.failed)} of ${count(attempts)} attempts failed`,
+      partsLabel: "Payment attempts",
+      parts,
+      series: daily.length > 1 ? daily.map((s) => (s.failed / (s.succeeded + s.failed)) * 100) : undefined,
+      seriesAt: daily.length > 1 ? daily.map((s) => at(s.day)) : undefined,
+      seriesLabel: daily.length > 1 ? "share failing, per day" : undefined,
+      unit: "percent" as const,
+      ranked: top.map(([label, n]) => ({ label, value: n, text: count(n) })),
+      caption: top.length ? `Reasons from the newest ${count(failedList.length)} failed attempts` : undefined,
+    };
+  },
+
+  "revenue.disputes": ({ disputes: D }: LiveInputs) => {
+    if (!D) return null;
+    const c = firstCurrency(D.currencies);
+    const cur = c?.currency ?? "USD";
+    const open = c?.cases.openNow ?? D.open.length;
+    const due = c?.cases.nextEvidenceDueBy;
+    const o = D.counts.byOutcome;
+    return {
+      value: inCurrency(c?.ledger.moneyOut ?? 0, cur, 0),
+      tone: (c?.cases.needsResponseNow ?? 0) > 0 ? ("bad" as StatusTone) : undefined,
+      sub: also(
+        open ? `${count(open)} open${due ? ` · evidence due ${dayShort(due.slice(0, 10))}` : ""}` : "none open",
+        `${count(o.won)} won · ${count(o.lost)} lost ever`,
+      ),
+    };
+  },
+
+  "revenue.stores": ({ mobile: M, adsense: A, apps: APPS, finance: F }: LiveInputs) => {
+    if (!M && A?.state !== "authorised") return null;
+    const fx = revFx(F);
+    const month = new Date().toISOString().slice(0, 7);
+    const rows = new Map<string, { label: string; ios: number; play: number; ads: number; app?: RevApp; host?: string | null }>();
+    const row = (key: string, label: string, extra: { app?: RevApp; host?: string | null }) => {
+      const r = rows.get(key) ?? { label, ios: 0, play: 0, ads: 0, ...extra };
+      rows.set(key, r);
+      return r;
+    };
+    for (const p of M?.appstore.estimated.days ?? []) {
+      if (!p.day.startsWith(month)) continue;
+      const v = fx.to(p.amount, p.currency);
+      if (v === null) continue;
+      const app = revAppStore(APPS, p.appId);
+      const name = app?.name ?? M?.appstore.apps.find((a) => a.id === p.appId)?.name ?? p.appId;
+      row(app?.key ?? `ios:${p.appId}`, revAppName(name), { app: app ?? undefined }).ios += v;
+    }
+    const playMonth = M?.play.estimated.months.find((m) => m.month === month);
+    for (const pk of playMonth?.packages ?? [])
+      for (const c of pk.currencies) {
+        const v = fx.to(c.amount, c.currency);
+        if (v === null) continue;
+        const app = revPlay(APPS, pk.package);
+        row(app?.key ?? `play:${pk.package}`, revAppName(app?.name ?? pk.package), { app: app ?? undefined }).play += v;
+      }
+    const adMonth = A?.state === "authorised" ? A.months.find((m) => m.month === month) : null;
+    if (adMonth?.usd) {
+      const v = fx.to(adMonth.usd, A!.currency ?? "USD");
+      const site = A!.sites.length === 1 ? A!.sites[0]!.site : null;
+      if (v !== null) row("adsense", site ?? "AdSense", { host: site }).ads += v;
+    }
+    const list = [...rows.values()].map((r) => ({ ...r, total: r.ios + r.play + r.ads })).filter((r) => r.total > 0.005).sort((a, b) => b.total - a.total);
+    if (!list.length) return null;
+    const noPlaySplit = !!playMonth && !playMonth.packages;
+    return {
+      ranked: list.slice(0, 10).map((r): RankedRow => ({
+        label: r.label,
+        value: r.total,
+        text: fx.fmt(r.total, true),
+        sub: [r.ios ? `iOS ${fx.fmt(r.ios, true)}` : "", r.play ? `Play ${fx.fmt(r.play, true)}` : "", r.ads ? "AdSense" : ""].filter(Boolean).join(" · "),
+        ...(r.app ? { app: revAppMark(r.app) } : { host: r.host ?? null }),
+      })),
+      caption: also(
+        also(`${new Date(`${month}-01T00:00:00Z`).toLocaleDateString("en-GB", { month: "long", timeZone: "UTC" })} so far, estimates · Apple after its cut, Play before Google's`, noPlaySplit ? "Play not split by app on this server" : ""),
+        fx.note(),
+      ),
+    };
+  },
+
+  "revenue.recent": ({ stripe: S, window: W }: LiveInputs) => {
+    const list = S?.recent;
+    if (!S || !list) return null;
+    const shown = chargesInWindow(list, W ?? S.window.days, Date.now()).slice(0, 50);
+    const headers = ["When", "Product", "Customer", "Amount", "Status"];
+    if (!shown.length) return { headers, table: [], caption: "No payments in this window" };
+    const human = (iso: string) => (Date.now() - Date.parse(iso) < 86_400_000 ? ago(iso) : when(iso));
+    return {
+      headers,
+      table: shown.map((c) => [
+        human(c.createdAt),
+        c.venture ?? c.product ?? (c.description === "Subscription creation" ? "New subscription" : c.description) ?? DASH,
+        c.email ?? DASH,
+        inCurrency(c.amount, c.currency, c.amount % 1 ? 2 : 0),
+        c.refunded ? "refunded" : c.status === "succeeded" ? "paid" : c.failure ? revReason(c.failure) : c.status,
+      ]),
+      rowHosts: shown.map((c) => c.host ?? null),
+      rowTones: shown.map((c): StatusTone | null => (c.refunded ? "warn" : c.status === "succeeded" ? "ok" : c.status === "failed" ? "bad" : null)),
+      caption: "Newest first · emails masked",
     };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);

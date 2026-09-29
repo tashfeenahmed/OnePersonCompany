@@ -219,3 +219,23 @@ test("MCP advertises a read-only revenue view and returns the selected store's a
   assert.equal(report.stores[0].store, "playstore");
   assert.deepEqual(report.stores[0].revenue, [{ currency: "EUR", amount: 70 }]);
 });
+
+test("the Play estimate is split per package, each package's currencies kept apart", async () => {
+  const android = connect("playstore");
+  writePlaySales(android, "202609", [
+    { package: "com.example.app", currency: "EUR", charged: 10, taxes: 1, orders: 1, refunds: 0 },
+    { package: "com.example.app", currency: "USD", charged: 4, taxes: 0, orders: 1, refunds: 0 },
+    { package: "com.example.other", currency: "USD", charged: 3, taxes: 0, orders: 1, refunds: 0 },
+  ]);
+  const res = await mobile.request("/?days=30");
+  assert.equal(res.status, 200);
+  const doc = (await res.json()) as {
+    play: { estimated: { months: { month: string; packages: { package: string; currencies: { currency: string; amount: number }[] }[] }[] } };
+    appstore: { estimated: { days: unknown[] } };
+  };
+  const sept = doc.play.estimated.months.find((m) => m.month === "2026-09")!;
+  const app = sept.packages.find((p) => p.package === "com.example.app")!;
+  assert.deepEqual(app.currencies.map((c) => c.currency).sort(), ["EUR", "USD"]);
+  assert.equal(sept.packages.find((p) => p.package === "com.example.other")!.currencies[0]!.amount, 3);
+  assert.ok(Array.isArray(doc.appstore.estimated.days));
+});

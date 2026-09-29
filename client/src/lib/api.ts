@@ -427,7 +427,13 @@ export type MobileReport = {
       from: string | null;
       to: string | null;
     };
-    estimated: { currencies: Money[]; months: { month: string; currencies: Money[] }[]; note: string };
+    estimated: {
+      currencies: Money[];
+      months: { month: string; currencies: Money[] }[];
+      /** Per day per app, in the buyer's currency. Absent on an older route. */
+      days?: { day: string; appId: string; currency: string; amount: number }[];
+      note: string;
+    };
     payout: {
       currencies: Money[];
       months: { month: string; currencies: Money[] }[];
@@ -498,7 +504,15 @@ export type MobileReport = {
       note: string;
     };
     estimated: {
-      months: { month: string; settled: boolean; currencies: Money[]; orders: number; refunds: number }[];
+      months: {
+        month: string;
+        settled: boolean;
+        currencies: Money[];
+        orders: number;
+        refunds: number;
+        /** Per package. Absent on an older route. */
+        packages?: { package: string; currencies: Money[] }[];
+      }[];
       /** Months with orders and no payout yet — Google writes the earnings
        *  export only once a month has closed. */
       running: string[];
@@ -897,6 +911,41 @@ export type StripeCharge = {
   failure: string | null;
   failureCode: string | null;
   outcomeType: string | null;
+  /** What the charge bought, and the venture it is linked to — absent on a
+   *  route older than the fields, null where nobody could say. */
+  product?: string | null;
+  ventureId?: string | null;
+  venture?: string | null;
+  host?: string | null;
+};
+
+/** One part of a day's succeeded charges: one product, and its venture. */
+export type StripeProductPart = {
+  product: string | null;
+  ventureId: string | null;
+  venture: string | null;
+  host: string | null;
+  count: number;
+  gross: number;
+};
+
+/** A venture's slice of the Stripe book — see the route's `byVenture`. */
+export type StripeVentureRow = {
+  ventureId: string;
+  name: string;
+  slug: string;
+  host?: string | null;
+  products: string[];
+  currency: string | null;
+  mrr: number | null;
+  mrrByCurrency: Record<string, number>;
+  subscribers: number;
+  previousMrr: number | null;
+  mrrDelta: number | null;
+  oneOffCount: number;
+  oneOff: number | null;
+  oneOffByCurrency: Record<string, number>;
+  days: number;
 };
 
 export type StripeReport = {
@@ -1097,6 +1146,10 @@ export type StripeReport = {
    * masked in the table and arrives that way; `failure` is Stripe's own
    * sentence for a decline.
    */
+  /** Succeeded charges per day split by product, per currency (charges are
+   *  held ninety days, so `from` is the first day this cut can see). */
+  productDays?: { currency: string; from: string | null; days: { day: string; parts: StripeProductPart[] }[] }[];
+  byVenture?: Record<string, StripeVentureRow>;
   recent?: StripeCharge[];
   /** True when the table held more than the document carries. */
   recentTruncated?: boolean;

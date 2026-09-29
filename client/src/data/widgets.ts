@@ -277,7 +277,7 @@ export type DailyBar = {
   label?: string;
   tick?: string;
   /** `host` is a hostname for the venture favicon in the legend. */
-  parts?: { label: string; value: number; mark?: string | null; host?: string | null }[];
+  parts?: { label: string; value: number; mark?: string | null; host?: string | null; app?: Pick<AppEntry, "icon" | "name" | "ventureId"> }[];
 };
 
 /**
@@ -1363,7 +1363,7 @@ export const WIDGETS: Record<string, Widget> = {
     name: "ARR",
     window: "now",
     kind: "metric",
-    live: { stripe: true },
+    live: { stripe: true, metric: "stripe.mrr" },
   },
   "stripe.churnNotChurn": {
     src: "stripe",
@@ -5148,6 +5148,47 @@ export const WIDGETS: Record<string, Widget> = {
     what a wide one does, and a board that only has room for one should not
     have to take both.
   */
+  /* THE REVENUE BOARD'S VISUAL CARDS — products as favicons and app icons,
+     days as stacks of products, MRR movement and gross-to-net as
+     waterfalls. Currencies meet only through the Finance FX rates, with ≈. */
+  "revenue.gross": { src: "stripe", name: "Charged", window: "selected", kind: "metric", live: { stripe: true, finance: true }, unit: "usd" },
+  "revenue.net": { src: "stripe", name: "Net after fees", window: "selected", kind: "metric", live: { stripe: true }, unit: "usd" },
+  "revenue.daily": {
+    src: "revenue",
+    name: "Revenue per day",
+    window: "selected",
+    kind: "daily",
+    live: { stripe: true, mobile: true, adsense: true, apps: true, finance: true },
+    unit: "usd",
+  },
+  "revenue.byProduct": {
+    src: "revenue",
+    name: "Revenue by product",
+    window: "selected",
+    kind: "ranked",
+    live: { stripe: true, mobile: true, adsense: true, apps: true, finance: true },
+  },
+  "revenue.mrrByProduct": { src: "stripe", name: "MRR by product", window: "now", kind: "ranked", live: { stripe: true } },
+  "revenue.plans": { src: "stripe", name: "Plans", window: "now", kind: "proportion", live: { stripe: true } },
+  "revenue.movement": { src: "stripe", name: "MRR movement", kind: "waterfall", live: { stripe: true } },
+  "revenue.leaks": { src: "stripe", name: "Gross to net", window: "selected", kind: "waterfall", live: { stripe: true } },
+  "revenue.churn": { src: "stripe", name: "Churn", window: "selected", kind: "proportion", live: { stripe: true } },
+  "revenue.failures": { src: "stripe", name: "Failed payments", window: "selected", kind: "proportion", live: { stripe: true } },
+  "revenue.disputes": { src: "stripe", name: "Lost to disputes", window: "selected", kind: "metric", live: { disputes: true } },
+  "revenue.stores": {
+    src: "revenue",
+    name: "Apps & AdSense this month",
+    kind: "ranked",
+    live: { mobile: true, adsense: true, apps: true, finance: true },
+  },
+  "revenue.recent": {
+    src: "stripe",
+    name: "Recent payments",
+    window: "selected",
+    kind: "table",
+    live: { stripe: true },
+    headers: ["When", "Product", "Customer", "Amount", "Status"],
+  },
   "revenue.sources": {
     src: "revenue",
     name: "Revenue by source",
