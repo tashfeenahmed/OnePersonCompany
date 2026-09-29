@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useApi } from "@/hooks/useApi";
 import { call } from "@/lib/api";
 const fields = [
-  ["runSeconds", "Maximum job runtime (seconds)"], ["runCalls", "Model calls per job"], ["dailyCalls", "Model calls per UTC day"], ["automationDailyCalls", "Scheduled model calls per UTC day"],
+  ["runSeconds", "Maximum job runtime (seconds, 0 = no limit)"], ["runCalls", "Model calls per job"], ["dailyCalls", "Model calls per UTC day"], ["automationDailyCalls", "Scheduled model calls per UTC day"],
   ["maxOutputTokens", "Maximum output tokens per model call"], ["runTokens", "Token budget per job"], ["dailyTokens", "Daily token budget"], ["ventureDailyTokens", "Daily token budget per venture"],
   ["usdPerMillion", "Price ceiling: USD per million tokens"], ["runUsd", "Dollar budget per job"], ["dailyUsd", "Daily dollar budget"], ["ventureDailyUsd", "Daily dollar budget per venture"],
 ];
