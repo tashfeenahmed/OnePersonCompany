@@ -64,6 +64,7 @@ import type { AdRow, AdsBoardDocs } from "@/lib/api/adsboard";
 import type { MobileHealthDocs } from "@/lib/api/mobilehealthboard";
 import type { AppsDoc } from "@/lib/api/apps";
 import type { DevInsights } from "@/lib/api/devInsights";
+import type { TiktokHandle, TiktokReport, TiktokVideo } from "@/lib/api/tiktok";
 import type { WebAnalyticsDocs } from "@/lib/api/webanalyticsboard";
 import { rateBetween } from "./fx.ts";
 import {
@@ -346,6 +347,8 @@ export type LiveInputs = {
   appFilter?: string | null;
   /** Stars by day, release downloads, per-repo traffic (Development board). */
   devInsights?: DevInsights | null;
+  /** Public TikTok — accounts, videos, search suggestions, Discover. */
+  tiktok?: TiktokReport | null;
   webAnalytics?: WebAnalyticsDocs | null;
   /*
     THE PER-PROJECT CONTRACT. A widget whose catalog entry says `perProject`
@@ -9391,7 +9394,7 @@ function feedItem(p: SocialPost): FeedItem {
   if (clicks !== null && clicks > 0) meta.push(["clicks", count(clicks)]);
   return {
     title: p.pageName ?? p.pageId,
-    at: postDay(p.createdTime),
+    at: whenWords(p.createdTime),
     text: p.text,
     image: p.imageUrl,
     href: p.permalink,
@@ -9543,7 +9546,7 @@ Object.assign(LIVE_BUILDERS, {
       /* Short, because this is a one-column tile: the argument for why the
          window cannot move this figure belongs on the card that has room for
          it, and `social.accounts` carries it. */
-      caption: "No history is published for these, so the window cannot move them. Never added across networks.",
+      caption: "Facebook Pages · as of now",
     };
   },
 
@@ -9579,12 +9582,7 @@ Object.assign(LIVE_BUILDERS, {
         text: count(g.t.views),
       })),
       partsLabel: "Views by Page",
-      rows: [
-        ["Posts published", count(t.posts)],
-        ["Meta measured", count(t.measured)],
-        ["Reactions + comments", count(t.engagement)],
-      ],
-      caption: `${VIEWS_NOTE} ${FLOOR_NOTE}`,
+      caption: `Facebook · ${count(t.engagement)} reactions + comments`,
     };
   },
 
@@ -9600,11 +9598,22 @@ Object.assign(LIVE_BUILDERS, {
     it inside a seven-day window would answer "quiet for 7 days" about a Page
     silent since June, which is the worst answer this board could give.
   */
-  "social.quiet": ({ social: S }: LiveInputs) => {
+  "social.quiet": ({ social: S, bluesky: B, tiktok: T }: LiveInputs) => {
     const posts = allPosts(S);
-    if (!S?.posts) return null;
+    if (!S?.posts && !T) return null;
     const t = totals(posts);
-    const quiet = daysAgo(t.latest);
+    /* THE NEWEST POST ON ANY NETWORK. A TikTok yesterday means the owner is
+       publishing, whatever the Facebook Pages say — the per-Page line under
+       it is where a quiet Page shows. */
+    const latestAny = [
+      t.latest,
+      ...(B?.handles ?? []).flatMap((h) => (h.posts ?? []).map((p) => p.at)),
+      ...ttVideos(T).map((v) => v.createdAt),
+    ]
+      .filter((at): at is string => !!at)
+      .sort()
+      .at(-1) ?? null;
+    const quiet = daysAgo(latestAny);
     const pages = byPage(posts);
     const cold = pages.filter((g) => {
       const d = daysAgo(totals(g.posts).latest);
@@ -9615,7 +9624,7 @@ Object.assign(LIVE_BUILDERS, {
       value: quiet === null ? DASH : quiet === 0 ? "today" : `${quiet}d ago`,
       tone: quiet !== null && quiet > 14 ? "warn" : undefined,
       sub: also(
-        t.latest ? `last post ${postDay(t.latest)}` : "nothing collected",
+        latestAny ? "newest post on any network" : "nothing collected",
         pages.length
           ? cold > 0
             ? `${cold} of ${pages.length} Page${pages.length === 1 ? "" : "s"} quiet a fortnight or more`
@@ -9853,9 +9862,7 @@ Object.assign(LIVE_BUILDERS, {
       ],
       table: table.map((r) => r.row),
       rowTones: table.map((r) => (r.bad ? ("bad" as const) : null)),
-      caption:
-        `Followers and the last post ignore the window — one has no history and the other is a fact about ` +
-        `today. Everything between them follows it. ${FLOOR_NOTE}`,
+      caption: "Followers and the last post ignore the window",
     };
   },
 
@@ -9900,12 +9907,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       tag: "metered",
       feed: ranked.map(feedItem),
-      caption:
-        `Ranked by ${byResponse ? "reactions and comments" : "views"}${
-          byResponse
-            ? ""
-            : " — no post in this window drew a reaction or a comment, so views are the only measure left"
-        }. An older post has had longer to gather what it has, so this is a total and not a rate. ${VIEWS_NOTE}`,
+      caption: `Ranked by ${byResponse ? "reactions + comments" : "views"}`,
     };
   },
 
@@ -9929,10 +9931,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       tag: "measured",
       feed: inWindow.map(feedItem),
-      caption: also(
-        older > 0 ? `${older} more in this window` : "Everything published in this window",
-        `${VIEWS_NOTE} A post generated on this box carries the draft it came from; most were made elsewhere.`,
-      ),
+      caption: older > 0 ? `${older} more in this window` : undefined,
     };
   },
 
@@ -10081,9 +10080,7 @@ Object.assign(LIVE_BUILDERS, {
       return {
         tag: "measured",
         feed: [],
-        caption:
-          "Nothing has been published from this box yet. Everything on the feeds above was posted somewhere " +
-          "else and read back — which is most posts, and is why the timeline reader exists.",
+        caption: "Nothing published from here yet",
       };
     const withLink = sent.filter((i) => i.permalink).length;
     return {
@@ -10092,7 +10089,7 @@ Object.assign(LIVE_BUILDERS, {
         title: i.destination
           ? `${i.destination.label}${i.destination.handle ? ` · ${i.destination.handle}` : ""}`
           : "no destination",
-        at: postDay(i.publishedAt),
+        at: whenWords(i.publishedAt),
         text: i.caption,
         image: i.media.url,
         href: i.permalink,
@@ -10102,7 +10099,7 @@ Object.assign(LIVE_BUILDERS, {
         ] as [string, string][],
         tone: "ok" as const,
       })),
-      caption: `${withLink} of ${sent.length} carry the address the network handed back. Nothing here is added to the figures above: a published item and the post it became are one post seen from two ends.`,
+      caption: `${withLink} of ${sent.length} link back to the live post`,
     };
   },
 
@@ -10140,9 +10137,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       tag: "measured",
       rows,
-      caption:
-        "Nothing is published that the owner did not approve first. A draft with a problem cannot be " +
-        "approved and will wait indefinitely — which is why it is a row here rather than a count.",
+      caption: "Nothing goes out until you approve it",
     };
   },
 
@@ -10156,7 +10151,7 @@ Object.assign(LIVE_BUILDERS, {
     never heard of and reading those would be collecting somebody else's data.
     An unmapped Page is silence, and silence that is a choice must say so.
   */
-  "social.coverage": ({ social: S, meta: M, bluesky: B }: LiveInputs) => {
+  "social.coverage": ({ social: S, meta: M, bluesky: B, tiktok: T }: LiveInputs) => {
     if (!S?.posts) return null;
     const accounts = S.posts.accounts;
     const failing = accounts.filter((a) => a.error ?? a.insightsError);
@@ -10192,7 +10187,17 @@ Object.assign(LIVE_BUILDERS, {
         : "No Bluesky handle configured — a list of handles is the whole configuration",
       B?.portfolio.handles ? "ok" : "warn",
     ]);
-    statuses.push(["Shares: no surviving metric reports them", "warn"]);
+    const tt = T?.handles ?? [];
+    const ttFailing = tt.filter((h) => h.lastError).length;
+    statuses.push([
+      !tt.length
+        ? "No TikTok handle configured — add them under TikTok (public)"
+        : ttFailing
+          ? `${ttFailing} of ${tt.length} TikTok handle${tt.length === 1 ? "" : "s"} failing`
+          : `${tt.length} TikTok handle${tt.length === 1 ? "" : "s"} read${tt[0]?.lastOkAt ? ` ${ago(tt.map((h) => h.lastOkAt ?? "").sort().at(-1))}` : ""}`,
+      !tt.length ? "warn" : ttFailing ? "bad" : "ok",
+    ]);
+    statuses.push(["Facebook shares: no surviving metric reports them", "warn"]);
     return { tag: "measured", statuses };
   },
 
@@ -14775,6 +14780,384 @@ Object.assign(LIVE_BUILDERS, {
     return {
       ranked: subs.slice(0, 10).map((s) => ({ label: s.name, value: s.threads, text: count(s.threads), sub: pct(s.threads / whole, { digits: 0 }) })),
       caption: subs.length > 10 ? `+ ${count(subs.length - 10)} more subreddits` : undefined,
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ================================================================ tiktok
+   THE SOCIAL BOARD'S TIKTOK CARDS AND ITS AT-A-GLANCE PICTURES — 2026-09-29.
+   Every card reads /api/tiktok-public (and the posts bundle for the cross-
+   network ones). A video's counts are TikTok's running totals as of the last
+   read, so "in the window" means posted in the window, counted now. Nothing
+   is added across networks except posts, which are posts wherever they went.
+   ======================================================================== */
+
+/** A date as people say it: "today", "yesterday", "3 days ago", "Aug 12". */
+function whenWords(at: string | null | undefined): string {
+  if (!at) return DASH;
+  const ms = Date.parse(at);
+  if (Number.isNaN(ms)) return DASH;
+  const startOf = (t: number) => {
+    const d = new Date(t);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  };
+  const days = Math.round((startOf(Date.now()) - startOf(ms)) / 86_400_000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 14) return `${days} days ago`;
+  if (days < 60) return `${Math.round(days / 7)} weeks ago`;
+  return postDay(at);
+}
+
+type TtVideo = TiktokVideo & { handle: string; ventureId: string | null };
+
+const ttVideos = (T: TiktokReport | null | undefined): TtVideo[] =>
+  (T?.handles ?? []).flatMap((h) => h.videos.map((v) => ({ ...v, handle: h.handle, ventureId: h.ventureId })));
+
+/** Posted inside the picker's window, measured against today. */
+function inWindowAt(at: string | null, W: WindowValue | undefined): boolean {
+  const days = W ?? 30;
+  if (days === "all") return true;
+  const d = daysAgo(at);
+  return d !== null && d <= days;
+}
+
+/** The days a daily card draws: the window, or from the oldest item for "all"
+ *  (at most 120 bars, which is where a bar stops being readable). */
+function ttDayGrid(W: WindowValue | undefined, dates: (string | null)[]): string[] {
+  const oldest = dates.filter((d): d is string => !!d).sort()[0];
+  const span =
+    W === "all" ? Math.min(120, oldest ? (daysAgo(oldest) ?? 0) + 1 : 30) : Math.min(120, W ?? 30);
+  const out: string[] = [];
+  for (let i = span - 1; i >= 0; i--) out.push(new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10));
+  return out;
+}
+
+/** Views GAINED per day for one handle: the difference between two consecutive
+ *  days whose reads were both complete. A gap or a partial read is no figure. */
+function ttGained(h: TiktokHandle): Map<string, number> {
+  const out = new Map<string, number>();
+  const days = h.days.filter((d) => d.viewsComplete && d.views !== null);
+  for (let i = 1; i < days.length; i++) {
+    const a = days[i - 1]!;
+    const b = days[i]!;
+    if (Date.parse(`${b.day}T00:00:00Z`) - Date.parse(`${a.day}T00:00:00Z`) !== 86_400_000) continue;
+    out.set(b.day, Math.max(0, b.views! - a.views!));
+  }
+  return out;
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${count(n)} ${n === 1 ? one : many}`;
+const shortText = (t: string | null | undefined, n = 42) => {
+  const s = (t ?? "").replace(/\s+/g, " ").trim();
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
+};
+
+/** Every post any network reader holds, as (network, date). */
+function everyPost(d: LiveInputs): { network: string; at: string | null }[] {
+  return [
+    ...allPosts(d.social).map((p) => ({ network: networkWord(p.platform), at: p.createdTime })),
+    ...(d.bluesky?.handles ?? []).flatMap((h) => (h.posts ?? []).map((p) => ({ network: "Bluesky", at: p.at }))),
+    ...ttVideos(d.tiktok).map((v) => ({ network: "TikTok", at: v.createdAt })),
+  ];
+}
+
+Object.assign(LIVE_BUILDERS, {
+  /* ------------------------------------------------------ at a glance */
+
+  "social.postsDaily": (d: LiveInputs) => {
+    if (!d.social?.posts && !d.tiktok && !d.bluesky) return null;
+    const all = everyPost(d);
+    const inWin = all.filter((p) => inWindowAt(p.at, d.window));
+    const grid = ttDayGrid(d.window, all.map((p) => p.at));
+    const networks = [...new Set(all.map((p) => p.network))].sort();
+    if (!networks.length) return null;
+    const on = (n: string, day: string) => inWin.filter((p) => p.network === n && p.at?.slice(0, 10) === day).length;
+    return {
+      daily: grid.map((day) => {
+        const parts = networks.map((n) => ({ label: n, value: on(n, day) }));
+        return { day, total: parts.reduce((s, p) => s + p.value, 0), parts };
+      }),
+      dailySplit: "By network",
+      unit: "count" as const,
+      caption: `${plural(inWin.length, "post")} on ${plural(networks.length, "network")} · an empty day is a day nothing went out`,
+    };
+  },
+
+  "social.networks": (d: LiveInputs) => {
+    if (!d.social?.posts && !d.tiktok && !d.bluesky) return null;
+    const inWin = everyPost(d).filter((p) => inWindowAt(p.at, d.window));
+    const by = new Map<string, number>();
+    for (const p of inWin) by.set(p.network, (by.get(p.network) ?? 0) + 1);
+    const parts = [...by.entries()].sort((a, b) => b[1] - a[1]);
+    return {
+      value: count(inWin.length),
+      sub: inWin.length ? `posts on ${plural(parts.length, "network")}` : "nothing posted in this window",
+      parts: parts.map(([label, value]) => ({ label, value, text: count(value) })),
+      partsLabel: "Posts by network",
+    };
+  },
+
+  "social.byAccount": (d: LiveInputs) => {
+    const rows: RankedRow[] = [];
+    const fb = allPosts(d.social).filter((p) => inWindowAt(p.createdTime, d.window));
+    for (const g of byPage(fb)) {
+      const t = totals(g.posts);
+      if (t.views === null) continue;
+      rows.push({
+        label: g.name,
+        value: t.views,
+        text: compact(t.views),
+        sub: `${networkWord(g.platform)} · ${plural(t.posts, "post")}`,
+        venture: g.posts.find((p) => p.ventureId)?.ventureId ?? undefined,
+      });
+    }
+    for (const h of d.tiktok?.handles ?? []) {
+      const vids = h.videos.filter((v) => inWindowAt(v.createdAt, d.window) && v.views !== null);
+      if (!vids.length) continue;
+      const views = vids.reduce((n, v) => n + v.views!, 0);
+      rows.push({
+        label: `@${h.handle}`,
+        value: views,
+        text: compact(views),
+        sub: `TikTok · ${plural(vids.length, "video")}`,
+        venture: h.ventureId ?? undefined,
+      });
+    }
+    if (!rows.length) return d.social?.posts || d.tiktok ? { ranked: [], caption: "Nothing posted in this window was measured." } : null;
+    return {
+      ranked: rows.sort((a, b) => b.value - a.value),
+      caption: "Views on posts published in the window, as they stand now",
+    };
+  },
+
+  /* ------------------------------------------------------------ tiktok */
+
+  "tiktok.followers": ({ tiktok: T }: LiveInputs) => {
+    const hs = (T?.handles ?? []).filter((h) => h.profile.followers !== null);
+    if (!hs.length) return null;
+    const total = hs.reduce((n, h) => n + h.profile.followers!, 0);
+    /* The line is drawn only over days every answering handle was read on —
+       a day missing one account is not a dip in followers. */
+    const days = [...new Set(hs.flatMap((h) => h.days.map((x) => x.day)))].sort();
+    const line = days
+      .map((day) => {
+        const vals = hs.map((h) => h.days.find((x) => x.day === day)?.followers ?? null);
+        return vals.every((v) => v !== null) ? { day, v: vals.reduce((n, v) => n + v!, 0) } : null;
+      })
+      .filter((x): x is { day: string; v: number } => !!x);
+    return {
+      value: count(total),
+      sub: hs
+        .slice()
+        .sort((a, b) => b.profile.followers! - a.profile.followers!)
+        .map((h) => `@${h.handle} ${compact(h.profile.followers)}`)
+        .join(" · "),
+      ...(line.length >= 2
+        ? { series: line.map((x) => x.v), seriesAt: line.map((x) => `${x.day}T00:00:00Z`), unit: "count" as const }
+        : {}),
+    };
+  },
+
+  "tiktok.views": ({ tiktok: T, window: W }: LiveInputs) => {
+    if (!T?.handles.length) return null;
+    const vids = ttVideos(T).filter((v) => inWindowAt(v.createdAt, W) && v.views !== null);
+    const views = vids.reduce((n, v) => n + v.views!, 0);
+    const likes = vids.reduce((n, v) => n + (v.likes ?? 0), 0);
+    return {
+      value: compact(views),
+      sub: vids.length ? `on ${plural(vids.length, "video")} posted · ${compact(likes)} likes` : "no video posted in this window",
+    };
+  },
+
+  "tiktok.top": ({ tiktok: T, window: W }: LiveInputs) => {
+    if (!T?.handles.length) return null;
+    const all = ttVideos(T).filter((v) => v.views !== null);
+    const inWin = all.filter((v) => inWindowAt(v.createdAt, W));
+    const pick = (inWin.length ? inWin : all).slice().sort((a, b) => b.views! - a.views!).slice(0, 9);
+    if (!pick.length) return { gallery: [], caption: "No videos read yet." };
+    return {
+      gallery: pick.map((v) => ({
+        image: v.cover,
+        value: compact(v.views),
+        unit: "views",
+        title: shortText(v.caption, 36) || `@${v.handle}`,
+        sub: `@${v.handle} · ${whenWords(v.createdAt)}`,
+        href: v.url,
+        badge: v.isPhoto ? "photos" : undefined,
+      })),
+      galleryShape: "portrait" as const,
+      caption: inWin.length ? "By views, posted in this window" : "Nothing posted in this window — best of all time",
+    };
+  },
+
+  "tiktok.gained": ({ tiktok: T, window: W }: LiveInputs) => {
+    const hs = T?.handles ?? [];
+    if (!hs.length) return null;
+    const gains = hs.map((h) => ({ h, g: ttGained(h) }));
+    const any = gains.some((x) => x.g.size > 0);
+    if (!any) {
+      /* Until there are two complete daily reads there is no daily figure, so
+         the card says what it CAN draw: views by the day each video went out. */
+      const vids = ttVideos(T).filter((v) => inWindowAt(v.createdAt, W) && v.views !== null);
+      const grid = ttDayGrid(W, vids.map((v) => v.createdAt));
+      return {
+        name: "TikTok views by day posted",
+        daily: grid.map((day) => {
+          const parts = hs.map((h) => ({
+            label: `@${h.handle}`,
+            value: vids.filter((v) => v.handle === h.handle && v.createdAt?.slice(0, 10) === day).reduce((n, v) => n + v.views!, 0),
+          }));
+          return { day, total: parts.reduce((n, p) => n + p.value, 0), parts };
+        }),
+        dailySplit: "By account",
+        unit: "count" as const,
+        caption: "Each video's views so far, on the day it was posted · views gained per day start after two daily reads",
+      };
+    }
+    const grid = ttDayGrid(W, []);
+    const total = gains.reduce((n, x) => n + [...x.g.entries()].filter(([day]) => grid.includes(day)).reduce((m, [, v]) => m + v, 0), 0);
+    return {
+      daily: grid.map((day) => {
+        const parts = gains.map((x) => ({ label: `@${x.h.handle}`, value: x.g.get(day) ?? 0 }));
+        return { day, total: parts.reduce((n, p) => n + p.value, 0), parts };
+      }),
+      dailySplit: "By account",
+      unit: "count" as const,
+      caption: `${compact(total)} views gained across every video · a day without two complete reads is left empty`,
+    };
+  },
+
+  "tiktok.accounts": ({ tiktok: T }: LiveInputs) => {
+    const hs = T?.handles ?? [];
+    if (!hs.length) return null;
+    const rows = hs.map((h) => {
+      const line = h.days.map((x) => x.followers).filter((v): v is number => v !== null);
+      return {
+        label: `@${h.handle}`,
+        value: h.profile.followers ?? 0,
+        text: h.profile.followers === null ? DASH : compact(h.profile.followers),
+        sub: h.lastError && h.profile.followers === null
+          ? `not read: ${h.lastError}`
+          : `${compact(h.profile.likes)} likes · ${count(h.profile.videos)} videos`,
+        venture: h.ventureId ?? undefined,
+        ...(line.length >= 2 ? { spark: line } : {}),
+      };
+    });
+    return {
+      ranked: rows.sort((a, b) => b.value - a.value),
+      caption: "Followers now · likes are across every video the account has posted",
+    };
+  },
+
+  "tiktok.latest": ({ tiktok: T, window: W }: LiveInputs) => {
+    if (!T?.handles.length) return null;
+    const all = ttVideos(T).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    const rows = all.filter((v) => inWindowAt(v.createdAt, W)).slice(0, 5);
+    if (!rows.length)
+      return { feed: [], caption: all.length ? `Nothing posted in this window · the newest video is from ${whenWords(all[0]!.createdAt)}` : "No videos read yet." };
+    return {
+      feed: rows.map((v) => ({
+        title: `@${v.handle}`,
+        at: whenWords(v.createdAt),
+        text: v.caption,
+        image: v.cover,
+        href: v.url,
+        meta: [
+          [v.views === 1 ? "view" : "views", compact(v.views)],
+          [v.likes === 1 ? "like" : "likes", count(v.likes)],
+          [v.comments === 1 ? "comment" : "comments", count(v.comments)],
+          [v.shares === 1 ? "share" : "shares", count(v.shares)],
+        ] as [string, string][],
+      })),
+    };
+  },
+
+  "tiktok.actions": ({ tiktok: T, window: W }: LiveInputs) => {
+    if (!T?.handles.length) return null;
+    const vids = ttVideos(T).filter((v) => inWindowAt(v.createdAt, W) && v.views !== null);
+    const sum = (k: "likes" | "comments" | "shares" | "saves") => vids.reduce((n, v) => n + (v[k] ?? 0), 0);
+    const views = vids.reduce((n, v) => n + v.views!, 0);
+    const parts = [
+      { label: "Likes", value: sum("likes") },
+      { label: "Saves", value: sum("saves") },
+      { label: "Comments", value: sum("comments") },
+      { label: "Shares", value: sum("shares") },
+    ];
+    const actions = parts.reduce((n, p) => n + p.value, 0);
+    if (!views) return { value: DASH, sub: "no views on videos posted in this window" };
+    return {
+      value: pct(actions / views),
+      sub: `${count(actions)} likes, saves, comments and shares on ${compact(views)} views`,
+      parts: parts.filter((p) => p.value > 0).map((p) => ({ ...p, text: count(p.value) })),
+      partsLabel: "What viewers did",
+    };
+  },
+
+  /* ------------------------------------------------------------ trends */
+
+  "tiktok.searches": ({ tiktok: T }: LiveInputs) => {
+    const seeds = (T?.searches ?? []).filter((s) => s.terms.length);
+    if (!seeds.length) return null;
+    const many = seeds.length > 1;
+    const soon = Date.now() - 3 * 86_400_000;
+    const rows: RankedRow[] = seeds.flatMap((s) =>
+      s.terms
+        .filter((t) => t.term !== s.seed)
+        .slice(0, many ? 6 : 12)
+        .map((t) => {
+          const fresh = s.reads > 1 && Date.parse(`${t.firstSeen}T00:00:00Z`) >= soon;
+          return {
+            label: t.term,
+            value: t.score,
+            text: fresh ? "new" : "",
+            sub: many ? s.seed : undefined,
+          };
+        }),
+    );
+    return {
+      ranked: rows,
+      caption: "What TikTok's search box suggests · longer bar = suggested more often and higher. TikTok publishes no search counts.",
+    };
+  },
+
+  "tiktok.hashtags": ({ tiktok: T }: LiveInputs) => {
+    const tags = T?.discover.hashtags ?? [];
+    if (!tags.length) return null;
+    const region = T!.discover.region ? countryName(T!.discover.region) : "this box's region";
+    /* "New" needs an earlier page to be new against: on the first read every
+       tag's first sighting is today, and calling them all new says nothing. */
+    const history = tags.some((t) => t.firstSeen < (T!.discover.day ?? ""));
+    return {
+      ranked: tags
+        .filter((t) => t.views !== null)
+        .sort((a, b) => b.views! - a.views!)
+        .slice(0, 10)
+        .map((t) => ({
+          label: t.title ?? t.id,
+          value: t.views!,
+          text: compact(t.views),
+          sub: history && t.firstSeen === T!.discover.day ? "new today" : undefined,
+        })),
+      caption: `Featured on TikTok Discover in ${region} · views all time · many are TikTok Shop campaigns`,
+    };
+  },
+
+  "tiktok.creators": ({ tiktok: T }: LiveInputs) => {
+    const cs = T?.discover.creators ?? [];
+    if (!cs.length) return null;
+    const region = T!.discover.region ? countryName(T!.discover.region) : "this box's region";
+    return {
+      gallery: cs.slice(0, 9).map((c) => ({
+        image: c.cover,
+        value: compact(c.followers),
+        unit: "followers",
+        title: c.title ?? c.subtitle ?? c.id,
+        sub: c.subtitle ?? undefined,
+        href: c.link,
+      })),
+      galleryShape: "square" as const,
+      caption: `Suggested on TikTok Discover in ${region}`,
     };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);

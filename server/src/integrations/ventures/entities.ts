@@ -276,6 +276,7 @@ const MANIFEST_PLUGINS = [
   "umami",
   "pypi",
   "bluesky",
+  "tiktok-public",
   "uptime",
   "fleet",
   "products",
