@@ -514,10 +514,10 @@ const SEED: StoreState = {
       ],
     },
     /*
-      DOMAINS. The whole portfolio on one page: the counts, then
-      the renewal horizon — every name as a length on one axis, which is the
-      only way "5 Dec" and "3 Feb" become a distance without arithmetic — then
-      the list of what actually wants doing, then the table behind it.
+      DOMAINS. The whole portfolio on one page, drawn: what is held and what it
+      costs a year, the next twelve months of renewals as monthly bars, what
+      wants a decision, every name with its favicon and status ticks, which
+      names actually serve a site, and where the money and the DNS go.
 
       Merged across both registrars, because "what renews next" is a question
       about the portfolio and answering it from one registrar's rows would be
@@ -528,18 +528,20 @@ const SEED: StoreState = {
       slug: "domains",
       name: "Domains",
       widgets: [
-        { id: "dm1", type: "registrars.total", w: 1 },
-        { id: "dm2", type: "registrars.lapsed", w: 1 },
-        { id: "dm3", type: "registrars.expiring", w: 1 },
-        { id: "dm4", type: "registrars.autoRenewOff", w: 1 },
-        { id: "dm5", type: "registrars.runway", w: 4 },
-        { id: "dm6", type: "registrars.attention", w: 2 },
-        { id: "dm7", type: "registrars.security", w: 2 },
-        { id: "dm8", type: "registrars.table", w: 4 },
-        { id: "dm9", type: "registrars.byTld", w: 2 },
-        { id: "dm10", type: "registrars.nameservers", w: 2 },
-        { id: "dm11", type: "registrars.byRegistrar", w: 2 },
-        { id: "dm12", type: "registrars.newest", w: 2 },
+        { id: "dm13", type: "domains.held", w: 1 },
+        { id: "dm14", type: "domains.yearly", w: 1 },
+        { id: "dm15", type: "domains.next", w: 1 },
+        { id: "dm16", type: "domains.inUse", w: 1 },
+        { id: "dm17", type: "domains.renewals", w: 4 },
+        { id: "dm18", type: "domains.attention", w: 2 },
+        { id: "dm19", type: "domains.protection", w: 2 },
+        { id: "dm20", type: "domains.grid", w: 4 },
+        { id: "dm21", type: "domains.traffic", w: 2 },
+        { id: "dm22", type: "domains.priciest", w: 2 },
+        { id: "dm23", type: "domains.soonest", w: 2 },
+        { id: "dm24", type: "domains.byTld", w: 2 },
+        { id: "dm25", type: "domains.dns", w: 2 },
+        { id: "dm26", type: "domains.age", w: 2 },
         { id: "dm-search", type: "registrars.search", w: 4, span: 12 },
       ],
     },

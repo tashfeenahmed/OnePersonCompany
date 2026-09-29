@@ -652,7 +652,7 @@ export function WidgetCard({
             {def.rows.map(([k, v], i) => (
               <div key={k} className="flex items-baseline gap-2 text-[13px]">
                 {def.marks?.[i] && <ModelMark name={def.marks[i]!} size={14} className="self-center" />}
-                {def.rowHosts?.[i] && <HostMark host={def.rowHosts[i]} size={14} className="self-center" />}
+                {def.rowHosts?.[i] && <HostMark host={def.rowHosts[i]} size={14} className="self-center" fallback />}
                 <span className="truncate">{k}</span>
                 <span className="text-muted-foreground ml-auto text-[12.5px] whitespace-nowrap tabular-nums">
                   {v}
