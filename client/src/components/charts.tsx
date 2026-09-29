@@ -16,6 +16,9 @@ import {
 import { bytes, count, money, pct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ModelMark } from "@/components/ModelMark";
+import { RoleIcon } from "@/components/org/RoleIcon";
+import { VentureMark } from "@/components/VentureChrome";
+import { useStore } from "@/lib/store";
 import type {
   ChartSeries,
   DonutSlice,
@@ -1287,14 +1290,19 @@ export function Ranked({
   max?: number;
 }) {
   const top = max ?? Math.max(1, ...rows.map((r) => Math.max(r.value, 0)));
+  /* Ventures by id, for the favicon a row names with `venture`. */
+  const { state } = useStore();
   return (
     <div className="mt-1 flex flex-col gap-2">
       {rows.map((r) => {
         const share = (Math.max(r.value, 0) / top) * 78;
+        const venture = r.venture ? state.ventures.find((v) => v.id === r.venture) : undefined;
         return (
           <div key={r.label} className="min-w-0">
             <div className="flex items-baseline gap-2 text-[13px]">
               {r.mark && <ModelMark name={r.mark} size={13} className="self-center" />}
+              {venture && <VentureMark venture={venture} size={16} className="self-center" />}
+              {r.role && <RoleIcon role={r.role} className="size-5 self-center" />}
               <span className="truncate">{r.label}</span>
               {r.spark && r.spark.length > 1 && <MiniLine values={r.spark} />}
               {r.sub && (
@@ -1838,6 +1846,11 @@ export function Figures({
    *  that is not judged and gets the muted dot, so the column lines up. */
   tones?: (StatusTone | null)[];
 }) {
+  /* TEN ROWS, THEN A CONTROL. A sixty-model table is a page of its own; the
+     first ten are the ones read, and the rest are one press away. */
+  const [all, setAll] = useState(false);
+  const LIMIT = 10;
+  const shown = all ? rows : rows.slice(0, LIMIT);
   return (
     <div className="-mx-1 mt-1 overflow-x-auto px-1">
       <table className="w-full min-w-[420px] border-collapse text-[12.5px]">
@@ -1863,7 +1876,7 @@ export function Figures({
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, ri) => (
+          {shown.map((r, ri) => (
             /* KEYED BY POSITION AS WELL AS BY NAME. Two rows may legitimately
                share a first cell — an account with two ad sets called the same
                thing — and a duplicate key drops one of them silently. */
@@ -1899,6 +1912,16 @@ export function Figures({
           ))}
         </tbody>
       </table>
+      {rows.length > LIMIT && (
+        <button
+          type="button"
+          onClick={() => setAll((v) => !v)}
+          aria-expanded={all}
+          className="text-muted-foreground hover:text-foreground mt-2 text-[12.5px] underline-offset-2 hover:underline"
+        >
+          {all ? "View less" : `View all ${rows.length}`}
+        </button>
+      )}
     </div>
   );
 }

@@ -6841,6 +6841,27 @@ const LEDGER_STATUS: Record<string, string> = {
   uncertain: "Uncertain — the call timed out",
   "unmetered-agent": "Agent turns, unmetered",
 };
+const LEDGER_SHORT: Record<string, string> = {
+  reported: "Reported",
+  estimated: "Estimated",
+  reserved: "In flight",
+  uncertain: "Timed out",
+  "unmetered-agent": "Unmetered",
+};
+
+/** A ledger work key (`run:research`, `chat:web`) as the sub-agent role whose
+ *  artwork draws it. Chat is the chief of staff; an unknown kind falls back
+ *  to RoleIcon's own default. */
+const KIND_ROLE: Record<string, string> = {
+  research: "researcher", competitors: "competitors", seo: "seo", demand: "demand",
+  geo: "visibility", papers: "writer", serp: "serp", aso: "aso", video: "producer",
+  campaign: "campaigns", people: "people", dossier: "people",
+};
+function workRole(key: string): string {
+  if (key.startsWith("chat:")) return "chief-of-staff";
+  const kind = key.replace(/^run:/, "");
+  return KIND_ROLE[kind] ?? kind;
+}
 
 Object.assign(LIVE_BUILDERS, {
   "openrouter.runway": ({ costs: COSTS }: LiveInputs) => {
@@ -7004,18 +7025,16 @@ Object.assign(LIVE_BUILDERS, {
   },
 
   "llm.byModel": ({ llm: L }: LiveInputs) => {
-    const models = (L?.models ?? []).filter((m) => m.tokens > 0).slice(0, 8);
+    const models = (L?.models ?? []).filter((m) => m.tokens > 0).slice(0, 10);
     if (!models.length) return null;
     return {
-      bars: models.map((m) => m.tokens),
-      marks: models.map((m) => m.model),
-      labels: models
-        .slice(0, 4)
-        .map((m) => `${shortModel(m.model)} ${compact(m.tokens)}`)
-        .join(" · "),
-      barLabels: models.map(
-        (m) => `${m.model} · ${compact(m.tokens)} tokens · ${count(m.calls)} calls${m.backend ? ` · ${m.backend}` : ""}`,
-      ),
+      ranked: models.map((m) => ({
+        label: shortModel(m.model),
+        value: m.tokens,
+        text: compact(m.tokens),
+        sub: also(`${count(m.calls)} ${m.calls === 1 ? "call" : "calls"}`, m.backend ?? ""),
+        mark: m.model,
+      })),
     };
   },
 
@@ -7023,21 +7042,28 @@ Object.assign(LIVE_BUILDERS, {
     const work = (L?.work ?? []).filter((w) => w.calls > 0);
     if (!work.length) return null;
     return {
-      rows: work.slice(0, 9).map((w) => [
-        w.label,
-        `${compact(w.tokens)} · ${count(w.calls)} ${w.calls === 1 ? "call" : "calls"}`,
-      ] as [string, string]),
+      ranked: work.slice(0, 10).map((w) => ({
+        label: w.label,
+        value: w.tokens,
+        text: compact(w.tokens),
+        sub: `${count(w.calls)} ${w.calls === 1 ? "call" : "calls"}`,
+        role: workRole(w.key),
+      })),
     };
   },
 
   "llm.byVenture": ({ llm: L }: LiveInputs) => {
-    const ventures = L?.ventures ?? [];
+    const ventures = (L?.ventures ?? []).filter((v) => v.tokens > 0);
     if (!ventures.length) return null;
     return {
-      rows: ventures.slice(0, 9).map((v) => [
-        v.name,
-        `${compact(v.tokens)} · ${count(v.calls)} ${v.calls === 1 ? "run" : "runs"}`,
-      ] as [string, string]),
+      ranked: ventures.slice(0, 10).map((v) => ({
+        label: v.name,
+        value: v.tokens,
+        text: compact(v.tokens),
+        sub: `${count(v.calls)} ${v.calls === 1 ? "run" : "runs"}`,
+        venture: v.ventureId,
+      })),
+      caption: ventures.length > 10 ? `Top 10 of ${ventures.length} ventures OPC's sub-agents worked on` : undefined,
     };
   },
 
@@ -7064,18 +7090,31 @@ Object.assign(LIVE_BUILDERS, {
   "llm.ledger": ({ llm: L }: LiveInputs) => {
     if (!L) return null;
     const b = L.budget;
-    const rows: [string, string][] = b.today.byStatus.map((r) => [
-      LEDGER_STATUS[r.status] ?? r.status,
-      also(`${count(r.calls)} calls · ${compact(r.tokens)}`, b.priced ? usd(r.usd) : ""),
-    ]);
-    if (!rows.length) rows.push(["Nothing metered today", "the ledger only counts runs"]);
-    rows.push([
-      "The price behind every dollar here",
-      b.priced
-        ? `${usd(b.limits.usdPerMillion)} per million tokens, set under Usage limits`
-        : "none set — dollars are not measured, only tokens",
-    ]);
-    return { rows };
+    const statuses = b.today.byStatus.filter((r) => r.calls > 0);
+    const tokens = statuses.reduce((n, r) => n + r.tokens, 0);
+    const calls = statuses.reduce((n, r) => n + r.calls, 0);
+    const price = b.priced
+      ? `${usd(b.limits.usdPerMillion)} per million tokens, set under Usage limits`
+      : "No price set, so the ledger counts tokens, not dollars";
+    if (!statuses.length) return { value: "0", sub: "Nothing metered today — the ledger only counts runs", parts: [], caption: price };
+    return {
+      value: compact(tokens),
+      sub: also(`${count(calls)} ${calls === 1 ? "call" : "calls"} metered today`, b.priced ? usd(b.today.usd) : ""),
+      /* Split by TOKENS, and toned by how sure the figure is: reported is the
+         provider's own count, anything else is this box's guess or a gap. */
+      parts: statuses.map((r) => ({
+        label: LEDGER_SHORT[r.status] ?? r.status,
+        value: r.tokens,
+        text: compact(r.tokens),
+        tone: r.status === "reported" ? ("ok" as const) : r.status === "uncertain" ? ("bad" as const) : r.status === "unmetered-agent" ? undefined : ("warn" as const),
+      })),
+      partsLabel: "Today's tokens, by how sure the ledger is of them",
+      rows: statuses.map((r) => [
+        LEDGER_STATUS[r.status] ?? r.status,
+        also(`${count(r.calls)} ${r.calls === 1 ? "call" : "calls"} · ${compact(r.tokens)}`, b.priced ? usd(r.usd) : ""),
+      ] as [string, string]),
+      caption: price,
+    };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
 

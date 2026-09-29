@@ -27,7 +27,10 @@ export type WidgetKind =
   | "proportion"
   | "waterfall"
   | "feed"
-  | "domain-search";
+  | "domain-search"
+  /** A section title across the board, no card around it — the line that
+   *  tells one half of a board from the other. Name and `sub` only. */
+  | "heading";
 
 export type StatusTone = "ok" | "warn" | "bad";
 
@@ -160,6 +163,11 @@ export type RankedRow = {
    * shape only, no axis and no hover; the figures are in `text` and `sub`.
    */
   spark?: number[];
+  /** A VENTURE ID, for the venture's own favicon beside the label. */
+  venture?: string;
+  /** A SUB-AGENT ROLE (`researcher`, `seo`, …), for its artwork beside the
+   *  label — see components/org/RoleIcon. */
+  role?: string;
 };
 
 /**
@@ -997,10 +1005,10 @@ export const SOURCES: Record<string, WidgetSource> = {
      credential. Tokens, because no provider reports a per-call price this box
      can read back; the only dollars are the budget ledger's own. */
   llm: {
-    name: "LLM usage",
+    name: "One Person Company",
     icon: null,
-    mono: "Tk",
-    tint: "#7a5c9e",
+    mono: "1",
+    tint: "#1f1f1f",
     connected: true,
   },
   /* THE LEDGER. Not a plugin either: the rows are seeded from Hetzner and the
@@ -2567,57 +2575,72 @@ export const WIDGETS: Record<string, Widget> = {
      free. The budget meters are the one place dollars appear, and only when
      the owner has set a price under Usage limits.
   */
+  /* THE TWO HALVES OF AN LLM BOARD, said in words. OpenRouter and the
+     provider bills are the APPS' use — every OpenRouter key is a product;
+     the `llm.*` cards are this box's own ledgers. */
+  "llm.headingApps": {
+    src: "openrouter",
+    name: "Apps' LLM usage",
+    kind: "heading",
+    sub: "What the products spend through OpenRouter and the provider bills — every key is an app.",
+  },
+  "llm.headingOpc": {
+    src: "llm",
+    name: "One Person Company's own LLM usage",
+    kind: "heading",
+    sub: "The chief of staff and the sub-agents on this box, from its own ledgers — FreeLLMAPI and the local model included.",
+  },
   "llm.today": {
     src: "llm",
-    name: "Tokens today",
+    name: "OPC tokens today",
     kind: "metric",
     live: { llm: true },
   },
   "llm.window": {
     src: "llm",
-    name: "Tokens",
+    name: "OPC tokens",
     window: "selected",
     kind: "metric",
     live: { llm: true },
   },
   "llm.daily": {
     src: "llm",
-    name: "Tokens per day · chat and runs",
+    name: "OPC tokens per day · chat and sub-agents",
     kind: "chart",
     live: { llm: true },
     unit: "count",
   },
   "llm.byModel": {
     src: "llm",
-    name: "Tokens by model",
+    name: "OPC tokens by model",
     window: "selected",
-    kind: "bars",
+    kind: "ranked",
     live: { llm: true },
   },
   "llm.byWork": {
     src: "llm",
-    name: "Tokens by kind of work",
+    name: "OPC tokens by sub-agent",
     window: "selected",
-    kind: "rows",
+    kind: "ranked",
     live: { llm: true },
   },
   "llm.byVenture": {
     src: "llm",
-    name: "Tokens by venture",
+    name: "OPC tokens by venture",
     window: "selected",
-    kind: "rows",
+    kind: "ranked",
     live: { llm: true },
   },
   "llm.budget": {
     src: "llm",
-    name: "Today against the limits",
+    name: "OPC today against the limits",
     kind: "meters",
     live: { llm: true },
   },
   "llm.ledger": {
     src: "llm",
-    name: "The budget ledger · today",
-    kind: "rows",
+    name: "OPC budget ledger · today",
+    kind: "proportion",
     live: { llm: true },
   },
 
@@ -5212,28 +5235,29 @@ export const DASHBOARD_PRESETS: {
   {
     id: "llm",
     label: "LLM usage",
-    note: "OpenRouter's bill, and what this box's own chat and runs consumed",
+    note: "The apps' LLM bill, then One Person Company's own usage, each under its own heading",
     widgets: [
+      "llm.headingApps",
+      "costs.llm",
+      "openrouter.spend",
       "openrouter.credits",
       "openrouter.runway",
-      "openrouter.spend",
-      "openrouter.tokens",
       "openrouter.daily",
+      "openrouter.tokens",
       "openrouter.tokensDaily",
       "openrouter.models",
+      "openrouter.free",
       "openrouter.modelTable",
       "openrouter.keyTable",
-      "openrouter.free",
+      "llm.headingOpc",
       "llm.today",
       "llm.window",
+      "llm.budget",
       "llm.daily",
       "llm.byModel",
       "llm.byWork",
       "llm.byVenture",
-      "llm.budget",
       "llm.ledger",
-      "costs.llm",
-      "costs.limits",
     ],
   },
   {
