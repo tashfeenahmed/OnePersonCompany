@@ -12,6 +12,7 @@ import type { WidgetWindow } from "../lib/window.ts";
 import type { ServerFleetData } from "../lib/serverWidgets.ts";
 
 import type { AppEntry, AppsDoc } from "../lib/api/apps.ts";
+import { BOARD_TEMPLATES } from "./boardTemplates.ts";
 
 export type WidgetKind =
   | "metric"
@@ -5691,13 +5692,22 @@ Object.assign(WIDGETS, {
   "brief.margin": brief("overview.margin", "Portfolio margin", "workdash", 12),
 });
 
-/** The presets offered when a new dashboard is created. */
-export const DASHBOARD_PRESETS: {
-  id: string;
-  label: string;
-  note: string;
-  widgets: string[];
-}[] = [
+/** One card a template places: a bare widget id takes the widget's natural
+ *  width; the object form carries the width, finer span and details-section
+ *  flag a live board gave it. */
+export type PresetWidget =
+  | string
+  | { type: string; w?: 1 | 2 | 4; span?: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 12; detail?: boolean };
+
+export const presetWidgetType = (w: PresetWidget) => (typeof w === "string" ? w : w.type);
+
+type DashboardPreset = { id: string; label: string; note: string; widgets: PresetWidget[] };
+
+/** The presets offered when a new dashboard is created: blank, then the
+ *  owner's live boards (data/boardTemplates.ts, exported from the running
+ *  workspace), then the older hand-written presets whose ids no live board
+ *  took over. */
+const HAND_PRESETS: DashboardPreset[] = [
   {
     id: "blank",
     label: "Blank dashboard",
@@ -6201,4 +6211,11 @@ export const DASHBOARD_PRESETS: {
       "audit.ranked",
     ],
   },
+];
+
+const liveIds = new Set(BOARD_TEMPLATES.map((t) => t.id));
+export const DASHBOARD_PRESETS: DashboardPreset[] = [
+  HAND_PRESETS[0]!,
+  ...BOARD_TEMPLATES,
+  ...HAND_PRESETS.slice(1).filter((p) => !liveIds.has(p.id)),
 ];
