@@ -2000,11 +2000,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           slug: uniqueSlug(name, slugsIn(state.dashboards, ventureId)),
           name,
           ventureId,
-          widgets: (preset?.widgets ?? []).map((type) => ({
-            id: uid("w"),
-            type,
-            w: defaultWidth(type),
-          })),
+          /* A live board's template carries its own widths and details
+             section; a bare id takes the widget's natural width. */
+          widgets: (preset?.widgets ?? []).map((pw) => {
+            const spec = typeof pw === "string" ? { type: pw } : pw;
+            return {
+              id: uid("w"),
+              type: spec.type,
+              w: spec.w ?? defaultWidth(spec.type),
+              ...(spec.span ? { span: spec.span } : {}),
+              ...(spec.detail ? { detail: true } : {}),
+            };
+          }),
         };
         setState((s) => ({ ...s, dashboards: [...s.dashboards, board] }));
         return board;

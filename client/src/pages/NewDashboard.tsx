@@ -6,7 +6,7 @@ import { VentureSelect } from "@/components/VentureSelect";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { DASHBOARD_PRESETS, SOURCES, WIDGETS } from "@/data/widgets";
+import { DASHBOARD_PRESETS, SOURCES, WIDGETS, presetWidgetType } from "@/data/widgets";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -153,7 +153,7 @@ export function NewDashboard() {
                   key={p.id}
                   label={p.label}
                   note={p.note}
-                  widgets={p.widgets}
+                  widgets={p.widgets.map(presetWidgetType)}
                   chosen={presetId === p.id}
                   onChoose={() => setFrom(`preset:${p.id}`)}
                 />
