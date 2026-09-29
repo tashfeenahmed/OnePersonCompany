@@ -33,8 +33,10 @@ import * as umami from "./umami.ts";
 import * as calendar from "./calendar.ts";
 import * as pypi from "./pypi.ts";
 import * as bluesky from "./bluesky.ts";
+import * as tiktok from "./tiktok.ts";
 import {
   collectBluesky,
+  collectTiktok,
   collectCalendar,
   collectPypi,
   collectUmami,
@@ -45,6 +47,8 @@ import { umamiRoutes } from "./umami-route.ts";
 import { calendarRoutes } from "./calendar-route.ts";
 import { pypiRoutes } from "./pypi-route.ts";
 import { blueskyRoutes } from "./bluesky-route.ts";
+import { tiktokRoutes } from "./tiktok-route.ts";
+import { forgetTiktokHandles } from "./tiktok-store.ts";
 import { PACKS, SKILLS } from "./skills.ts";
 
 export const manifest: IntegrationManifest = {
@@ -247,6 +251,54 @@ export const manifest: IntegrationManifest = {
         syncListPlugin("bluesky", handles.length);
       },
     },
+
+    /*
+      PUBLIC TIKTOK — Bluesky's shape: a list, not a credential. The handles
+      are read from tiktok.com's own public pages, and the search phrases are
+      what TikTok's search box is asked to complete (see tiktok.ts). Either one
+      is enough to connect the plugin; the Discover page is read whenever it is.
+    */
+    [tiktok.PLUGIN]: {
+      keys: {
+        handles: {
+          label: "Handles",
+          hint:
+            "The TikTok accounts to watch, separated by commas or newlines — " +
+            "@name, name, or the profile link. Read from TikTok's public pages " +
+            "with no key: followers, likes and every video's views, likes, " +
+            "comments and shares, four times a day.",
+          ph: "@freellmapi, @aigroupcall",
+          check(value) {
+            const raw = value.split(/[\s,]+/).filter(Boolean);
+            const kept = tiktok.parseHandles(value);
+            if (raw.length > kept.length)
+              return "Some of those are not TikTok usernames — letters, digits, dots and underscores only.";
+            if (kept.length > 20)
+              return `That is ${kept.length} handles; each costs up to eight requests to an unofficial endpoint. Trim the list.`;
+            return null;
+          },
+        },
+        searches: {
+          label: "Search phrases",
+          hint:
+            "Phrases to watch in TikTok's search suggestions, one per line or " +
+            "comma — what people type around your products. Each is probed a " +
+            "dozen ways twice a day. Suggestions are ranked, never counted: " +
+            "TikTok publishes no search volumes.",
+          ph: "free llm api, ai group call",
+          check(value) {
+            const n = value.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean).length;
+            return n > 10 ? "Ten phrases at most — each is a dozen requests." : null;
+          },
+        },
+      },
+      after(values) {
+        const handles = tiktok.parseHandles(values.handles ?? "");
+        const seeds = tiktok.parseSeeds(values.searches ?? "");
+        forgetTiktokHandles(handles);
+        syncListPlugin(tiktok.PLUGIN, handles.length + seeds.length);
+      },
+    },
   },
 
   collectors: {
@@ -254,6 +306,7 @@ export const manifest: IntegrationManifest = {
     calendar: collectCalendar,
     pypi: collectPypi,
     bluesky: collectBluesky,
+    [tiktok.PLUGIN]: collectTiktok,
   },
 
   routes: [
@@ -261,6 +314,7 @@ export const manifest: IntegrationManifest = {
     { path: "/api/calendar", app: calendarRoutes },
     { path: "/api/pypi", app: pypiRoutes },
     { path: "/api/bluesky", app: blueskyRoutes },
+    { path: "/api/tiktok-public", app: tiktokRoutes },
   ],
 
   skills: SKILLS,
