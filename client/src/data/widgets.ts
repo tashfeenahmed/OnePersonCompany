@@ -50,7 +50,10 @@ export type WidgetKind =
   /** The advertisements as people saw them: image, words, four numbers. */
   | "adgallery"
   /** One small card per website: favicon, audit grade, clicks, three figures. */
-  | "sitegrid";
+  | "sitegrid"
+  /** One small card per website: favicon, headline figure, its days as
+   *  bars, three figures under it (the Search board's sites). */
+  | "sitetiles";
 
 export type StatusTone = "ok" | "warn" | "bad";
 
@@ -263,12 +266,29 @@ export type ThreadCard = {
   unanswered: boolean;
 };
 
-/** One day of a `daily` card. `parts` carry a `mark` when they are models. */
+/** One day of a `daily` card. `parts` carry a `mark` when they are models,
+ *  a `host` when they are websites (for the favicon in the key). */
 export type DailyBar = {
   day: string;
   total: number;
   /** `host` is a hostname for the venture favicon in the legend. */
   parts?: { label: string; value: number; mark?: string | null; host?: string | null }[];
+};
+
+/**
+ * One website on a `sitetiles` card: its favicon, one headline figure, its
+ * days as bars and up to three small figures. Everything is formatted by the
+ * builder; `change` is a short movement ("+42%") with the way it went, null
+ * when there was no window before to compare with.
+ */
+export type SiteTile = {
+  label: string;
+  host?: string | null;
+  value: string;
+  unit: string;
+  change?: { text: string; good: boolean | null } | null;
+  bars?: number[];
+  figures?: [string, string][];
 };
 
 /**
@@ -704,6 +724,8 @@ export type Widget = {
   threads?: ThreadCard[];
   /** appfilter / appgrid / reviews — the Apps document (see lib/api/apps). */
   appsDoc?: AppsDoc;
+  /** sitetiles — one small card per website (Search board). */
+  sites?: SiteTile[];
   /** daily — one entry per day: the total and, for the split tab, its parts. */
   daily?: DailyBar[];
   /** daily — the split tab's name: "By model", "By source". */
@@ -1661,10 +1683,12 @@ export const WIDGETS: Record<string, Widget> = {
     live: { gsc: true },
     headers: ["Property", "Impressions", "Clicks", "CTR", "Position", "Δ impressions"],
   },
+  /* Clicks gained or lost per site against the window before — a bar per
+     site, so the one that really moved is the longest. */
   "gsc.movers": {
     src: "gsc",
-    name: "Biggest movers · 28d",
-    kind: "rows",
+    name: "What moved",
+    kind: "ranked",
     live: { gsc: true },
   },
   /* "PORTFOLIO" IS IN THE NAME because the line is every property summed —
@@ -1673,8 +1697,9 @@ export const WIDGETS: Record<string, Widget> = {
      instead; the builder renames it. */
   "gsc.trend": {
     src: "gsc",
-    name: "Impressions a day · portfolio",
-    kind: "chart",
+    name: "Impressions per day · Google",
+    window: "selected",
+    kind: "daily",
     live: { gsc: true },
     /* A count, not a percentage: this is a quantity of times a link was shown.
        Clicks are deliberately not a second line — they run about forty times
@@ -1776,7 +1801,7 @@ export const WIDGETS: Record<string, Widget> = {
   "bing.queries": {
     src: "bing",
     name: "Top queries · Bing",
-    kind: "rows",
+    kind: "ranked",
     live: { bing: true },
   },
   "bing.sites": {
@@ -1788,11 +1813,20 @@ export const WIDGETS: Record<string, Widget> = {
   },
   "bing.trend": {
     src: "bing",
-    name: "Impressions a day · Bing",
-    kind: "chart",
+    name: "Impressions per day · Bing",
+    window: "selected",
+    kind: "daily",
     live: { bing: true },
     unit: "count",
   },
+  /* THE SEARCH BOARD AT A GLANCE (2026-09-29): every site as a small card
+     with its favicon, Bing's clicks as bars, Bing's own page-two list and its
+     crawl errors. Google and Bing stay on separate cards. */
+  "search.googleSites": { src: "gsc", name: "Every site on Google", kind: "sitetiles", live: { gsc: true } },
+  "search.bingSites": { src: "bing", name: "Every site on Bing", kind: "sitetiles", live: { bing: true } },
+  "search.bingDaily": { src: "bing", name: "Clicks per day · Bing", window: "selected", kind: "daily", live: { bing: true }, unit: "count" },
+  "search.bingStriking": { src: "bing", name: "Page-two opportunities · Bing", kind: "ranked", live: { bing: true } },
+  "search.bingCrawl": { src: "bing", name: "Crawl errors · Bing", kind: "metric", live: { bing: true }, invert: true },
   /*
     CLOUDFLARE. Two catalog samples became measurements, and both had to change
     what they claim in order to become one.
@@ -3890,8 +3924,9 @@ export const WIDGETS: Record<string, Widget> = {
      theirs: forty times apart, the two cannot share one. */
   "gsc.clicksTrend": {
     src: "gsc",
-    name: "Clicks a day · portfolio",
-    kind: "chart",
+    name: "Clicks per day · Google",
+    window: "selected",
+    kind: "daily",
     live: { gsc: true },
     unit: "count",
   },

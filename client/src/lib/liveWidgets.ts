@@ -4188,6 +4188,74 @@ function pathOf(url: string): string {
   }
 }
 
+/** A tile's movement in three words — "+49% vs prior" — or nothing when
+ *  there was no window before to compare with (never a zero). */
+function tileMove(delta: number | null): string {
+  if (delta === null) return "";
+  const rounded = Math.abs(delta) >= 10 ? Math.round(delta) : Number(delta.toFixed(1));
+  return `${rounded > 0 ? "+" : ""}${rounded}% vs prior`;
+}
+
+/**
+ * GOOGLE'S DAYS AS BARS, split by site. The total is the portfolio's own
+ * daily figure; the split tab stacks each property's own rows for the day
+ * (the busiest six named, with their favicons, the rest as Other). A day
+ * is one bar, so a quiet day is visibly quiet.
+ */
+function gscDaily(G: GscReport | null | undefined, by: "clicks" | "impressions"): Partial<Widget> | null {
+  if (!G || G.series.length < 2) return null;
+  const perDay = new Map<string, { label: string; host: string; value: number }[]>();
+  let sites = 0;
+  for (const p of G.properties) {
+    let any = false;
+    for (const d of p.series ?? []) {
+      if (!d[by]) continue;
+      any = true;
+      const list = perDay.get(d.day) ?? [];
+      list.push({ label: p.label, host: p.property, value: d[by] });
+      perDay.set(d.day, list);
+    }
+    if (any) sites += 1;
+  }
+  const split = sites > 1;
+  return {
+    daily: G.series.map((d) => ({ day: d.day, total: d[by], parts: split ? (perDay.get(d.day) ?? []) : undefined })),
+    dailySplit: split ? "By site" : undefined,
+    unit: "count" as const,
+    caption: G.window.end ? `To ${dayShort(G.window.end)} · Google takes 3 days to finalise a day` : undefined,
+  };
+}
+
+/** Bing's days as bars, split by site — its own engine, never added to
+ *  Google's. Bing's route is always read over 90 days, so the bars are cut
+ *  to the board's window here. */
+function bingDaily(B: BingReport | null | undefined, W: LiveInputs["window"], by: "clicks" | "impressions"): Partial<Widget> | null {
+  if (!B || B.series.length < 2) return null;
+  const keep = W === "all" || !W ? B.series.length : W;
+  const series = B.series.slice(-keep);
+  const from = series[0]!.day;
+  const perDay = new Map<string, { label: string; host: string; value: number }[]>();
+  let sites = 0;
+  for (const s of B.sites) {
+    let any = false;
+    for (const d of s.series ?? []) {
+      if (d.day < from || !d[by]) continue;
+      any = true;
+      const list = perDay.get(d.day) ?? [];
+      list.push({ label: s.label, host: s.site, value: d[by] });
+      perDay.set(d.day, list);
+    }
+    if (any) sites += 1;
+  }
+  const split = sites > 1;
+  return {
+    daily: series.map((d) => ({ day: d.day, total: d[by], parts: split ? (perDay.get(d.day) ?? []) : undefined })),
+    dailySplit: split ? "By site" : undefined,
+    unit: "count" as const,
+    caption: B.window.end ? `To ${dayShort(B.window.end)} · every verified site` : undefined,
+  };
+}
+
 Object.assign(LIVE_BUILDERS, {
   /* --------------------------------------------------- search console */
 
@@ -4201,13 +4269,7 @@ Object.assign(LIVE_BUILDERS, {
         finished the ones after that. Naming the day is the difference between
         a reader seeing a lag and a reader seeing a decline.
       */
-      sub: also(
-        also(
-          `${G.totals.properties} of ${G.properties.length} properties with traffic`,
-          movedBy(G.delta.impressions, G.window.days),
-        ),
-        `${G.window.days}d to ${dayShort(G.window.end)}`,
-      ),
+      sub: also(tileMove(G.delta.impressions), `${G.window.days}d to ${dayShort(G.window.end)}`),
       series: G.series.length > 1 ? G.series.map((d) => d.impressions) : undefined,
       seriesAt: G.series.length > 1 ? G.series.map((d) => at(d.day)) : undefined,
     };
@@ -4220,13 +4282,7 @@ Object.assign(LIVE_BUILDERS, {
       /* CTR is clicks over impressions across the whole window, never the mean
          of the daily rates — a quiet Sunday and a launch day are not equal
          halves of anything. */
-      sub: also(
-        also(
-          G.totals.ctr === null ? "" : `CTR ${percent(G.totals.ctr, 2)} of ${count(G.totals.impressions)} impressions`,
-          movedBy(G.delta.clicks, G.window.days),
-        ),
-        `${G.window.days}d to ${dayShort(G.window.end)}`,
-      ),
+      sub: also(tileMove(G.delta.clicks), `${G.window.days}d to ${dayShort(G.window.end)}`),
       series: G.series.length > 1 ? G.series.map((d) => d.clicks) : undefined,
       seriesAt: G.series.length > 1 ? G.series.map((d) => at(d.day)) : undefined,
     };
@@ -4242,9 +4298,11 @@ Object.assign(LIVE_BUILDERS, {
     */
     const moved = G.delta.position;
     const drift =
-      moved === null || moved === 0
-        ? "no change on the previous window"
-        : `${Math.abs(moved).toFixed(1)} ${moved > 0 ? "worse" : "better"} than the previous ${G.window.days}d`;
+      moved === null
+        ? ""
+        : moved === 0
+          ? "no change"
+          : `${Math.abs(moved).toFixed(1)} places ${moved > 0 ? "worse" : "better"}`;
     /*
       THE DAILY LINE IS WEIGHTED THE SAME WAY THE HEADLINE IS. The portfolio
       series on the wire carries no position — a day's rank across properties
@@ -4266,10 +4324,7 @@ Object.assign(LIVE_BUILDERS, {
       .map(([day, e]) => ({ day, position: Number((e.weighted / e.impressions).toFixed(1)) }));
     return {
       value: place(G.totals.position),
-      sub: also(
-        `impression-weighted across ${G.totals.properties} properties`,
-        drift,
-      ),
+      sub: also(drift, `${G.window.days}d · lower is better`),
       series: line.length > 1 ? line.map((d) => d.position) : undefined,
       seriesAt: line.length > 1 ? line.map((d) => at(d.day)) : undefined,
     };
@@ -4277,9 +4332,8 @@ Object.assign(LIVE_BUILDERS, {
 
   "gsc.queries": ({ gsc: G }: LiveInputs) => {
     if (!G?.connected || !G.queries.length) return null;
-    const rows: [string, string][] = G.queries
-      .slice(0, 6)
-      .map((q) => [q.query, `${count(q.clicks)} clicks · #${place(q.position)}`]);
+    const top = G.queries.slice(0, 6);
+    const rows: [string, string][] = top.map((q) => [q.query, `${count(q.clicks)} clicks · #${place(q.position)}`]);
     /*
       THE LAST ROW IS THE POINT OF THE CARD. Google withholds queries too rare
       to keep a searcher anonymous and caps the rows it will return at all, so
@@ -4293,15 +4347,15 @@ Object.assign(LIVE_BUILDERS, {
         ? "an unknown share of impressions"
         : `${percent(G.coverage.pct)} of impressions`,
     ]);
-    return { rows };
+    return { rows, rowHosts: [...top.map((q) => q.property), null] };
   },
 
   "gsc.pages": ({ gsc: G }: LiveInputs) => {
     if (!G?.connected || !G.pages.length) return null;
+    const top = G.pages.slice(0, 6);
     return {
-      rows: G.pages
-        .slice(0, 6)
-        .map((p) => [pathOf(p.page), `${count(p.clicks)} clicks`] as [string, string]),
+      rows: top.map((p) => [pathOf(p.page), `${count(p.clicks)} clicks`] as [string, string]),
+      rowHosts: top.map((p) => p.page),
     };
   },
 
@@ -4342,55 +4396,49 @@ Object.assign(LIVE_BUILDERS, {
     return {
       headers: ["Property", "Impressions", "Clicks", "CTR", "Position", "Δ impressions"],
       table,
+      rowHosts: [...shown.map((p) => p.property), ...(rest.length ? [null] : [])],
     };
   },
 
   "gsc.movers": ({ gsc: G }: LiveInputs) => {
     /*
-      A MOVER NEEDS A BASE WORTH MOVING FROM. Eleven impressions becoming
-      thirty-three is a 200% rise and is noise; without a floor this card is a
-      list of the quietest properties on the account, every time. Fifty
-      impressions in the window before is the floor, and the card says so.
+      WHAT MOVED, IN CLICKS AND NOT IN PERCENT. Eleven clicks becoming
+      thirty-three is +200% and is noise; the bar is the number of clicks
+      gained or lost against the 28 days before, so the property that really
+      moved is the longest bar. A property needs 50+ impressions in the
+      window before to be listed at all — below that there is nothing to
+      move from. Nothing is listed when the window before was not measured.
     */
-    const moved = (G?.properties ?? [])
-      .filter((p) => p.delta.impressions !== null && p.previous.impressions >= 50)
-      .sort((a, b) => Math.abs(b.delta.impressions!) - Math.abs(a.delta.impressions!))
-      .slice(0, 5);
+    if (!G?.connected) return null;
+    const moved = G.properties
+      .filter((p) => p.previous.clicks !== null && p.previous.clicks !== undefined && (p.previous.impressions ?? 0) >= 50)
+      .map((p) => ({ p, by: p.clicks - p.previous.clicks! }))
+      .filter((m) => m.by !== 0)
+      .sort((a, b) => Math.abs(b.by) - Math.abs(a.by))
+      .slice(0, 8);
     if (!moved.length) return null;
-    const rows: [string, string][] = moved.map((p) => [
-      p.label,
-      `${p.delta.impressions! > 0 ? "+" : ""}${Math.round(p.delta.impressions!)}% · ${count(p.impressions)} impr`,
-    ]);
-    rows.push(["Floor", `50+ impressions in the previous ${G!.window.days}d`]);
-    return { rows };
-  },
-
-  "gsc.trend": ({ gsc: G, window: W }: LiveInputs) => {
-    if (!G || G.series.length < 2) return null;
     return {
-      /* "PORTFOLIO" ON THE CARD — Workdash's "Portfolio impressions per
-         day" — unless the document was narrowed to one property, in which
-         case the property's name is the honest word; see `portfolioLine`. */
-      name: `Impressions a day · ${portfolioWord(G)} · ${windowLabel(W ?? G.seriesDays)}`,
-      chart: [
-        {
-          label: "impressions",
-          points: G.series.map((d) => ({ ts: at(d.day), value: d.impressions })),
-        },
-      ],
-      unit: "count" as const,
-      /* Clicks are NOT drawn beside this. They run about forty times smaller on
-         this portfolio, and on a shared axis starting at zero they would be a
-         flat line along the bottom pretending to be a measurement. */
-      caption: portfolioLine(G),
+      name: `What moved · ${G.window.days}d`,
+      ranked: moved.map(({ p, by }) => ({
+        label: p.label,
+        host: p.property,
+        value: Math.abs(by),
+        text: `${by > 0 ? "+" : "−"}${count(Math.abs(by))} clicks`,
+        sub: also(
+          p.delta.clicks === null ? "" : `${p.delta.clicks > 0 ? "+" : ""}${Math.round(p.delta.clicks)}%`,
+          `${compact(p.clicks)} now`,
+        ),
+      })),
+      caption: `Clicks gained or lost against the ${G.window.days} days before`,
     };
   },
 
+  "gsc.trend": ({ gsc: G }: LiveInputs) => gscDaily(G, "impressions"),
+
   "gsc.striking": ({ gsc: G }: LiveInputs) => {
     if (!G?.connected || !G.striking.length) return null;
-    const rows: [string, string][] = G.striking
-      .slice(0, 6)
-      .map((q) => [q.query, `#${place(q.position)} · ${count(q.impressions)} impr`]);
+    const top = G.striking.slice(0, 6);
+    const rows: [string, string][] = top.map((q) => [q.query, `#${place(q.position)} · ${count(q.impressions)} impr`]);
     /*
       THE CAVEAT IS PART OF THE CARD BECAUSE IT IS PART OF THE MEASUREMENT.
       Google returns these rows ordered by CLICKS and offers no other order, so
@@ -4398,7 +4446,7 @@ Object.assign(LIVE_BUILDERS, {
       this card exists to surface — can be missing entirely.
     */
     rows.push(["Drawn from", "Google's clicks-ordered rows, so some are missing"]);
-    return { rows };
+    return { rows, rowHosts: [...top.map((q) => q.property), null] };
   },
 
   "gsc.coverage": ({ gsc: G }: LiveInputs) => {
@@ -4454,10 +4502,7 @@ Object.assign(LIVE_BUILDERS, {
     if (!B?.connected || !B.window.end) return null;
     return {
       value: count(B.totals.impressions),
-      sub: also(
-        `${B.totals.verified} verified site${B.totals.verified === 1 ? "" : "s"}`,
-        `${B.window.days}d to ${dayShort(B.window.end)}`,
-      ),
+      sub: `${B.window.days}d to ${dayShort(B.window.end)}`,
       series: B.series.length > 1 ? B.series.map((d) => d.impressions) : undefined,
       seriesAt: B.series.length > 1 ? B.series.map((d) => at(d.day)) : undefined,
     };
@@ -4468,9 +4513,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       value: count(B.totals.clicks),
       sub: also(
-        B.totals.ctr === null
-          ? ""
-          : `CTR ${percent(B.totals.ctr, 2)} of ${count(B.totals.impressions)} impressions`,
+        B.totals.ctr === null ? "" : `${percent(B.totals.ctr, 1)} CTR`,
         `${B.window.days}d to ${dayShort(B.window.end)}`,
       ),
       series: B.series.length > 1 ? B.series.map((d) => d.clicks) : undefined,
@@ -4485,10 +4528,7 @@ Object.assign(LIVE_BUILDERS, {
       /* Pages HELD, not pages submitted. The sitemap figure on the Google side
          of this board is the other one, and they are not comparable: one is
          what we asked a crawler to look at, this is what a crawler kept. */
-      sub: also(
-        `pages Bing is holding across ${B.totals.sites} site${B.totals.sites === 1 ? "" : "s"}`,
-        `crawled ${count(B.index.crawledPages)} on ${dayShort(B.index.day)}`,
-      ),
+      sub: `${B.totals.sites} site${B.totals.sites === 1 ? "" : "s"} · as of ${dayShort(B.index.day)}`,
     };
   },
 
@@ -4506,25 +4546,27 @@ Object.assign(LIVE_BUILDERS, {
   },
 
   "bing.queries": ({ bing: B }: LiveInputs) => {
+    /* Bing's own query report — a rear-view mirror on a different engine
+       from Google's, and never added to it. The bar is clicks. */
     if (!B?.connected || !B.queries.length) return null;
-    const rows: [string, string][] = B.queries
-      .slice(0, 6)
-      .map((q) => [q.query, `${count(q.impressions)} impr · #${place(q.position)}`]);
-    /*
-      NAMED AS BING'S OWN REPORT, because the card next to it is Google's and
-      the two lists disagree — that is the interesting part and it stops being
-      interesting the moment a reader assumes they measure the same thing.
-      This is still a rear-view mirror: it can only contain phrases a page of
-      ours already ranks for. The keyword card is the other question.
-    */
-    rows.push(["From", `Bing's own query report · ${B.window.days}d`]);
-    return { rows };
+    const top = [...B.queries].sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions).slice(0, 8);
+    return {
+      name: `Top queries · ${B.window.days}d · Bing`,
+      ranked: top.map((q) => ({
+        label: q.query,
+        host: q.site,
+        value: q.clicks,
+        text: clicksWord(q.clicks),
+        sub: also(`${compact(q.impressions)} impr`, q.position === null ? "" : `#${place(q.position)}`),
+      })),
+    };
   },
 
   "bing.sites": ({ bing: B }: LiveInputs) => {
     if (!B?.sites.length) return null;
     return {
       headers: ["Site", "Impressions", "Clicks", "CTR", "In index", "Inbound links"],
+      rowHosts: B.sites.map((s) => s.site),
       table: B.sites.map((s) => [
         s.label,
         count(s.impressions),
@@ -4536,21 +4578,7 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "bing.trend": ({ bing: B }: LiveInputs) => {
-    if (!B || B.series.length < 2) return null;
-    return {
-      chart: [
-        {
-          label: "impressions",
-          points: B.series.map((d) => ({ ts: at(d.day), value: d.impressions })),
-        },
-      ],
-      unit: "count" as const,
-      caption: B.window.end
-        ? `daily, every verified site summed · Bing's own newest day is ${dayShort(B.window.end)}`
-        : "daily, every verified site summed",
-    };
-  },
+  "bing.trend": ({ bing: B, window: W }: LiveInputs) => bingDaily(B, W, "impressions"),
 
   "bing.backlinks": ({ bing: B }: LiveInputs) => {
     if (!B?.connected || !B.sites.length) return null;
@@ -4568,12 +4596,13 @@ Object.assign(LIVE_BUILDERS, {
       s.label,
       `${count(s.inLinks)} inbound`,
     ]);
+    const rowHosts: (string | null)[] = B.sites.map((s) => s.site);
     rows.push([
       "Linking pages Bing will name",
       B.links.namedPages === 0 ? "none, on any site" : count(B.links.namedPages),
     ]);
     rows.push(["Referring domains", "not answerable — the link list is empty"]);
-    return { rows };
+    return { rows, rowHosts };
   },
 
   "bing.keywords": ({ bing: B }: LiveInputs) => {
@@ -8676,19 +8705,14 @@ Object.assign(LIVE_BUILDERS, {
     /* POINTS, NOT PERCENT OF A PERCENT. A CTR that went from 3.3% to 3.8%
        moved half a point; "+15%" over it is a figure in no unit. */
     const moved =
-      prev === null
-        ? "no comparable window before it"
-        : `${G.totals.ctr - prev >= 0 ? "+" : ""}${(G.totals.ctr - prev).toFixed(2)} pts on the previous ${G.window.days}d`;
+      prev === null ? "" : `${G.totals.ctr - prev >= 0 ? "+" : ""}${(G.totals.ctr - prev).toFixed(1)} pts`;
     return {
       /* NO TAG ON THIS TILE OR THE ONE BELOW: its siblings carry none, and a
          one-column tile has room for a name or a tag, not both. What kind of
          number it is — measured, weighted — is in the sentence under it. */
-      name: `CTR · Google · ${G.window.days}d`,
-      value: percent(G.totals.ctr, 2),
-      sub: also(
-        also(`${count(G.totals.clicks)} clicks of ${count(G.totals.impressions)} impressions, weighted across properties`, moved),
-        gscEnds(G),
-      ),
+      name: `CTR · Google`,
+      value: percent(G.totals.ctr, 1),
+      sub: also(moved, gscEnds(G)),
     };
   },
 
@@ -8717,20 +8741,13 @@ Object.assign(LIVE_BUILDERS, {
        nobody yet is not a broken one, and a card that listed it in red would
        send somebody to fix a thing that only needs time. */
     rows.push(["Data accumulates over time", "quiet is not broken"]);
-    return { name: `No search data yet · ${G.window.days}d`, rows };
+    const rowHosts = [...quiet.slice(0, 8).map((p) => p.property)];
+    return { name: `No search data yet · ${G.window.days}d`, rows, rowHosts };
   },
 
   /* ----------------------------------------------------- daily lines */
 
-  "gsc.clicksTrend": ({ gsc: G, window: W }: LiveInputs) => {
-    if (!G || G.series.length < 2) return null;
-    return {
-      name: `Clicks a day · ${portfolioWord(G)} · ${windowLabel(W ?? G.seriesDays)}`,
-      chart: [{ label: "clicks", points: G.series.map((d) => ({ ts: at(d.day), value: d.clicks })) }],
-      unit: "count" as const,
-      caption: portfolioLine(G),
-    };
-  },
+  "gsc.clicksTrend": ({ gsc: G }: LiveInputs) => gscDaily(G, "clicks"),
 
   "gsc.propertyClicks": ({ gsc: G }: LiveInputs) => {
     if (!G) return null;
@@ -8746,10 +8763,7 @@ Object.assign(LIVE_BUILDERS, {
       /* WHAT IS NOT DRAWN IS SAID. Four lines is what the eye can follow;
          the other properties are on the table beside this, not folded into
          a fifth line called "other". */
-      caption: also(
-        `${drawn.length} of ${of} properties drawn, busiest by clicks in the ${gscEnds(G)} · the rest are on the property table, not summed`,
-        G.window.end ? `ends ${dayShort(G.window.end)}` : "",
-      ),
+      caption: `Busiest ${drawn.length} of ${of} sites by clicks`,
     };
   },
 
@@ -8764,10 +8778,7 @@ Object.assign(LIVE_BUILDERS, {
         points: (p.series ?? []).map((d) => ({ ts: at(d.day), value: d.impressions })),
       })),
       unit: "count" as const,
-      caption: also(
-        `${drawn.length} of ${of} properties drawn, busiest by impressions in the ${gscEnds(G)} · the rest are on the property table, not summed`,
-        G.window.end ? `ends ${dayShort(G.window.end)}` : "",
-      ),
+      caption: `Busiest ${drawn.length} of ${of} sites by impressions`,
     };
   },
 
@@ -8792,7 +8803,7 @@ Object.assign(LIVE_BUILDERS, {
       dumbbell: rows,
       names: ["Clicks", "Impressions"] as [string, string],
       log: true,
-      caption: `${rows.length} properties with impressions, most first · ${gscEnds(G)} · the axis is in decades, so a step is tenfold, and a property with no clicks is parked at the floor`,
+      caption: `${rows.length} sites · log scale, each step is tenfold`,
     };
   },
 
@@ -8804,16 +8815,17 @@ Object.assign(LIVE_BUILDERS, {
       name: `Top queries · ${G.window.days}d · Google`,
       ranked: G.queries.slice(0, 8).map((q) => ({
         label: q.query,
+        host: q.property,
         value: q.clicks,
         text: `${count(q.clicks)} clicks`,
-        sub: `${q.property} · ${count(q.impressions)} impr · #${place(q.position)}`,
+        sub: `${compact(q.impressions)} impr · #${place(q.position)}`,
       })),
-      /* THE CAPTION IS THE POINT OF THE CARD, as it is on `gsc.queries`:
-         these rows sit inside a fifth of the impressions the properties had. */
+      /* A SAMPLE, SAID IN ONE LINE: Google withholds rare queries and caps
+         the rows, so these never sum to the property totals. */
       caption:
         G.coverage.pct === null
-          ? "Google's clicks-ordered rows — a sample of the impressions, never all of them"
-          : `these rows cover ${percent(G.coverage.pct)} of impressions — Google withholds rare queries and caps the rows`,
+          ? "A sample — Google hides rare queries"
+          : `These cover ${percent(G.coverage.pct, 0)} of impressions — Google hides rare queries`,
     };
   },
 
@@ -8823,11 +8835,11 @@ Object.assign(LIVE_BUILDERS, {
       name: `Top pages · ${G.window.days}d · Google`,
       ranked: G.pages.slice(0, 8).map((p) => ({
         label: pageLabel(p.page),
+        host: p.page,
         value: p.clicks,
         text: `${count(p.clicks)} clicks`,
-        sub: `${count(p.impressions)} impr · #${place(p.position)}`,
+        sub: `${compact(p.impressions)} impr · #${place(p.position)}`,
       })),
-      caption: "landing pages from search, by clicks · Google's own capped page rows",
     };
   },
 
@@ -8836,14 +8848,14 @@ Object.assign(LIVE_BUILDERS, {
     return {
       ranked: G.striking.slice(0, 8).map((q) => ({
         label: q.query,
+        host: q.property,
         /* THE BAR IS IMPRESSIONS, not the rank: what is at stake is how often
            the page is one push from a click, and a rank is not a length. */
         value: q.impressions,
         text: `${count(q.impressions)} impr`,
-        sub: `${q.property} · #${place(q.position)} · ${count(q.clicks)} click${q.clicks === 1 ? "" : "s"}`,
+        sub: `#${place(q.position)} · ${clicksWord(q.clicks)}`,
       })),
-      caption:
-        "position 5–20 with 3+ impressions, most impressions first · drawn from Google's clicks-ordered rows, so a high-impression query with no clicks can be missing",
+      caption: "Ranking 5–20 — a push onto page one's top spots",
     };
   },
 
@@ -8874,6 +8886,7 @@ Object.assign(LIVE_BUILDERS, {
     if (seen.length > shown.length)
       table.push([`+${seen.length - shown.length} smaller properties`, "—", "—", "—", "—", "—"]);
     return {
+      rowHosts: shown.map((p) => p.property),
       name: `Top query, every property · ${G.window.days}d`,
       headers: ["Property", "Top query", "Clicks", "Impressions", "Position", "Rows cover"],
       table,
@@ -8896,6 +8909,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       headers: ["Property", "Query", "Position", "Impressions", "Clicks"],
       table,
+      rowHosts: rows.slice(0, 12).map((p) => p.property),
     };
   },
 
@@ -8905,8 +8919,8 @@ Object.assign(LIVE_BUILDERS, {
        one that submitted nothing is the row after it. */
     const order = (p: GscProperty) =>
       p.sitemaps.state === "reported" ? -((p.sitemaps.errors ?? 0) * 1000 + (p.sitemaps.warnings ?? 0)) : p.sitemaps.state === "none" ? 1 : 2;
-    const table = [...G.properties]
-      .sort((a, b) => order(a) - order(b) || b.impressions - a.impressions)
+    const sorted = [...G.properties].sort((a, b) => order(a) - order(b) || b.impressions - a.impressions);
+    const table = sorted
       .map((p) => {
         const s = p.sitemaps;
         if (s.state === "reported")
@@ -8925,6 +8939,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       headers: ["Property", "Sitemaps", "URLs submitted", "Errors", "Warnings", "Last read"],
       table,
+      rowHosts: sorted.map((p) => p.property),
     };
   },
 
@@ -8938,12 +8953,13 @@ Object.assign(LIVE_BUILDERS, {
     const rows: [string, string][] = pages
       .slice(0, 6)
       .map((z) => [pageLabel(z.page), `${count(z.impressions)} impr · never clicked`]);
+    const rowHosts = pages.slice(0, 6).map((z) => z.page);
     if (!pages.length) rows.push(["No page shown and never clicked", "within the rows Google returned"]);
     else if (total > rows.length) rows.push([`${count(total)} such pages in all`, `${rows.length} drawn`]);
     /* A FLOOR, AND TAGGED AS ONE: only the pages Google's capped page rows
        returned could be counted, and a page past the cap is unmeasured. */
     rows.push(["Within Google's top pages per property", "a floor, not a total"]);
-    return { name: `Zero-click pages · ${G.window.days}d`, tag: "floor", rows };
+    return { name: `Zero-click pages · ${G.window.days}d`, tag: "floor", rows, rowHosts };
   },
 
   "gsc.cannot": ({ gsc: G }: LiveInputs) => {
@@ -9162,26 +9178,6 @@ Object.assign(LIVE_BUILDERS, {
    "Search · Example App 1" saying why.
 */
 
-/** "portfolio", or the one property's name when the document holds only
- *  one — a venture board with a single property, where "portfolio" would
- *  be a word for something that is not there. */
-function portfolioWord(G: GscReport): string {
-  return G.properties.length === 1 ? G.properties[0]!.label : "portfolio";
-}
-
-/** The caption under a summed daily line: how many properties are in the
- *  sum, how many days landed, and why it stops short of today. */
-function portfolioLine(G: GscReport): string {
-  const n = G.properties.length;
-  const who = n === 1 ? "one property" : `${n} properties summed, ${G.totals.properties} of them with traffic`;
-  return also(
-    `daily · ${who} · ${G.series.length} days drawn`,
-    G.window.end
-      ? `ends ${dayShort(G.window.end)} — the last three days are missing because Google has not finalised them`
-      : "",
-  );
-}
-
 /** A movement in the short form a tile's small print has room for. Null is
  *  "no window before it", never a zero. */
 function movedShort(delta: number | null): string {
@@ -9227,6 +9223,7 @@ Object.assign(LIVE_BUILDERS, {
       tag: "measured",
       ranked: seen.map((p) => ({
         label: p.label,
+        host: p.property,
         /* THE BAR IS CLICKS, against the busiest property rather than the
            sum — Workdash's rail asks "how does this one compare with the
            busiest", and a share of the total draws eighteen invisible bars
@@ -9242,8 +9239,8 @@ Object.assign(LIVE_BUILDERS, {
         spark: p.series.length > 1 ? p.series.map((d) => d.clicks) : undefined,
       })),
       caption: also(
-        `${seen.length} propert${seen.length === 1 ? "y" : "ies"} with impressions in the ${gscEnds(G)}, busiest first · the line beside each name is its own clicks a day over ${G.seriesDays}d`,
-        quiet ? `${quiet} quiet, listed on "No search data yet"` : "",
+        `${seen.length} site${seen.length === 1 ? "" : "s"} with impressions · line = clicks a day`,
+        quiet ? `${quiet} quiet` : "",
       ),
     };
   },
@@ -9549,6 +9546,127 @@ Object.assign(LIVE_BUILDERS, {
     if (F.baselines.length > rows.length) rows.push([`+${F.baselines.length - rows.length} more`, "tracked"]);
     rows.push(["Verdicts are arithmetic", "correlation, not cause"]);
     return { tag: "measured", rows };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ============================================ the search board, at a glance
+   ADDED 2026-09-29 when the Search board was reworked to read at a glance:
+   every site as a small card with its favicon, Bing's clicks as bars, Bing's
+   own page-two list and its crawl errors. Google and Bing stay apart — no
+   card here reads both documents.
+*/
+
+/** "+42%" with the way it went, or null when there was no window before. */
+function tileChange(delta: number | null): { text: string; good: boolean | null } | null {
+  if (delta === null) return null;
+  const rounded = Math.abs(delta) >= 10 ? Math.round(delta) : Number(delta.toFixed(1));
+  return { text: `${rounded > 0 ? "+" : ""}${rounded}%`, good: rounded === 0 ? null : rounded > 0 };
+}
+
+Object.assign(LIVE_BUILDERS, {
+  "search.googleSites": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.properties.length) return null;
+    const seen = G.properties
+      .filter((p) => p.impressions > 0)
+      .sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions);
+    if (!seen.length) return null;
+    const shown = seen.slice(0, 12);
+    const rest = seen.length - shown.length;
+    return {
+      name: `Every site on Google · ${G.window.days}d`,
+      sites: shown.map((p) => ({
+        label: p.label,
+        host: p.property,
+        value: count(p.clicks),
+        unit: p.clicks === 1 ? "click" : "clicks",
+        change: tileChange(p.delta.clicks),
+        bars: (p.series?.length ?? 0) > 1 ? p.series.map((d) => d.clicks) : undefined,
+        figures: [
+          ["Impr.", compact(p.impressions)],
+          ["CTR", p.ctr === null ? DASH : percent(p.ctr, 1)],
+          ["Position", place(p.position)],
+        ] as [string, string][],
+      })),
+      caption: also(
+        rest ? `+${rest} smaller site${rest === 1 ? "" : "s"}` : "",
+        `bars are clicks a day · ${gscEnds(G)}`,
+      ),
+    };
+  },
+
+  "search.bingSites": ({ bing: B }: LiveInputs) => {
+    if (!B?.connected || !B.sites.length) return null;
+    /* A site Bing showed fewer than five times is a row of zeroes here;
+       it is counted in the caption instead of drawn. */
+    const seen = B.sites
+      .filter((s) => s.clicks > 0 || s.impressions >= 5)
+      .sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions);
+    if (!seen.length) return null;
+    const shown = seen.slice(0, 12);
+    const quiet = B.sites.length - seen.length;
+    return {
+      name: `Every site on Bing · ${B.window.days}d`,
+      sites: shown.map((s) => ({
+        label: s.label,
+        host: s.site,
+        value: count(s.clicks),
+        unit: s.clicks === 1 ? "click" : "clicks",
+        bars: (s.series?.length ?? 0) > 1 ? s.series.map((d) => d.clicks) : undefined,
+        figures: [
+          ["Impr.", compact(s.impressions)],
+          ["CTR", s.ctr === null ? DASH : percent(s.ctr, 1)],
+          ["Indexed", s.index.inIndex === null ? DASH : compact(s.index.inIndex)],
+        ] as [string, string][],
+      })),
+      caption: also(
+        seen.length > shown.length ? `+${seen.length - shown.length} smaller` : "",
+        also(quiet ? `${quiet} barely seen on Bing` : "", "bars are clicks a day"),
+      ),
+    };
+  },
+
+  "search.bingDaily": ({ bing: B, window: W }: LiveInputs) => bingDaily(B, W, "clicks"),
+
+  "search.bingStriking": ({ bing: B }: LiveInputs) => {
+    /* The same band as Google's page-two list — position 5 to 20 with a few
+       impressions — cut from Bing's own query report. */
+    if (!B?.connected || !B.queries.length) return null;
+    const near = B.queries
+      .filter((q) => q.position !== null && q.position >= 5 && q.position <= 20 && q.impressions >= 3)
+      .sort((a, b) => b.impressions - a.impressions)
+      .slice(0, 8);
+    if (!near.length) return null;
+    return {
+      name: `Page-two opportunities · Bing`,
+      ranked: near.map((q) => ({
+        label: q.query,
+        host: q.site,
+        value: q.impressions,
+        text: `${count(q.impressions)} impr`,
+        sub: `#${place(q.position)} · ${clicksWord(q.clicks)}`,
+      })),
+      caption: "Ranking 5–20 on Bing — a push onto page one's top spots",
+    };
+  },
+
+  "search.bingCrawl": ({ bing: B }: LiveInputs) => {
+    if (!B?.connected || !B.index.day) return null;
+    const line = B.index.series.slice(-28);
+    const before = line.slice(0, -1).slice(-14).map((d) => d.errors).sort((a, b) => a - b);
+    const usual = before.length ? before[Math.floor(before.length / 2)]! : null;
+    /* A SPIKE, NOT A LIMIT: flagged when the latest day is more than three
+       times the usual day of the fortnight before it. */
+    const spike = usual !== null && B.index.crawlErrors > 100 && B.index.crawlErrors > usual * 3;
+    return {
+      value: count(B.index.crawlErrors),
+      tone: spike ? ("warn" as StatusTone) : undefined,
+      sub: also(
+        usual !== null ? `usually ~${count(usual)}` : "",
+        `${compact(B.index.blockedByRobots)} blocked by robots · ${dayShort(B.index.day)}`,
+      ),
+      series: line.length > 1 ? line.map((d) => d.errors) : undefined,
+      seriesAt: line.length > 1 ? line.map((d) => at(d.day)) : undefined,
+    };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
 
