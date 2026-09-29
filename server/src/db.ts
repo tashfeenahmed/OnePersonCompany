@@ -6440,6 +6440,37 @@ export function forgetDemandTerms(keep: string[]): number {
 }
 
 /**
+ * Demand rows the current matcher would refuse, deleted.
+ *
+ * THE MATCHER LIVES IN THE PROVIDER, THE JUDGEMENT CALLS HAPPEN HERE. The
+ * predicate arrives as a callback rather than as a comparison written in SQL,
+ * because "does this title talk about this phrase" is a word-boundary question
+ * with an English-language answer, and a LIKE pattern cannot give one. Callers
+ * pass `demand.isStaleMatch`; the rows scanned are every row held, which is
+ * small by construction — a watch list of twenty phrases against two engines'
+ * result pages, pruned on sight.
+ */
+export function deleteDemandRowsWhere(
+  isStale: (row: DemandItemRow) => boolean,
+): number {
+  const rows = demandItems();
+  const stmt = db.prepare(
+    "DELETE FROM demand_items WHERE source = ? AND id = ? AND term = ?",
+  );
+  let gone = 0;
+  db.exec("BEGIN");
+  try {
+    for (const r of rows)
+      if (isStale(r)) gone += Number(stmt.run(r.source, r.id, r.term).changes);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return gone;
+}
+
+/**
  * Items nobody has seen for a long time, dropped.
  *
  * On the LONG retention and keyed on `seen_at` rather than on the thread's own

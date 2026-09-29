@@ -128,6 +128,7 @@ import * as searxng from "./providers/searxng.ts";
 import {
   demandOrderedTerms,
   demandQueries,
+  deleteDemandRowsWhere,
   forgetDemandTerms,
   replaceSearxngEngines,
   searxngStates,
@@ -2885,6 +2886,11 @@ export async function collectReddit(): Promise<DemandSummary> {
   // counting inside every total while appearing under no phrase on the page.
   forgetDemandTerms(terms);
 
+  /* The same stale-row pass collectHackerNews explains: rows an earlier,
+     looser matcher wrote must not go on counting after the matcher tightens.
+     Only algolia- and searxng-tier rows are eligible; feed rows are not. */
+  deleteDemandRowsWhere((r) => r.source === "reddit" && demand.isStaleMatch(r));
+
   try {
     const pending = pendingTerms("reddit", terms);
     const at = lastAskedAt("reddit");
@@ -3037,6 +3043,14 @@ export async function collectHackerNews(): Promise<DemandSummary> {
 
   forgetDemandTerms(terms);
 
+  /* ROWS THE OLD MATCHER WROTE. The store keeps what a previous, looser
+     ingest accepted, and the route counts rows it holds — so without this
+     pass the tightened matcher would only stop the counts from GROWING and
+     "HN 18 for a Python tutorial" would sit on the card after the fix as
+     loudly as before it. One pass per collection, deleting only what the
+     matcher can positively see is off-phrase. */
+  const stale = deleteDemandRowsWhere((r) => r.source === "hn" && demand.isStaleMatch(r));
+
   try {
     const pending = pendingTerms("hn", terms);
     const at = lastAskedAt("hn");
@@ -3090,7 +3104,8 @@ export async function collectHackerNews(): Promise<DemandSummary> {
     const note =
       `${answered.length} of ${terms.length} phrase${terms.length === 1 ? "" : "s"} ` +
       `answered · ${items} rows · ${run.signals.length - comments} stories, ` +
-      `${comments} comments`;
+      `${comments} comments` +
+      (stale ? ` · ${stale} stale row${stale === 1 ? "" : "s"} dropped by the matcher` : "");
 
     finishRun(runId, true, note, run.warnings.join("; ") || undefined);
     upsertPlugin("hackernews", true, run.warnings.join("; ") || null);
