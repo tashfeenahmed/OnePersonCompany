@@ -751,6 +751,7 @@ export function scopeLive(
         neither of which is a narrowing.
       */
       mobileHealth: scoped.mobileHealth,
+      apps: scoped.apps,
       webAnalytics: scoped.webAnalytics,
     });
     if (patch) liveTypes.add(type);

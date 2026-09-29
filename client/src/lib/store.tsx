@@ -1293,18 +1293,23 @@ const SEED: StoreState = {
       slug: "apps",
       name: "Apps",
       widgets: [
-        { id: "ap1", type: "appstore.installs", w: 1 },
-        { id: "ap2", type: "play.installs", w: 1 },
-        { id: "ap3", type: "appstore.rating", w: 1 },
-        { id: "ap4", type: "play.rating", w: 1 },
-        { id: "ap5", type: "mobile.presence", w: 1 },
-        { id: "ap6", type: "appstore.daily", w: 4 },
-        { id: "ap7", type: "play.daily", w: 4 },
-        { id: "ap8", type: "appstore.store", w: 2 },
-        { id: "ap9", type: "appstore.apps", w: 4 },
-        { id: "ap10", type: "play.apps", w: 4 },
-        { id: "ap11", type: "appstore.limits", w: 2 },
-        { id: "ap12", type: "play.limits", w: 2 },
+        /* Rebuilt 2026-09-29 on /api/mobilehealth/apps: both stores joined per
+           app, the app picker across the top narrows every card below it. */
+        { id: "ap20", type: "apps.filter", w: 4 },
+        { id: "ap21", type: "apps.installs", w: 1 },
+        { id: "ap22", type: "apps.rating", w: 1 },
+        { id: "ap23", type: "apps.reviews", w: 1 },
+        { id: "ap24", type: "apps.active", w: 1 },
+        { id: "ap25", type: "apps.daily", w: 4 },
+        { id: "ap26", type: "apps.grid", w: 4 },
+        { id: "ap27", type: "apps.byApp", w: 2 },
+        { id: "ap28", type: "apps.ratings", w: 2 },
+        { id: "ap29", type: "apps.reviewList", w: 2 },
+        { id: "ap30", type: "apps.stars", w: 2 },
+        { id: "ap31", type: "apps.countries", w: 2 },
+        { id: "ap32", type: "apps.sources", w: 2 },
+        { id: "ap33", type: "apps.conversion", w: 2 },
+        { id: "ap34", type: "apps.stability", w: 2 },
       ],
     },
     /*
@@ -1476,7 +1481,7 @@ export function defaultWidth(type: string): 1 | 2 | 4 {
   const kind = WIDGETS[type]?.kind;
   if (kind === "metric") return 1;
   /* A section heading runs across the whole board. */
-  if (kind === "heading" || kind === "daily") return 4;
+  if (kind === "heading" || kind === "daily" || kind === "appfilter" || kind === "appgrid") return 4;
   if (kind === "chart" || kind === "table" || kind === "runway") return 4;
   /* A feed carries a picture, three lines of copy and a strip of figures per
      row: at two columns the copy wraps to six lines and the figures stack. */
