@@ -27,7 +27,7 @@ export function AppIcon({ app, size = 20, className }: { app: Pick<AppEntry, "ic
         alt=""
         width={size}
         height={size}
-        className={cn("shrink-0 object-cover", className)}
+        className={cn("shrink-0 object-cover dark:ring-1 dark:ring-white/15", className)}
         style={{ width: size, height: size, borderRadius: size * 0.225 }}
       />
     );

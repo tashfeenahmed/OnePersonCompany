@@ -45,7 +45,7 @@ export function VentureMark({
         onError={(e) => {
           e.currentTarget.style.display = "none";
         }}
-        className={cn("shrink-0 rounded-[5px] object-contain", className)}
+        className={cn("shrink-0 rounded-[5px] object-contain dark:ring-1 dark:ring-white/15", className)}
         style={{ width: size, height: size }}
       />
     );

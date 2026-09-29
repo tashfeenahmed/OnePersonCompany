@@ -29,6 +29,7 @@ import {
 import { ago, splitMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { BRAND_ICONS } from "@/data/brandIcons";
+import { isVeryDark } from "@/lib/readableColour";
 import { ModelMark } from "@/components/ModelMark";
 import { SOURCES, WIDGETS, type Widget } from "@/data/widgets";
 import { useStore, type PlacedWidget } from "@/lib/store";
@@ -402,7 +403,10 @@ export function WidgetCard({
     stale={!!failedSource || !!live.error} error={live.sourceErrors[failedSource ?? sourceKey] ?? live.error}
     editing={editing} onCycleWidth={onCycleWidth} onRemove={onRemove} onMove={onMove} onToggleDetail={onToggleDetail}
     dragHandlers={dragHandlers} dragging={dragging} dropSide={dropSide} />;
-  const brand = src.icon ? BRAND_ICONS[src.icon]?.hex : src.tint;
+  /* A near-black brand tints nothing on the dark theme; its bars fall back
+     to the chart's own colour (see lib/readableColour). */
+  const brandHex = src.icon ? BRAND_ICONS[src.icon]?.hex : src.tint;
+  const brand = isVeryDark(brandHex) ? undefined : brandHex;
 
   return (
     <div
