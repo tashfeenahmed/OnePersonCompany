@@ -35,7 +35,7 @@ import { dirname, join } from "node:path";
 /* Relative rather than the `@/` alias every other file uses: node resolves
    this one itself, with no bundler and no tsconfig paths in front of it. Both
    modules below import nothing but types, so stripping them is enough. */
-import { WIDGETS, SOURCES, DASHBOARD_PRESETS } from "../src/data/widgets.ts";
+import { WIDGETS, SOURCES, DASHBOARD_PRESETS, presetWidgetType } from "../src/data/widgets.ts";
 import { LIVE_BUILDERS } from "../src/lib/liveWidgets.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -44,7 +44,7 @@ const store = readFileSync(join(here, "..", "src", "lib", "store.tsx"), "utf8");
 /** Every widget id a seeded board places, in seed order. */
 const seeded = [...store.matchAll(/type: "([^"]+)"/g)].map((m) => m[1]!);
 
-const inPresets = DASHBOARD_PRESETS.flatMap((p) => p.widgets);
+const inPresets = DASHBOARD_PRESETS.flatMap((p) => p.widgets.map(presetWidgetType));
 
 const failures: string[] = [];
 const fail = (line: string) => failures.push(line);
