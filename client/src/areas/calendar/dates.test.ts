@@ -31,6 +31,16 @@ import {
   startOfWeek,
   untilText,
   weekHeading,
+  addMonths,
+  durationLabel,
+  freeWindows,
+  joinLink,
+  monthGrid,
+  nowStatus,
+  periodDays,
+  relativeDay,
+  stepPeriod,
+  whenLabel,
 } from "./dates.ts";
 
 const event = (over: Partial<CalendarEvent>): CalendarEvent => ({
@@ -176,4 +186,89 @@ test("a timed start is parsed with the offset Google sent, not sliced", () => {
   /* 09:00 in Karachi is 04:00 UTC whatever the reader's clock says — which is
      the fact a grid has to place it by. */
   assert.equal(d.toISOString(), "2026-09-08T04:00:00.000Z");
+});
+
+/* ------------------------------------------------------ views and words */
+
+/** A local wall-clock time on a date, as an RFC3339 string with this
+ *  machine's own offset — so the tests read the same in any timezone. */
+const at = (day: string, hh: number, mm = 0): string => {
+  const d = parseISODay(day)!;
+  d.setHours(hh, mm, 0, 0);
+  const off = -d.getTimezoneOffset();
+  const sign = off >= 0 ? "+" : "-";
+  const pad = (n: number) => String(Math.abs(n)).padStart(2, "0");
+  return `${day}T${pad(hh)}:${pad(mm)}:00${sign}${pad(Math.trunc(off / 60))}:${pad(off % 60)}`;
+};
+
+test("a month grid is always six Monday-first weeks", () => {
+  const grid = monthGrid(parseISODay("2026-09-17")!);
+  assert.equal(grid.length, 42);
+  assert.equal(isoDay(grid[0]!), "2026-08-31");
+  assert.equal(grid[0]!.getDay(), 1);
+});
+
+test("a month on from the 31st lands on the last day, not three days into the next", () => {
+  assert.equal(isoDay(addMonths(parseISODay("2026-01-31")!, 1)), "2026-02-28");
+});
+
+test("each view steps in its own unit and shows its own days", () => {
+  const d = parseISODay("2026-09-30")!;
+  assert.equal(isoDay(stepPeriod("day", d, 1)), "2026-10-01");
+  assert.equal(isoDay(stepPeriod("week", d, -1)), "2026-09-23");
+  assert.equal(isoDay(stepPeriod("month", d, 1)), "2026-10-30");
+  assert.equal(periodDays("day", d).length, 1);
+  assert.equal(isoDay(periodDays("week", d)[0]!), "2026-09-28");
+});
+
+test("durations and days read as words", () => {
+  assert.equal(durationLabel(25), "25 min");
+  assert.equal(durationLabel(60), "1 hr");
+  assert.equal(durationLabel(90), "1 hr 30 min");
+  assert.equal(durationLabel(180), "3 hrs");
+  const today = parseISODay("2026-09-29")!;
+  assert.equal(relativeDay(today, today), "Today");
+  assert.equal(relativeDay(addDays(today, 1), today), "Tomorrow");
+  assert.equal(relativeDay(addDays(today, -1), today), "Yesterday");
+});
+
+test("an event's time is one plain sentence", () => {
+  const today = parseISODay("2026-09-29")!;
+  const call = event({ start: at("2026-09-29", 14), end: at("2026-09-29", 15, 30) });
+  assert.equal(whenLabel(call, today), "Today, 14:00 – 15:30 (1 hr 30 min)");
+  const trip = event({ allDay: true, start: "2026-09-30", end: "2026-10-03" });
+  assert.match(whenLabel(trip, today), /^All day, Tomorrow – .* \(3 days\)$/);
+});
+
+test("now-status says upcoming, happening now, or finished", () => {
+  const call = event({ start: at("2026-09-29", 14), end: at("2026-09-29", 15) });
+  const t = (h: number, m = 0) => {
+    const d = parseISODay("2026-09-29")!;
+    d.setHours(h, m);
+    return d;
+  };
+  assert.deepEqual(nowStatus(call, t(13, 35)), { kind: "upcoming", text: "Starts in 25 min" });
+  assert.deepEqual(nowStatus(call, t(14, 40)), { kind: "now", text: "Happening now · ends in 20 min" });
+  assert.equal(nowStatus(call, t(16))?.kind, "past");
+});
+
+test("free windows are the gaps between busy events inside working hours", () => {
+  const day = parseISODay("2026-09-29")!;
+  const events = [
+    event({ eventId: "a", start: at("2026-09-29", 10), end: at("2026-09-29", 11) }),
+    event({ eventId: "b", start: at("2026-09-29", 10, 30), end: at("2026-09-29", 12) }),
+    event({ eventId: "c", start: at("2026-09-29", 12, 10), end: at("2026-09-29", 13) }),
+    event({ eventId: "d", start: at("2026-09-29", 15), end: at("2026-09-29", 16), response: "declined" }),
+  ];
+  assert.deepEqual(freeWindows(events, day), [
+    { start: 9 * 60, end: 10 * 60 },
+    { start: 13 * 60, end: 18 * 60 },
+  ]);
+});
+
+test("the join link is Meet, else an https video link pasted as the location", () => {
+  assert.equal(joinLink(event({ meetLink: "https://meet.google.com/abc" })), "https://meet.google.com/abc");
+  assert.equal(joinLink(event({ location: "https://zoom.us/j/1 pw 2" })), "https://zoom.us/j/1");
+  assert.equal(joinLink(event({ location: "Room 4" })), null);
+  assert.equal(joinLink(event({ location: "javascript:alert(1)" })), null);
 });

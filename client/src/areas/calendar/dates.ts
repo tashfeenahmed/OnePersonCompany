@@ -348,3 +348,204 @@ export function tint(color: string | null, dark: boolean): string | undefined {
 /** The same colour at full strength, for a 6px rule or a legend dot. */
 export const dot = (color: string | null): string | undefined =>
   color && /^#[0-9a-f]{6}$/i.test(color) ? color : undefined;
+
+/* ------------------------------------------------------------ views/months */
+
+export type View = "day" | "week" | "month" | "agenda";
+
+export const VIEWS: readonly View[] = ["day", "week", "month", "agenda"] as const;
+
+export const isView = (v: unknown): v is View =>
+  typeof v === "string" && (VIEWS as readonly string[]).includes(v);
+
+/** The first of the month containing `d`, at local midnight. */
+export const startOfMonth = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), 1);
+
+/** The same day-of-month n months on, clamped to the month's last day — 31
+ *  January plus one month is 28 February, never 3 March. */
+export function addMonths(d: Date, n: number): Date {
+  const first = new Date(d.getFullYear(), d.getMonth() + n, 1);
+  const last = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+  return new Date(first.getFullYear(), first.getMonth(), Math.min(d.getDate(), last));
+}
+
+/** Six Monday-first weeks covering the month of `d` — always 42 cells, so
+ *  paging months never makes the grid jump in height. */
+export function monthGrid(d: Date): Date[] {
+  const monday = startOfWeek(startOfMonth(d));
+  return Array.from({ length: 42 }, (_, i) => addDays(monday, i));
+}
+
+/** The days a view shows around its anchor day. Agenda runs from the anchor
+ *  on; the caller cuts it at the held window. */
+export function periodDays(view: View, anchor: Date): Date[] {
+  if (view === "day") return [new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate())];
+  if (view === "week") return weekDays(startOfWeek(anchor));
+  if (view === "month") return monthGrid(anchor);
+  return Array.from({ length: 14 }, (_, i) => addDays(anchor, i));
+}
+
+/** One step back or on, in the view's own unit. */
+export function stepPeriod(view: View, anchor: Date, dir: -1 | 1): Date {
+  if (view === "day") return addDays(anchor, dir);
+  if (view === "month") return addMonths(anchor, dir);
+  return addDays(anchor, 7 * dir);
+}
+
+const LONG_MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+] as const;
+
+/** "September 2026". */
+export const monthHeading = (d: Date): string => `${LONG_MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+
+/** The toolbar title for a view. */
+export function periodHeading(view: View, anchor: Date): string {
+  if (view === "day") return `${dayHeading(anchor)} ${anchor.getFullYear()}`;
+  if (view === "week") return weekHeading(startOfWeek(anchor));
+  if (view === "month") return monthHeading(anchor);
+  return `From ${dayHeading(anchor)}`;
+}
+
+/* ----------------------------------------------------------- human words */
+
+/** "45 min", "1 hr", "1 hr 30 min", "3 hrs". */
+export function durationLabel(minutes: number): string {
+  const m = Math.max(0, Math.round(minutes));
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  if (rest) return `${h} hr ${rest} min`;
+  return h === 1 ? "1 hr" : `${h} hrs`;
+}
+
+/** "Today", "Tomorrow", "Yesterday", or "Thursday 1 October". */
+export function relativeDay(d: Date, today: Date): string {
+  const n = daysBetween(today, d);
+  if (n === 0) return "Today";
+  if (n === 1) return "Tomorrow";
+  if (n === -1) return "Yesterday";
+  return dayHeading(d);
+}
+
+/** "Today, 14:00 – 15:00 (1 hr)", "All day, Thursday 1 October", or a span
+ *  of days for a multi-day entry. The whole of an event's time in words. */
+export function whenLabel(e: CalendarEvent, today: Date): string {
+  const start = eventStart(e);
+  if (!start) return "No time given";
+  if (e.allDay) {
+    const days = eventDays(e);
+    if (days.length <= 1) return `All day, ${relativeDay(start, today)}`;
+    const last = addDays(start, days.length - 1);
+    return `All day, ${relativeDay(start, today)} – ${relativeDay(last, today)} (${days.length} days)`;
+  }
+  const end = eventEnd(e);
+  const mins = end ? Math.round((end.getTime() - start.getTime()) / 60_000) : null;
+  const endText = end
+    ? sameDay(start, end)
+      ? ` – ${clockLabel(end)}`
+      : ` – ${relativeDay(end, today)} ${clockLabel(end)}`
+    : "";
+  return `${relativeDay(start, today)}, ${clockLabel(start)}${endText}${mins && mins > 0 ? ` (${durationLabel(mins)})` : ""}`;
+}
+
+/** Where the event sits against this minute, in words. */
+export function nowStatus(
+  e: CalendarEvent,
+  now: Date,
+): { kind: "upcoming" | "now" | "past"; text: string } | null {
+  if (e.allDay) return null;
+  const start = eventStart(e);
+  const end = eventEnd(e);
+  if (!start) return null;
+  const t = now.getTime();
+  if (start.getTime() > t) return { kind: "upcoming", text: `Starts ${untilText(start, now)}` };
+  if (end && end.getTime() > t) {
+    const left = Math.max(1, Math.round((end.getTime() - t) / 60_000));
+    return { kind: "now", text: `Happening now · ends in ${durationLabel(left)}` };
+  }
+  return { kind: "past", text: "Finished" };
+}
+
+/** Is it on right now? */
+export function isOngoing(e: CalendarEvent, now: Date): boolean {
+  return nowStatus(e, now)?.kind === "now";
+}
+
+/**
+ * The free stretches of one day between two clock times, at least `minGap`
+ * minutes long, as minutes past midnight. Only BUSY events take time (the
+ * same rule as `busyMinutes`); a timed event that runs past midnight takes
+ * the rest of its own day.
+ */
+export function freeWindows(
+  events: CalendarEvent[],
+  day: Date,
+  from = 9 * 60,
+  to = 18 * 60,
+  minGap = 30,
+): { start: number; end: number }[] {
+  const spans = events
+    .filter(isBusy)
+    .map((e) => {
+      const s = eventStart(e);
+      const en = eventEnd(e);
+      if (!s || !en) return null;
+      const a = sameDay(s, day) ? minutesInto(s) : s.getTime() < day.getTime() ? 0 : 24 * 60;
+      const b = sameDay(en, day) ? minutesInto(en) : en.getTime() < day.getTime() ? 0 : 24 * 60;
+      return [a, b] as const;
+    })
+    .filter((x): x is readonly [number, number] => x !== null && x[1] > x[0])
+    .sort((x, y) => x[0] - y[0]);
+
+  const out: { start: number; end: number }[] = [];
+  let cursor = from;
+  for (const [a, b] of spans) {
+    if (b <= cursor) continue;
+    if (a >= to) break;
+    if (a - cursor >= minGap) out.push({ start: cursor, end: Math.min(a, to) });
+    cursor = Math.max(cursor, b);
+  }
+  if (to - cursor >= minGap) out.push({ start: cursor, end: to });
+  return out;
+}
+
+/** "09:00" from minutes past midnight. */
+export const minutesLabel = (m: number): string =>
+  `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
+/** A location that is really a URL — a Zoom or Teams room pasted into the
+ *  field, which is how half the world books a video call. https only. */
+export function locationLink(location: string | null): string | null {
+  if (!location) return null;
+  const first = location.trim().split(/\s+/)[0] ?? "";
+  if (!/^https:\/\//i.test(first)) return null;
+  try {
+    return new URL(first).protocol === "https:" ? first : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The one link to join the meeting: Google's Meet room, else a video link in
+ *  the location field. */
+export function joinLink(e: CalendarEvent): string | null {
+  return e.meetLink ?? locationLink(e.location);
+}
+
+/** "you accepted", "you declined", "you haven't answered", "maybe". */
+export function responseLabel(r: string | null): string | null {
+  switch (r) {
+    case "accepted":
+      return "You're going";
+    case "declined":
+      return "You declined";
+    case "tentative":
+      return "You said maybe";
+    case "needsAction":
+      return "You haven't answered";
+    default:
+      return null;
+  }
+}
