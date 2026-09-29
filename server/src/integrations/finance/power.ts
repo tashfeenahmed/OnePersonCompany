@@ -90,7 +90,7 @@ export function saveProfile(p: {
        timezone = excluded.timezone, always_on = excluded.always_on, updated_at = excluded.updated_at`,
   ).run(
     p.machineId, p.label ?? null, p.idleWatts, p.busyWatts, p.ratePerKwh ?? null,
-    currencyCode(p.currency ?? "EUR"), p.timezone ?? null, p.alwaysOn ? 1 : 0, now(),
+    currencyCode(p.currency ?? tariffCurrency()), p.timezone ?? null, p.alwaysOn ? 1 : 0, now(),
   );
   return profile(p.machineId)!;
 }
@@ -102,28 +102,30 @@ export function deleteProfile(machineId: string): boolean {
 /* ------------------------------------------------------------ the tariff */
 
 /**
- * THE IRISH STANDARD UNIT RATE, used when nobody has typed a tariff.
+ * NO PRICE UNTIL ONE IS SET. Electricity costs differ by country, supplier
+ * and contract by a factor of five or more, so there is no honest built-in
+ * default: an installation with no `kwh_rate` on the Finance integration
+ * shows kWh and no money, and every surface says a price is missing. Setting
+ * `kwh_rate` (and `kwh_currency`) prices every line that carries no rate of
+ * its own.
  *
- * Since 2026-09-29, at the owner's request: this box runs in Ireland, and an
- * unpriced electricity line was hiding a real cost. 36c/kWh is the middle of
- * the 35–38c standard tariffs (incl. VAT) the suppliers charged in 2026 —
- * Electric Ireland's standard rate was 38.04c. Typing a rate on the Finance
- * integration replaces it, and every surface says which one is in use.
+ * THE CURRENCY, when `kwh_currency` is blank, is the workspace's display
+ * currency (`display_currency`, USD when unset), so a rate typed on its own is
+ * read in the currency the rest of the dashboard already uses.
  */
-export const IRISH_KWH = { perKwh: 0.36, currency: "EUR" } as const;
+export function tariffCurrency(): string {
+  const typed = (configValue(PLUGIN, "kwh_currency") ?? "").trim();
+  const display = (configValue(PLUGIN, "display_currency") ?? "").trim();
+  return currencyCode(typed || display || "USD");
+}
 
 /** The plugin-wide electricity price, used by any profile that carries none of
- *  its own: the typed one, else the Irish standard rate. */
-export function tariff(): { perKwh: number | null; currency: string; source: "typed" | "irish-average" } {
+ *  its own: the typed one, else none at all. */
+export function tariff(): { perKwh: number | null; currency: string; source: "typed" | "unset" } {
   const raw = (configValue(PLUGIN, "kwh_rate") ?? "").trim();
   const n = raw ? Number(raw) : NaN;
-  if (Number.isFinite(n) && n > 0)
-    return {
-      perKwh: n,
-      currency: currencyCode((configValue(PLUGIN, "kwh_currency") ?? "EUR").trim() || "EUR"),
-      source: "typed",
-    };
-  return { perKwh: IRISH_KWH.perKwh, currency: IRISH_KWH.currency, source: "irish-average" };
+  if (Number.isFinite(n) && n > 0) return { perKwh: n, currency: tariffCurrency(), source: "typed" };
+  return { perKwh: null, currency: tariffCurrency(), source: "unset" };
 }
 
 /** A machine the owner typed in by hand — a home box with no workstation
@@ -360,9 +362,7 @@ export function powerLine(p: ProfileRow, month: string, nowIso = now()): PowerLi
     note:
       perKwh === null
         ? `${note} No price per kWh has been set, so there is no money on this line. Set one on the Finance integration's page.`
-        : p.rate_per_kwh === null && t.source === "irish-average"
-          ? `${note} Priced at the Irish standard rate, ${t.perKwh} ${t.currency}/kWh incl. VAT — type your own tariff on the Finance integration to replace it.`
-          : note,
+        : note,
   };
 }
 

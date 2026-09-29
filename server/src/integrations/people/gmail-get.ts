@@ -166,8 +166,8 @@ export function header(headers: Header[], name: string): string {
   return headerAll(headers, name)[0] ?? "";
 }
 
-/** Addresses by SHAPE rather than by splitting on commas — `"Ogbeide, Courage"
- *  <c@x.io>` is one recipient with a comma inside a quoted display name, and
+/** Addresses by SHAPE rather than by splitting on commas — `"Doe, Jane"
+ *  <jane@x.io>` is one recipient with a comma inside a quoted display name, and
  *  comma-splitting turns it into two. */
 const ADDRESS_RE = /[^\s<>,;:"'()[\]]+@[^\s<>,;:"'()[\]]+/g;
 

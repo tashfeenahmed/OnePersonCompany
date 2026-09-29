@@ -214,7 +214,7 @@ test("the phone version groups failures by a cause it can name and keeps each st
     stageId, area: "x", startedAt: "", finishedAt: null, outcome: outcome as "completed", reason: null,
     error: p.error ?? null, note: p.note ?? null, ms: 1, usd: null, counts: {},
   });
-  const dell = "Could not reach Local · Dell 5820 (Dell 5820) at http://192.168.1.50:11434/v1/chat/completions (TypeError).";
+  const dell = "Could not reach Local · GPU box (GPU box) at http://192.0.2.50:11434/v1/chat/completions (TypeError).";
   const text = phoneSummary({
     counts: { completed: 2, skipped: 1, failed: 3, "over-budget": 0 },
     usd: null,
@@ -222,7 +222,7 @@ test("the phone version groups failures by a cause it can name and keeps each st
     stages: [
       stage("collect", "completed", { note: "21 sources refreshed; 0 failed." }),
       stage("alerts", "completed"),
-      stage("mail", "failed", { error: `tash@example.com: The scorer failed part-way: ${dell}` }),
+      stage("mail", "failed", { error: `owner@example.com: The scorer failed part-way: ${dell}` }),
       stage("brief", "failed", { error: `The briefing was assembled but not written up: ${dell}` }),
       stage("seo", "failed", { error: "2 analysis jobs failed. Open their reports for details." }),
     ],
@@ -232,7 +232,7 @@ test("the phone version groups failures by a cause it can name and keeps each st
     [
       "🌙 Overnight run: 2 done, 3 failed, 1 skipped",
       "",
-      "❌ Couldn't reach Dell 5820, it may be switched off, so these 2 failed:",
+      "❌ Couldn't reach GPU box, it may be switched off, so these 2 failed:",
       "• Review incoming mail, Morning brief",
       "",
       "❌ Also failed:",

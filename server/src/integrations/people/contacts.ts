@@ -16,8 +16,8 @@
  * at in memory and thrown away: if a message's subject mentions a venture's
  * host, that is a point towards linking the contact to that venture. The link
  * is a GUESS and is published as one — `link.derived: true` with the reason —
- * because a person at gmail.com who once wrote "re: planintel.ie" is not
- * thereby a PlanIntel contact.
+ * because a person at gmail.com who once wrote "re: acme.example" is not
+ * thereby an Acme contact.
  *
  * STALENESS IS MEASURED AGAINST EACH PERSON'S OWN RHYTHM, never against a
  * fixed number of days — the decision workdash's collect_contacts.py arrived

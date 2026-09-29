@@ -201,7 +201,7 @@ export const youtubeApi = {
 
 /* ---------------------------------------------------------------- stewie */
 
-/** What the Workdash Pi and, through it, the Dell can do right now. Read for
+/** What the render relay and, through it, the GPU machine can do right now. Read for
  *  the Studio's Stewie tab; asking it wakes nothing. */
 export type StewieDoc = {
   configured: boolean;

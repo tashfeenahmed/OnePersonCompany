@@ -287,7 +287,7 @@ export const REDDIT_GAP_TOKEN_MS = 6_000;
 /**
  * How much wall clock one collection may spend on Reddit.
  *
- * THE PACING IS NOT PORTED FROM THE PI AND IT MUST NOT BE. Over there this is
+ * THE PACING IS NOT PORTED FROM THE PREVIOUS SYSTEM AND IT MUST NOT BE. There this is
  * a systemd timer with eighty minutes to play with, so it paces at 62 seconds
  * a query and takes most of an hour. Here a collection runs inside the HTTP
  * request that stored the credential and again on the process's own clock, and
@@ -514,7 +514,7 @@ export type FeedToken = { user: string; feed: string };
  * The prefs/feeds credential, from whatever the owner pasted.
  *
  * TWO SHAPES, BECAUSE THERE ARE TWO THINGS IN FRONT OF A PERSON. The previous
- * system keeps `{"user": "…", "feed": "…"}` in a file, so a copy from the Pi is a
+ * system keeps `{"user": "…", "feed": "…"}` in a file, so a copy from it is a
  * paste of that JSON; reddit.com/prefs/feeds itself offers a whole URL with
  * the two parameters in its query string, so that is the other paste. Both are
  * the same credential and refusing either would be refusing a correct answer
@@ -1151,7 +1151,7 @@ const containsSequence = (hay: string[], needle: string[]): boolean => {
 /**
  * Does this text actually talk about the watch phrase?
  *
- * THE BUG THIS KILLED, measured on demand run r-1edbgc: Algolia's index
+ * THE BUG THIS KILLED, measured on a real demand run: Algolia's index
  * matches a query as a BAG OF WORDS ranked by relevance, not as a phrase, so
  * "trending in my niche" (HN 18) was being fed by "Jev in 25 Lines of
  * Python" and "Claude Opus 5.5" — hits sharing perhaps one word each — and
@@ -1167,8 +1167,8 @@ const containsSequence = (hay: string[], needle: string[]): boolean => {
  *
  * THE RULE, in order, first hit wins:
  *   1. the whole phrase, as a run of WHOLE words, anywhere in the title —
- *      "planning permission ireland" matches "…planning permission in
- *      ireland…" and refuses a paint article (word boundaries and every
+ *      "planning permission london" matches "…planning permission in
+ *      london…" and refuses a paint article (word boundaries and every
  *      word being required are the whole battle);
  *   2. every word of the phrase present as a WHOLE word in the title, in any
  *      order — the phrase split by an inserted clause is still the phrase;

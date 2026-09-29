@@ -68,7 +68,7 @@ export async function healthCandidates(): Promise<BoardCandidate[]> {
  * comparison could not do it — and it is asked ONCE for the whole sweep, with
  * every launched venture's names as context. Judging per venture would both
  * cost a round trip per query and hide the cross-venture case that filed a card
- * under the wrong venture ("neu.ie: improve the page targeting 'freellmapi'").
+ * under the wrong venture ("acme.example: improve the page targeting 'freeinvoice'").
  *
  * Rows are read impressions-first and the highest-impression `need` row wins,
  * so a property whose whole head is brand simply yields nothing.

@@ -121,7 +121,7 @@ const UNTOLD = (subject: Subject, refExpr: string) =>
 /*
   HOW THESE READ, and why. The owner reads them on a phone: what happened
   first, in plain words, with the thing's real name — "💾 Disk is 87% full on
-  Demo box", "✅ Competitor research for Video To Reel is done: 5 new cards on
+  Web box", "✅ Competitor research for Cedar Studio is done: 5 new cards on
   the board (1 h 4 min)". No rule paths, run ids or UTC stamps: the Alerts page
   and the run's own page carry those. The words for an alert live in
   alert-words.ts, because `/alerts` in the bot says the same things.
@@ -246,12 +246,12 @@ const squash = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, "");
 function runWhat(r: RunRowLite, f: RunFacts): { what: string; titleLine: string | null } {
   const venture = ventureName(r.venture_id);
   const dash = /^(.+?) — (.+)$/.exec(r.title);
-  /* A video run's title says what it made ("Carousel — FreeLLMAPI"). */
+  /* A video run's title says what it made ("Carousel — Example App"). */
   const noun = r.kind === "video" && dash ? dash[1]! : RUN_NOUNS[r.kind] ?? f.kindName;
   const what = `${noun}${venture ? ` for ${venture}` : ""}`;
   /* The title is worth a line only when it says more than kind and venture —
-     "Competitors — VideoToReel" says nothing "Competitor research for Video
-     To Reel" did not. */
+     "Competitors — CedarStudio" says nothing "Competitor research for Cedar
+     Studio" did not. */
   const generic = dash && (!venture || squash(dash[2]!) === squash(venture) || squash(dash[2]!).includes(squash(venture)) || squash(venture).includes(squash(dash[2]!)));
   return { what, titleLine: generic ? null : clip(r.title, 120) };
 }
@@ -285,7 +285,7 @@ export function groupedRuns(rows: { r: RunRowLite; f: RunFacts }[]): string {
     : !done
       ? `⚠️ ${plural(rows.length, "agent run")} failed`
       : `⚠️ ${rows.length} agent runs finished: ${done} done, ${failed.length} failed`;
-  /* Ten failures from one cause — the Dell switched off overnight — are one
+  /* Ten failures from one cause — the GPU workstation switched off overnight — are one
      sentence, not ten repetitions of it. */
   const causes = failed.map((x) => plainCause(x.r.error));
   const shared = causes.length > 1 && causes.every((c) => c.known && c.text === causes[0]!.text) ? causes[0]!.text : null;

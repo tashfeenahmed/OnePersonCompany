@@ -1187,9 +1187,9 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       --
       -- 2. THE QUERY ROWS DO NOT SUM TO THE PROPERTY TOTAL, EVER. Google
       --    withholds queries too rare to be anonymous and caps the rows it
-      --    will return at all. Measured on this account on 2026-09-04, the two
-      --    hundred query rows of acme.ie carried 2% of that property's
-      --    impressions and freellmapi.co's carried 77% — so a headline built
+      --    will return at all. Measured on a real account, the two
+      --    hundred query rows of one property carried 2% of its
+      --    impressions and another property's carried 77% — so a headline built
       --    by summing gsc_queries would be wrong by somewhere between a
       --    quarter and fifty times, depending on which property you asked.
       --    The property's own total is therefore measured SEPARATELY
@@ -2587,7 +2587,7 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
          'owner', 1, '{}',
          strftime('%Y-%m-%dT%H:%M:%SZ','now'), strftime('%Y-%m-%dT%H:%M:%SZ','now')),
         ('v-example-app-1', 'example-app-1', 'Example App 1',
-         'Planning-permission search for Ireland. Subscription, one market.',
+         'A search app for one local market. Subscription.',
          'https://example-app-1.example.test', 'example-app-1.example.test', 'launched', '#2f7d4f',
          'owner', 2, '{}',
          strftime('%Y-%m-%dT%H:%M:%SZ','now'), strftime('%Y-%m-%dT%H:%M:%SZ','now')),

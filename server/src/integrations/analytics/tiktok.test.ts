@@ -35,10 +35,10 @@ const page = (scope: unknown) =>
 
 test("handles are read from @names, bare names and profile links", () => {
   assert.deepEqual(
-    parseHandles("@FreeLLMAPI, aigroupcall\nhttps://www.tiktok.com/@some.one?lang=en  bad!name"),
-    ["freellmapi", "aigroupcall", "some.one"],
+    parseHandles("@ExampleApp, cedarstudio\nhttps://www.tiktok.com/@some.one?lang=en  bad!name"),
+    ["exampleapp", "cedarstudio", "some.one"],
   );
-  assert.deepEqual(parseSeeds("Free LLM API\n free llm api, ai  group call"), ["free llm api", "ai group call"]);
+  assert.deepEqual(parseSeeds("Invoice App\n invoice app, team  chat"), ["invoice app", "team chat"]);
 });
 
 test("a profile page gives exact counts from statsV2 and the bio's own site", () => {
@@ -49,23 +49,23 @@ test("a profile page gives exact counts from statsV2 and the bio's own site", ()
         userInfo: {
           user: {
             id: "1",
-            uniqueId: "freellmapi",
+            uniqueId: "exampleapp",
             secUid: "SEC",
-            nickname: "freellmapi",
+            nickname: "exampleapp",
             avatarMedium: "https://cdn/a.jpg",
-            signature: "Unlimited free AI. More: FreeLLMAPI.co",
+            signature: "Simple invoicing. More: ExampleApp.com",
           },
-          stats: { followerCount: 534, heartCount: 14400, videoCount: 50 },
-          statsV2: { followerCount: "534", heartCount: "14394", videoCount: "50", followingCount: "2" },
+          stats: { followerCount: 500, heartCount: 12300, videoCount: 50 },
+          statsV2: { followerCount: "500", heartCount: "12345", videoCount: "50", followingCount: "2" },
         },
       },
     }),
-    "freellmapi",
+    "exampleapp",
   );
-  assert.equal(p.likes, 14394, "statsV2 is exact where stats rounds");
-  assert.equal(p.followers, 534);
-  assert.equal(p.bioHost, "freellmapi.co");
-  assert.equal(bioHost("Start a call here: www.aigroupcall.app"), "aigroupcall.app");
+  assert.equal(p.likes, 12345, "statsV2 is exact where stats rounds");
+  assert.equal(p.followers, 500);
+  assert.equal(p.bioHost, "exampleapp.com");
+  assert.equal(bioHost("Start a call here: www.cedarstudio.app"), "cedarstudio.app");
   assert.throws(
     () => parseProfileHtml(page({ "webapp.user-detail": { statusCode: 10221 } }), "nobody"),
     /no TikTok account has that handle/,
@@ -80,7 +80,7 @@ test("the video grid parses counts, photo posts and missing figures as null", ()
         {
           id: "76",
           createTime: 1790631105,
-          desc: " #FreeLLMAPI ",
+          desc: " #ExampleApp ",
           imagePost: { cover: { imageURL: { urlList: ["https://cdn/p.jpg"] } } },
           video: { duration: 0 },
           stats: { playCount: 402, diggCount: 4, commentCount: 1, shareCount: 0, collectCount: 2 },
@@ -89,11 +89,11 @@ test("the video grid parses counts, photo posts and missing figures as null", ()
         { desc: "no id" },
       ],
     },
-    "freellmapi",
+    "exampleapp",
   );
   assert.equal(v.length, 2);
   assert.equal(v[0]!.isPhoto, true);
-  assert.equal(v[0]!.url, "https://www.tiktok.com/@freellmapi/photo/76");
+  assert.equal(v[0]!.url, "https://www.tiktok.com/@exampleapp/photo/76");
   assert.equal(v[0]!.duration, null);
   assert.equal(v[0]!.shares, 0, "a reported zero stays zero");
   assert.equal(v[1]!.views, null, "an unreported count is null, not zero");
@@ -101,7 +101,7 @@ test("the video grid parses counts, photo posts and missing figures as null", ()
 });
 
 test("search suggestions rank by reciprocal rank and drop echoes", () => {
-  assert.deepEqual(parseSuggestions('{"sug_list":[{"content":"Free LLM API "},{"content":""}]}'), ["free llm api"]);
+  assert.deepEqual(parseSuggestions('{"sug_list":[{"content":"Invoice App "},{"content":""}]}'), ["invoice app"]);
   assert.deepEqual(parseSuggestions("not json"), []);
   assert.ok(buildProbes("x").includes("x app"));
   const ranked = rankTerms([
@@ -139,24 +139,24 @@ test("discover splits creators and hashtags and keeps the region", () => {
 test("the route joins a handle to the venture its bio names, and marks new search terms", async () => {
   const at = new Date().toISOString();
   upsertPlugin("tiktok-public", true, null);
-  setConfig("tiktok-public", "handles", "freellmapi, ghost");
-  setConfig("tiktok-public", "searches", "free llm api");
+  setConfig("tiktok-public", "handles", "exampleapp, ghost");
+  setConfig("tiktok-public", "searches", "invoice app");
   db.prepare(
     `INSERT OR REPLACE INTO ventures (id, slug, name, website, host, stage, color, color_source, position, created_at, updated_at)
-     VALUES ('v-tt', 'tt', 'FreeLLMAPI', 'https://freellmapi.co', 'freellmapi.co', 'launched', '#000', 'auto', 99, ?, ?)`,
+     VALUES ('v-tt', 'tt', 'ExampleApp', 'https://exampleapp.com', 'exampleapp.com', 'launched', '#000', 'auto', 99, ?, ?)`,
   ).run(at, at);
   const profile = {
-    handle: "freellmapi", userId: "1", secUid: "S", nickname: "freellmapi", avatar: null,
-    bio: "More: FreeLLMAPI.co", bioHost: "freellmapi.co", followers: 534, following: 2, likes: 14394, videos: 1,
+    handle: "exampleapp", userId: "1", secUid: "S", nickname: "exampleapp", avatar: null,
+    bio: "More: ExampleApp.com", bioHost: "exampleapp.com", followers: 500, following: 2, likes: 12345, videos: 1,
   };
   writeTiktokProfile(profile);
   writeTiktokVideos(
-    "freellmapi",
+    "exampleapp",
     [{ id: "76", createdAt: at, caption: "hi", cover: null, url: "u", duration: 9, isPhoto: false, pinned: false, views: 402, likes: 4, comments: 1, shares: 0, saves: 2 }],
     true,
   );
-  writeTiktokDay("freellmapi", profile, { views: 402, complete: true, count: 1 });
-  writeTiktokSearches("free llm api", [{ term: "free llm api for claude", score: 3.3, hits: 4, rank: 1 }]);
+  writeTiktokDay("exampleapp", profile, { views: 402, complete: true, count: 1 });
+  writeTiktokSearches("invoice app", [{ term: "invoice app for freelancers", score: 3.3, hits: 4, rank: 1 }]);
   writeTiktokDiscover("IE", [
     { kind: "hashtag", id: "9", rank: 1, title: "#glow", subtitle: null, description: null, link: null, cover: null, views: 5, followers: null, likes: null, videos: null, verified: null },
   ]);

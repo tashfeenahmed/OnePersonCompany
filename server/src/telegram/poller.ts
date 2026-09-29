@@ -7,7 +7,7 @@
  * interface — so a webhook would mean a tunnel, a domain, a certificate and a
  * publicly reachable door into the box that reads the bill. `getUpdates` needs
  * none of that: the connection is outbound, it works behind any NAT, and it is
- * what the previous system's own notifier has been doing on the Pi for a year.
+ * what the previous system's own notifier has been doing for a year.
  *
  * WHY IT LIVES IN THE API PROCESS. The alternative was a second service with
  * its own systemd unit. It would need the vault key, the database and the chat
@@ -64,7 +64,7 @@ import {
  * `conflict` is its own state rather than a kind of `backoff` because it is
  * the one failure here with a cause outside this box, and the fix is somewhere
  * else entirely: another process — very likely one of the owner's own bots on
- * the Pi — is holding the same token.
+ * another machine — is holding the same token.
  */
 export type PollerState = "starting" | "polling" | "conflict" | "backoff" | "stopped";
 

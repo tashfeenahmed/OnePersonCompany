@@ -3,7 +3,7 @@
  *
  * The feed row is the record: Stripe's event type, a factual sentence, the
  * account label. None of that is what somebody glancing at a lock screen
- * wants. They want "💰 New sale: FreeLLMAPI Premium, $19/yr" — what happened,
+ * wants. They want "💰 New sale: Example App Premium, $19/yr" — what happened,
  * the product's real name, a price a human writes — and nothing else unless
  * it changes what they do next.
  *
@@ -205,7 +205,7 @@ const humanPlan = (plan: string | null | undefined) => !!plan && /\s/.test(plan)
 const MONTHS_IN: Record<string, number> = { day: 1 / 30, week: 12 / 52, month: 1, year: 12 };
 
 type Sold = {
-  /** "FreeLLMAPI Premium", "a CircleChat subscription", "a subscription". */
+  /** "Example App Premium", "a Cedar Cloud subscription", "a subscription". */
   label: string;
   /** Whether the label is a real product or plan name. */
   named: boolean;

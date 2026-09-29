@@ -9,13 +9,13 @@ page capture, worker polling and video download. Script inference happens in
 OPC's selected model provider before a render can be queued. Search uses OPC's
 SearXNG configuration and vault. It does not read Workdash's data or vault.
 
-## Pi installation
+## Relay host installation
 
 Create `server/data/render-relay/settings.json` with `host`, `mac`, `user`,
 `powerKey`, `llmUrl`, `workerUrl`, and optional `chromium`. These are local
 deployment settings; do not commit the file or private keys. `powerKey` must name
-the existing restricted Dell shutdown key. The relay never automatically shuts
-the Dell down after a render.
+the existing restricted GPU machine shutdown key. The relay never automatically shuts
+the GPU machine down after a render.
 
 The existing `workdash` integration ID is retained for database compatibility;
 its display name is Render worker. Set its account URL to

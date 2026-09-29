@@ -184,7 +184,7 @@ export function wall(tz: string, at: Date = new Date()): { day: string; hour: nu
  * When the next pass would be, as an instant.
  *
  * WALKED FORWARD A MINUTE AT A TIME RATHER THAN COMPUTED. Turning "09:00 next
- * Tuesday in Europe/Dublin" into a UTC instant by arithmetic means handling
+ * Tuesday in Europe/Berlin" into a UTC instant by arithmetic means handling
  * the two nights a year where the local hour happens twice or not at all, and
  * getting that wrong is a schedule that silently skips a day in March. Walking
  * forward and asking Intl what the local hour is at each step cannot be wrong

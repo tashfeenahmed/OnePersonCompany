@@ -267,7 +267,7 @@ export const manifest: IntegrationManifest = {
             "@name, name, or the profile link. Read from TikTok's public pages " +
             "with no key: followers, likes and every video's views, likes, " +
             "comments and shares, four times a day.",
-          ph: "@freellmapi, @aigroupcall",
+          ph: "@yourbrand, @yourapp",
           check(value) {
             const raw = value.split(/[\s,]+/).filter(Boolean);
             const kept = tiktok.parseHandles(value);
@@ -285,7 +285,7 @@ export const manifest: IntegrationManifest = {
             "comma — what people type around your products. Each is probed a " +
             "dozen ways twice a day. Suggestions are ranked, never counted: " +
             "TikTok publishes no search volumes.",
-          ph: "free llm api, ai group call",
+          ph: "invoice software, meal planner app",
           check(value) {
             const n = value.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean).length;
             return n > 10 ? "Ten phrases at most — each is a dozen requests." : null;

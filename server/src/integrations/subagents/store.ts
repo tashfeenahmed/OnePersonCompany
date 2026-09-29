@@ -196,8 +196,8 @@ function roleInfo(r: RoleDef) {
     /* WHAT THIS ROLE'S BRIEF IS USED AS, in the kind's own words. A dispatcher
        that is a model writes every brief as an instruction — "Check the AI
        visibility of Acme: ask the provider what it knows…" — and the worker
-       uses it literally: run r-4ddfp6 asked a model that sentence as its fourth
-       question, and r-rl9k4h searched OpenAlex for a paragraph and found
+       uses it literally: one run asked a model that sentence as its fourth
+       question, and another searched OpenAlex for a paragraph and found
        nothing. Publishing the field's label and hint beside the role is what
        lets the dispatcher write the right thing, or nothing. */
     brief: (() => {
@@ -209,7 +209,7 @@ function roleInfo(r: RoleDef) {
        owner who asks for "the top eight pages per query" named `results`; a
        dispatcher that cannot see the field puts the number in the brief, where
        it is searched for as typed, and gets the default instead (run
-       r-ly9ks1 lost a format this way). Closed lists carry their values. */
+       one run lost a format this way). Closed lists carry their values. */
     inputs: (() => {
       const def = kindDef(r.kind);
       const field = def ? briefField(def) : null;

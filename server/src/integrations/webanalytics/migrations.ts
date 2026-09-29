@@ -146,7 +146,7 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       --
       -- THIS IS THE WHOLE POINT OF THE TABLE. umami_top holds an event
       -- ranking by COUNT; on the connected instance 'checkout-started' fired
-      -- 5,978 times in 4,434 sessions, and a document that published the
+      -- 6,000 times in 4,500 sessions, and a document that published the
       -- larger figure as though it were people would overstate that funnel
       -- step by a third. The two are read from two different endpoints —
       -- /metrics?type=event for the occurrences, /sessions?event=<name> for

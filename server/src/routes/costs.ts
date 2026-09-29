@@ -426,11 +426,11 @@ function replicateSection(fromIso: string) {
  *
  * TWO LEDGERS, AND THEY DO NOT JOIN. This box's own meter (`budget_usage`) is
  * one row per model call OPC made, filed under the venture the call was for —
- * a synthesis pass for Betaware, a caption for Viral Video Maker — or under a
+ * a synthesis pass for one product, a caption for another — or under a
  * pseudo-venture (`portfolio`, `chief`) when the work spanned the roster. The
  * providers' invoices (OpenAI, OpenRouter) are what the products THEMSELVES
- * spent calling the shared keys from their own servers: Betaware's app, My
- * Voice Agents' app, Viral Video Maker's generation. OpenAI reports one
+ * spent calling the shared keys from their own servers: one product's app,
+ * another's API, a third's media generation. OpenAI reports one
  * project for all of them and Replicate reports no money at all, so that half
  * cannot be split by venture from here — and it says so rather than
  * apportioning a bill by a token count that never touched it. The one honest
@@ -445,8 +445,8 @@ type MeteredRow = {
   agent: number;
 };
 
-/** `viral-video-maker`, `Viral Video Maker`, `ViralVideoMaker` and
- *  `viralvideomaker.co` are one name; `FLA` and `GetPreg` are nobody's. */
+/** `reel-maker-pro`, `Reel Maker Pro`, `ReelMakerPro` and
+ *  `reelmakerpro.example` are one name; `FLA` and `FitTrack` are nobody's. */
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 export function keyNamesVenture(keyName: string, v: Pick<VentureRow, "name" | "slug" | "host" | "website">): boolean {
   const k = norm(keyName);
@@ -564,7 +564,7 @@ export function venturesSection(fromIso: string, keys: OpenRouterKeyRecord[], op
         why:
           invoicedUsedHere.includes("provider:openai")
             ? "OpenAI bills one project for every product and this box's own calls also went to it in the window, so the bill mixes product-side spend with OPC's and neither half can be split by venture from here."
-            : "OpenAI bills one project for every product, and none of this box's own calls in the window went to OpenAI, so this is the products' own spend — Betaware, My Voice Agents, Viral Video Maker and the rest calling the shared key from their own servers. It cannot be split by venture until each product has its own project.",
+            : "OpenAI bills one project for every product, and none of this box's own calls in the window went to OpenAI, so this is the products' own spend — your products calling the shared key from their own servers. It cannot be split by venture until each product has its own project.",
       },
       openrouter: {
         usd: money(unclaimedKeys.reduce((n, k) => n + k.usd, 0)),
@@ -574,7 +574,7 @@ export function venturesSection(fromIso: string, keys: OpenRouterKeyRecord[], op
           "OpenRouter keys whose name is not a venture's name, slug or host. Their spend is real and belongs to whatever uses them; nothing here guesses which venture that is.",
       },
       replicate: {
-        why: "Replicate publishes no cost at all (see `replicate.cannot`), so Viral Video Maker's generation spend there has no dollar figure to attribute.",
+        why: "Replicate publishes no cost at all (see `replicate.cannot`), so any product's generation spend there has no dollar figure to attribute.",
       },
     },
     note:

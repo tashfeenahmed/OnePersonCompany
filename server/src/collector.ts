@@ -273,8 +273,8 @@ export async function collectHetzner(): Promise<CollectSummary> {
     /*
       A partial answer is still a working integration; warnings are attached to
       the run rather than promoted to a failure. The note names the accounts
-      when there is more than one, because "€63.47/mo" across two projects and
-      "€63.47/mo" across one are different facts and the run log is where the
+      when there is more than one, because "€60/mo" across two projects and
+      "€60/mo" across one are different facts and the run log is where the
       difference is checkable later.
     */
     const failed = result.accounts.filter((a) => !a.ok);

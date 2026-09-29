@@ -144,7 +144,7 @@ function uninvert(index: Record<string, number[]> | null): string | null {
  * preference. Sorted by `submittedDate` descending — the obvious choice, and
  * the one this was first written with — a multi-word `all:` query matches
  * loosely enough that what comes back is simply the newest twenty-five things
- * arXiv has. Measured on 2026-09-05 for "planning permission search systems":
+ * arXiv has. Measured on 2026-09-05 for "invoice software systems":
  * the library came back holding a paper on seasonal dark matter, one on
  * hydrogel drug delivery and one on quantum nonlocality. That is not a thin
  * library, it is a library about nothing, and a paper told to cite only from it

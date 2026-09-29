@@ -5,7 +5,7 @@
  * each one before the next starts, and once the cap passes, later stages
  * decline rather than pile on. What that file cannot do alone is stop the
  * OPPORTUNISTIC starters from jumping into the middle of its night: the
- * hourly enrichment tick fires precisely when "the Dell is ready and the
+ * hourly enrichment tick fires precisely when "the GPU machine is ready and the
  * document is stale", which at 03:05 is always, and a browser left open on
  * the Priority tab kicks a triage pass the minute it sees the box up. Either
  * one lands its completions between a stage's own, and "one thing at a time"

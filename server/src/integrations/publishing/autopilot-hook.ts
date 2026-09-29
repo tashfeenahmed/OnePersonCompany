@@ -37,7 +37,7 @@ export type HookResult = {
  *
  * WALKED FORWARD A MINUTE AT A TIME rather than computed, which is
  * video/autopilot.ts's argument and it applies here for the same reason:
- * turning "09:30 next Tuesday in Europe/Dublin" into a UTC instant by
+ * turning "09:30 next Tuesday in Europe/Berlin" into a UTC instant by
  * arithmetic means handling the two nights a year when a local hour happens
  * twice or not at all, and getting it wrong is a post that goes out an hour
  * early in March. Asking Intl what the local hour is at each step cannot be

@@ -11,7 +11,7 @@
  * PORTED FROM THE TIKTOK AGENT PROJECT, AND SLIMMED. That project reads a
  * profile with Playwright and the post catalogue with yt-dlp. Neither is on
  * this box and neither is needed: every figure it takes from them is in two
- * plain HTTP answers, probed from the owner's Mac and from the Pi on
+ * plain HTTP answers, probed from a laptop and from a home server on
  * 2026-09-29:
  *
  *   GET www.tiktok.com/@<handle>
@@ -39,8 +39,8 @@
  *
  *   GET www.tiktok.com/node/share/discover
  *     The Discover page: suggested creators with follower counts and featured
- *     hashtags with view counts, for the REGION THE REQUEST CAME FROM (the Pi
- *     is answered as Ireland). The sounds section comes back empty.
+ *     hashtags with view counts, for the REGION THE REQUEST CAME FROM (a server
+ *     is answered as its own country). The sounds section comes back empty.
  *
  * WHAT DOES NOT WORK FROM A SERVER, so nobody wires it later expecting data:
  * Creative Center's trend lists (`ads.tiktok.com/creative_radar_api/...`)
@@ -164,7 +164,7 @@ export type Profile = {
   videos: number | null;
 };
 
-/** The first domain-looking word in a bio ("More: FreeLLMAPI.co"), or null. */
+/** The first domain-looking word in a bio ("More: ExampleApp.com"), or null. */
 export function bioHost(bio: string | null | undefined): string | null {
   const m = /\b((?:[a-z0-9-]+\.)+(?:com|co|io|app|ai|dev|net|org|so|ie|me|fyi|uk))\b/i.exec(bio ?? "");
   return m ? m[1]!.toLowerCase().replace(/^www\./, "") : null;

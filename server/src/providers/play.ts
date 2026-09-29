@@ -104,7 +104,7 @@ const b64url = (b: Buffer | string) => Buffer.from(b).toString("base64url");
  * the whole of what `google-auth` does for a service account. Written out
  * rather than depended on, because this server has two runtime dependencies
  * and both of them are Hono — a library that compiles at install time is a
- * library that eventually fails to install on the Pi this is meant to run on.
+ * library that eventually fails to install on the small ARM board this is meant to run on.
  */
 /**
  * `scope` IS A PARAMETER AND DEFAULTS TO THE BUCKET'S. That is the whole of

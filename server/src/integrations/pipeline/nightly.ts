@@ -674,7 +674,7 @@ export function summarise(input: {
  *
  * The transcript keeps `summarise`'s full account. A phone gets what a person
  * would text: how the night went in one line, the failures grouped by cause
- * in plain words — nine steps failing because the Dell was off is one
+ * in plain words — nine steps failing because the GPU workstation was off is one
  * sentence, not nine copies of a URL and an exception class — then what got
  * done. Each stage's own note is its area's sentence and is kept as written.
  */

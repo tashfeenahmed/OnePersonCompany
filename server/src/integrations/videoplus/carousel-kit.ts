@@ -7,7 +7,7 @@
  * scripts/vendor-icons.mjs, licence text included. The coder writes
  * `<i data-lucide="rocket"></i>` or `<i data-tabler="rocket"></i>` and
  * `prepareHtml` swaps each for the real inline SVG before the render — so the
- * Pi's headless Chrome needs no CDN, the icon is in the PNG exactly as named,
+ * server's headless Chrome needs no CDN, the icon is in the PNG exactly as named,
  * and there is no script to wait for. An icon whose name is not in the set
  * FAILS SOFT: it renders as nothing and the name is reported, so the next
  * attempt can be told, instead of the whole slide failing over a guess.
@@ -17,12 +17,12 @@
  * only writes `font-family`. Chrome downloads only the faces a page uses, and
  * the render's network rules allow exactly the two Google Fonts hosts. They
  * are not vendored: fourteen variable families are several megabytes of
- * binaries in a repository, and the Pi's Chrome reaches Google Fonts (checked
- * 2026-09-22; the first Pi carousels rendered in them). The venture's own
+ * binaries in a repository, and the server's Chrome reaches Google Fonts (checked
+ * 2026-09-22; the first server-rendered carousels used them). The venture's own
  * site font gets its own link, because one family Google does not serve
  * would fail a combined request for all fifteen.
  *
- * EMOJI come from the system: Noto Color Emoji is installed on the Pi
+ * EMOJI come from the system: Noto Color Emoji is installed on a typical Linux server
  * (`fc-list`, 2026-09-22) and Apple Color Emoji on a Mac.
  */
 import { readFileSync } from "node:fs";

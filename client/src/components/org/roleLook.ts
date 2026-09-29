@@ -30,7 +30,7 @@ export const runAddress = (run: { kind: string; id: string }): string =>
  * prefix rather than falling back to the role's title.
  *
  * IGNORING CASE, since 2026-09-18. A venture renamed after its team was
- * provisioned — "Scallopbot" became "ScallopBot" — left one card on the chart
+ * provisioned — "Cedarstudio" became "CedarStudio" — left one card on the chart
  * saying the venture's name on every row while the other twenty-three did
  * not. A capital letter is not the owner renaming a worker.
  */
