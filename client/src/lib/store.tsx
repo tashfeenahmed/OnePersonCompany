@@ -716,6 +716,7 @@ const SEED: StoreState = {
            only: saved boards are the owner's (see `migrateWorkspace`), so an
            existing Payments board gets it from the widget picker. */
         { id: "py27", type: "stripe.atRisk", w: 1 },
+        { id: "py28", type: "stripe.trialConversion", w: 1 },
         { id: "py8", type: "stripe.churn", w: 1 },
         { id: "py10", type: "stripe.fees", w: 2 },
         { id: "py15", type: "stripe.declines", w: 2 },

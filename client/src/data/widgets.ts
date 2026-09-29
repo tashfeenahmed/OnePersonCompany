@@ -1290,6 +1290,13 @@ export const WIDGETS: Record<string, Widget> = {
     live: { stripe: true },
     invert: true,
   },
+  "stripe.trialConversion": {
+    src: "stripe",
+    name: "Trial conversion",
+    window: "selected",
+    kind: "metric",
+    live: { stripe: true },
+  },
   "stripe.declines": {
     src: "stripe",
     name: "Failed payments",
