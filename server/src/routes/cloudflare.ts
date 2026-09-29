@@ -119,6 +119,33 @@ cloudflareRoutes.get("/", (c) => {
     return list.length ? total : null;
   };
 
+  /**
+   * Requests and threats by country over a set of rows, largest first. Null
+   * when ANY row lacks the map — a country split that silently skipped the
+   * days a thinner field set answered would be a smaller world, not a partial
+   * one. `XX` is Cloudflare's own code for "could not place", kept as a row.
+   */
+  const countriesOf = (list: CloudflareTrafficRow[]) => {
+    if (!list.length) return null;
+    const acc = new Map<string, [number, number]>();
+    for (const r of list) {
+      if (!r.countries) return null;
+      let parsed: Record<string, [number, number]>;
+      try {
+        parsed = JSON.parse(r.countries) as Record<string, [number, number]>;
+      } catch {
+        return null;
+      }
+      for (const [code, [req, thr]] of Object.entries(parsed)) {
+        const had = acc.get(code) ?? [0, 0];
+        acc.set(code, [had[0] + (Number(req) || 0), had[1] + (Number(thr) || 0)]);
+      }
+    }
+    return [...acc.entries()]
+      .map(([code, [requests, threats]]) => ({ code, requests, threats }))
+      .sort((a, b) => b.requests - a.requests);
+  };
+
   /* ------------------------------------------------------ the drift join */
 
   /* EVERY REGISTERED NAME, INCLUDING THE ONES CLOUDFLARE ITSELF HOLDS —
@@ -265,6 +292,9 @@ cloudflareRoutes.get("/", (c) => {
              *  says "7d" over three days has quietly changed meaning. */
             days: list.length,
             fields: [...new Set(list.map((r) => r.fields))].join(","),
+            /** Top twelve countries by requests, or null when the window has
+             *  days collected before countries were asked for. */
+            countries: countriesOf(list)?.slice(0, 12) ?? null,
           }
         : null,
       trafficNote: list.length
@@ -278,6 +308,7 @@ cloudflareRoutes.get("/", (c) => {
 
   /* ----------------------------------------------------- the daily line */
 
+  const zoneName = new Map(zoneRows.map((z) => [z.zone_id, z.name]));
   const dayKeys = [...new Set([...inWindow, ...todayRows].map((r) => r.day))].sort();
   const daily = dayKeys.map((day) => {
     const list = rows.filter((r) => r.day === day);
@@ -295,6 +326,17 @@ cloudflareRoutes.get("/", (c) => {
        *  de-duplicate them with, and inventing one would be worse. */
       uniquesByZone: sumOrNull(list, (r) => r.uniques),
       zones: list.length,
+      /** Each zone's share of the day, for the stacked bars. Uniques stay per
+       *  zone per day here, which is the one grain at which they are true. */
+      sites: list
+        .filter((r) => r.requests > 0)
+        .map((r) => ({
+          name: zoneName.get(r.zone_id) ?? r.zone_id,
+          requests: r.requests,
+          pageViews: r.page_views,
+          uniques: r.uniques,
+          threats: r.threats,
+        })),
       /*
         TODAY IS PARTIAL AND SAYS SO. Cloudflare aggregates into UTC days and is
         still filling this one in; drawn beside six finished days it is a cliff
@@ -398,6 +440,9 @@ cloudflareRoutes.get("/", (c) => {
       recordsUnreadable: zones.filter((z) => z.records === null).length,
       onPages: zones.filter((z) => z.onPages === true).length,
       busiest: busiest && { name: busiest.name, requests: busiest.traffic!.requests },
+      /** Every measured zone's countries over the window, top twenty — null
+       *  until a collection has asked Cloudflare for countryMap. */
+      countries: countriesOf(inWindow)?.slice(0, 20) ?? null,
       /** Measured and served nothing. Named rather than counted, because "which
        *  of these is dormant" is the question the number provokes. */
       silent,

@@ -10,7 +10,8 @@ export function widgetExample(widget: Widget): Partial<Widget> {
     case "appfilter": case "appgrid": case "reviews": return {};
     case "threads": return { threads: [] };
     case "adgallery": return { adCards: [] };
-    case "sitegrid": return { ...base, sites: [{ label: "example.com", value: "100", unit: "clicks", bars: series, figures: [["Impr.", "2k"], ["CTR", "5%"], ["Pos.", "8.1"]] }] };
+    case "sitegrid": return { siteCards: [] };
+    case "sitetiles": return { ...base, sites: [{ label: "example.com", value: "100", unit: "clicks", bars: series, figures: [["Impr.", "2k"], ["CTR", "5%"], ["Pos.", "8.1"]] }] };
     case "daily": return { ...base, daily: series.map((total, i) => ({ day: `2025-01-0${i + 1}`, total })) };
     case "domain-search": return { sub: "Search across TLDs or check domains in bulk." };
     case "metric": return { ...base, value: "100", series };
@@ -28,5 +29,6 @@ export function widgetExample(widget: Widget): Partial<Widget> {
     case "proportion": return { ...base, value: "100", parts };
     case "waterfall": return { ...base, steps: [{ label: "Added", value: 30, text: "30" }, { label: "Removed", value: -10, text: "10" }, { label: "Net", value: 20, text: "20", total: true }] };
     case "feed": return { ...base, feed: [{ title: "Example update", text: "An illustrative item for this widget." }] };
+    case "gallery": return { ...base, gallery: [{ image: null, value: "100", unit: "example", title: "Example item" }] };
   }
 }

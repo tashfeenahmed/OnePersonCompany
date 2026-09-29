@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
  * read at a glance: the favicon and the name, one figure large, its days as
  * bars, and three small figures under them. Everything arrives formatted.
  */
-export function SiteGrid({ sites, caption }: { sites: SiteTile[]; caption?: string }) {
+export function SiteTiles({ sites, caption }: { sites: SiteTile[]; caption?: string }) {
   return (
     <div className="mt-1">
       <div className="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(172px,1fr))]">

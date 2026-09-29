@@ -12,8 +12,9 @@ import { narrowApps } from "@/lib/api/apps";
 import { AppFilter, AppGrid, ReviewList } from "@/components/apps/AppsWidgets";
 import { ThreadCards } from "@/components/demand/ThreadCards";
 import { AdGallery } from "@/components/ads/AdGallery";
+import { SiteGrid } from "@/components/seo/SiteGrid";
 import { HostMark } from "@/components/HostMark";
-import { SiteGrid } from "@/components/SiteGrid";
+import { SiteTiles } from "@/components/SiteTiles";
 import {
   Bars,
   Chart,
@@ -22,6 +23,7 @@ import {
   Dumbbell,
   Feed,
   Figures,
+  Gallery,
   MeterRow,
   Profile,
   Proportion,
@@ -96,6 +98,7 @@ function inputsOf(live: LiveData, points: LiveInputs["points"], extra: Pick<Live
     mobileHealth: live.mobileHealth,
     apps: live.apps,
     devInsights: live.devInsights,
+    tiktok: live.tiktok,
     webAnalytics: live.webAnalytics,
     window: live.window,
     ...extra,
@@ -665,6 +668,10 @@ export function WidgetCard({
           <AdGallery ads={def.adCards} caption={def.caption} />
         )}
 
+        {!empty && def.kind === "sitegrid" && def.siteCards && (
+          <SiteGrid sites={def.siteCards} quiet={def.quietSites} caption={def.caption} />
+        )}
+
         {!empty && def.kind === "threads" && def.threads && (
           <ThreadCards threads={def.threads} caption={def.caption} />
         )}
@@ -677,8 +684,8 @@ export function WidgetCard({
           <ReviewList reviews={def.appsDoc.reviews} apps={def.appsDoc.apps} />
         )}
 
-        {!empty && def.kind === "sitegrid" && def.sites && (
-          <SiteGrid sites={def.sites} caption={def.caption} />
+        {!empty && def.kind === "sitetiles" && def.sites && (
+          <SiteTiles sites={def.sites} caption={def.caption} />
         )}
 
         {!empty && def.kind === "daily" && def.daily && (
@@ -858,6 +865,13 @@ export function WidgetCard({
                   contract the table kind keeps. */}
               {def.caption ?? "Nothing published yet."}
             </p>
+          ))}
+
+        {!empty && def.kind === "gallery" &&
+          (def.gallery?.length ? (
+            <Gallery items={def.gallery} shape={def.galleryShape} caption={def.caption} />
+          ) : (
+            <p className="text-muted-foreground mt-2 text-[12.5px]">{def.caption ?? "Nothing to show yet."}</p>
           ))}
 
         {!empty && def.kind === "table" &&

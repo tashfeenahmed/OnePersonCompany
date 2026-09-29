@@ -791,11 +791,11 @@ const SEED: StoreState = {
       TRAFFIC & DNS. What the edge actually served, and whether the names in
       front of it point where they should.
 
-      The pairing card gets the full width because it is the one thing on this
-      board neither Cloudflare's console nor a registrar's can show: it is a
-      JOIN, and it needs both sides connected. Seven zones here are registered
-      somewhere this dashboard cannot read, and five registered names have no
-      zone at all — findings that are invisible from either end alone.
+      Drawn rather than written: four figures with their own lines, every day
+      as a stack of sites, every site ranked beside its favicon, response codes
+      and cache as proportion bars, and DNS and mail as a checklist of ticks.
+      The registrar join stays — as the delegation card — because it is the one
+      thing neither Cloudflare's console nor a registrar's can show.
     */
     {
       id: "d-traffic",
@@ -803,20 +803,20 @@ const SEED: StoreState = {
       name: "Traffic & DNS",
       widgets: [
         { id: "tr1", type: "cf.total", w: 1 },
-        { id: "tr2", type: "cf.zones", w: 1 },
+        { id: "tr16", type: "traffic.pageViews", w: 1 },
         { id: "tr3", type: "cf.bandwidth", w: 1 },
         { id: "tr4", type: "cf.threats", w: 1 },
-        { id: "tr5", type: "cf.daily", w: 4 },
-        { id: "tr6", type: "cf.visitors", w: 4 },
-        { id: "tr7", type: "cf.requests", w: 2 },
-        { id: "tr8", type: "cf.responses", w: 2 },
-        { id: "tr9", type: "cf.unmatched", w: 4 },
-        { id: "tr10", type: "cf.dns", w: 2 },
-        { id: "tr11", type: "cf.email", w: 2 },
-        { id: "tr12", type: "cf.cacheRatio", w: 1 },
-        { id: "tr13", type: "cf.records", w: 1 },
-        { id: "tr14", type: "cf.cannot", w: 2 },
-        { id: "tr15", type: "cf.table", w: 4 },
+        { id: "tr17", type: "traffic.daily", w: 4 },
+        { id: "tr18", type: "traffic.sites", w: 2 },
+        { id: "tr19", type: "traffic.visitors", w: 2 },
+        { id: "tr20", type: "traffic.status", w: 2 },
+        { id: "tr21", type: "traffic.countries", w: 2 },
+        { id: "tr22", type: "traffic.cache", w: 2 },
+        { id: "tr23", type: "traffic.threatsBySite", w: 2 },
+        { id: "tr24", type: "traffic.dnsHealth", w: 4 },
+        { id: "tr25", type: "traffic.email", w: 2 },
+        { id: "tr26", type: "traffic.delegation", w: 2 },
+        { id: "tr27", type: "traffic.table", w: 4 },
       ],
     },
     {
@@ -891,111 +891,35 @@ const SEED: StoreState = {
       ],
     },
     /*
-      SEO. Everything that decides whether a stranger ever reaches one of these
-      sites, from the four sources that can actually say something about it.
-
-      THE CRAWL LEADS, because it is the only thing on this board we control:
-      an error on our own page is a fault with an owner and a fix, where a
-      ranking is a report of somebody else's decision. Google's verdict sits
-      beside it, and then the three wide tables that are the evidence — who
-      links in, which directories carry us, and every venture's own crawl. They
-      are at full width because not one of them fits in a column: a source per
-      row, a directory per column, a venture per line.
-
-      THEN THE NARROW CARDS, and they are the ones with something to do in
-      them: the queries a nudge would move, the pages, what Bing has indexed
-      and what it could not crawl, the referring-domain counts and the checks
-      that were blocked. The board CLOSES on worst-first, which is the only
-      card here that is a list of instructions.
-
-      NOTHING ON THIS BOARD IS ADDED TO ANYTHING ELSE ON IT. The audit counts
-      faults on pages, Search Console counts impressions on a results page, the
-      backlink sources count referring domains and disagree with each other by
-      design, and the presence matrix counts directory listings. Four counts of
-      four different acts, and the only figure that could span them would be a
-      score — which is the number this dashboard exists to refuse.
-
-      A VENTURE WITH NO CRAWL IS NOT A VENTURE WITH NO PROBLEMS, and both audit
-      cards are built to say so rather than let an empty column read as a clean
-      one.
-    */
-    /*
-      RE-SEEDED IN SEED_VERSION 16 TO FOLLOW WORKDASH'S SEO PAGES TOP TO
-      BOTTOM: the totals, then every property drawn as itself, then the
-      queries and pages, then indexing and authority. Nothing that was here
-      left unless a new card draws the same rows in Workdash's form —
-      `gsc.striking` and `gsc.pages` went, replaced by their ranked-bar
-      versions; everything else kept its place in the new order.
-
-      NO SCORE, STILL. Workdash opens with a median audit score and ranks
-      its sites by one; the audit here refuses a score, so `audit.ranked` is
-      errors worst-first and `audit.crawled` beside `audit.issues` is the
-      honest pair of tiles. The four documents this box computes itself —
-      authority, AI visibility, follow-ups, IndexNow — close the board with
-      what Workdash draws from its agent routes.
+      REWORKED 2026-09-29 AT THE OWNER'S WORD — "improve the visualization,
+      more visuals, less text, favicons where you can". Forty-three cards
+      became sixteen: four tiles, every site as a small card (audit grade,
+      clicks and their line, Bing index, links in, AI mentions), clicks a
+      day by site, what moved and what to fix first, then the lists as bars
+      with each site's favicon. The tables, the per-project cards and the
+      refusal card stay in the palette.
     */
     {
       id: "d-seo",
       slug: "seo",
       name: "SEO",
       widgets: [
-        /* Totals — the four search tiles, the audit pair, the two lines. */
-        { id: "seo13", type: "gsc.clicks", w: 1 },
-        { id: "seo14", type: "gsc.impressions", w: 1 },
-        { id: "seo15", type: "gsc.ctr", w: 1 },
-        { id: "seo2", type: "gsc.position", w: 1 },
-        { id: "seo16", type: "gsc.properties", w: 1 },
-        { id: "seo17", type: "audit.crawled", w: 1 },
-        { id: "seo1", type: "audit.issues", w: 1 },
-        { id: "seo8", type: "bing.index", w: 1 },
-        { id: "seo18", type: "gsc.trend", w: 4 },
-        { id: "seo19", type: "gsc.clicksTrend", w: 4 },
-        /* Every property, drawn as itself. Full width where a card has one
-           row per property: eighteen rows beside a five-row neighbour is a
-           card ending a screen above the one next to it. */
-        { id: "seo20", type: "gsc.dumbbell", w: 4 },
+        { id: "seo50", type: "seo.clicks", w: 1 },
+        { id: "seo51", type: "seo.impressions", w: 1 },
+        { id: "seo52", type: "seo.needsFix", w: 1 },
+        { id: "seo53", type: "seo.aiFound", w: 1 },
+        { id: "seo54", type: "seo.sites", w: 4 },
+        { id: "seo57", type: "seo.fixFirst", w: 2 },
+        { id: "seo60", type: "seo.grades", w: 2 },
+        { id: "seo55", type: "seo.clicksDaily", w: 4 },
+        { id: "seo56", type: "seo.movers", w: 2 },
+        { id: "seo59", type: "seo.striking", w: 2 },
+        { id: "seo58", type: "seo.queries", w: 2 },
         { id: "seo21", type: "audit.ranked", w: 2 },
-        { id: "seo12", type: "audit.worst", w: 2 },
-        { id: "seo22", type: "gsc.propertyClicks", w: 4 },
-        { id: "seo23", type: "gsc.propertyImpressions", w: 4 },
-        { id: "seo24", type: "gsc.sites", w: 4 },
-        { id: "seo5", type: "audit.ventures", w: 4 },
-        { id: "seo25", type: "gsc.quiet", w: 2 },
-        { id: "seo29", type: "gsc.zeroClick", w: 2 },
-        /* Queries and pages. */
-        { id: "seo26", type: "gsc.queriesRanked", w: 2 },
-        { id: "seo27", type: "gsc.pagesRanked", w: 2 },
-        { id: "seo28", type: "gsc.strikingRanked", w: 4 },
-        { id: "seo30", type: "gsc.propertyQueries", w: 4 },
-        { id: "seo31", type: "gsc.propertyStriking", w: 4 },
-        /* Indexing and authority. */
-        { id: "seo32", type: "gsc.sitemapsByProperty", w: 4 },
-        { id: "seo9", type: "bing.crawl", w: 2 },
-        { id: "seo33", type: "indexing.told", w: 2 },
-        { id: "seo34", type: "bing.propertyIndex", w: 4 },
-        { id: "seo35", type: "authority.ceiling", w: 4 },
-        { id: "seo10", type: "backlinks.domains", w: 2 },
-        { id: "seo36", type: "geo.mentioned", w: 2 },
-        { id: "seo3", type: "backlinks.bySource", w: 4 },
-        { id: "seo4", type: "presence.matrix", w: 4 },
-        { id: "seo11", type: "presence.blocked", w: 2 },
-        { id: "seo37", type: "seoops.moved", w: 2 },
-        /*
-          PER PROJECT (SEED_VERSION 17). One of each per-project card, with
-          no venture chosen: each says "pick a venture" until the owner does,
-          in edit mode, from the card's own header — and the palette adds a
-          second one for a second venture. Seeded without a venture because
-          the seed cannot know which one the owner reads first; seeded at
-          all because a card that has to be found in the palette is a card
-          nobody finds.
-        */
-        { id: "seo39", type: "gsc.project", w: 2 },
-        { id: "seo40", type: "audit.project", w: 2 },
-        { id: "seo41", type: "authority.project", w: 2 },
-        { id: "seo42", type: "indexing.project", w: 2 },
-        { id: "seo43", type: "seoops.project", w: 2 },
-        /* The refusals close the board, the way `meta.cannot` closes Social. */
-        { id: "seo38", type: "gsc.cannot", w: 4 },
+        { id: "seo61", type: "seo.indexed", w: 2 },
+        { id: "seo62", type: "seo.links", w: 2 },
+        { id: "seo63", type: "seo.ai", w: 2 },
+        { id: "seo64", type: "seo.listed", w: 2 },
       ],
     },
     /*
@@ -1022,63 +946,46 @@ const SEED: StoreState = {
       name: "Social",
       widgets: [
         /*
-          RE-SEEDED IN SEED_VERSION 19 TO FOLLOW WORKDASH'S SOCIAL PAGE TOP TO
-          BOTTOM, AND THE THING IT FOLLOWS IS THE POSTS.
+          RE-SEEDED 2026-09-29 TO BE READ AT A GLANCE, AND WITH TIKTOK.
 
-          The seven cards below kept their ids and their places relative to
-          each other; what changed is that a board about publishing now shows
-          what was published. The timeline reader has been storing the words,
-          the pictures and the permalinks for every mapped Page since the
-          socialfeed area shipped, and nothing on any board read them.
+          Pictures before sentences: the audience tiles, then posts per day by
+          network, then views by account with each product's own icon. The
+          TikTok section is the videos themselves as thumbnails, views gained
+          per day, the accounts and what viewers did. Then what is trending on
+          TikTok — search suggestions around the owner's phrases, Discover's
+          hashtags and creators. The Facebook/Instagram posts and the
+          publishing queue follow, and the collector's own state closes it.
 
-          THE ORDER IS WORKDASH'S QUESTION ORDER. How many people could see
-          it, how many did, and how long since anybody was given the chance —
-          then the rate that qualifies the middle one. Then the Pages: which
-          was seen, which was answered, the habit over time, and the table
-          with the collector's own state on the end. Then WHAT WORKED and WHAT
-          WENT OUT LATELY, which are two lists on purpose: one is what to make
-          more of and the other is whether the habit is alive, and a single
-          reverse-chronological feed answers the second while hiding the
-          first. Then a feed per network, because "is Facebook alive" and "is
-          anything alive" stop being the same question the moment a second
-          network starts publishing.
-
-          THE PIPELINE COMES AFTER THE PUBLISHED WORK and before the per-
-          project pair, because it is the only part of this board that is
-          about the future: a draft nobody approved is why next fortnight's
-          feeds will be empty.
-
-          IT STILL ENDS ON THE REFUSALS. `social.coverage` says what this box
-          is even asking for — only Pages the owner mapped — and `meta.cannot`
-          says what the token will not answer. A social board that quietly
-          omitted organic Page reach would be read as the whole picture.
+          Per-network feeds, the Meta refusals card and the per-project pair
+          left the seed (they are still in the palette): on this account most
+          of them were empty cards explaining why they were empty.
         */
+        { id: "so30", type: "social.headAudience", w: 4 },
+        { id: "so31", type: "tiktok.followers", w: 1 },
         { id: "so8", type: "social.followers", w: 1 },
+        { id: "so32", type: "tiktok.views", w: 1 },
         { id: "so9", type: "social.views", w: 1 },
+        { id: "so33", type: "social.postsDaily", w: 4 },
+        { id: "so34", type: "social.byAccount", w: 2 },
+        { id: "so35", type: "social.networks", w: 1 },
         { id: "so10", type: "social.quiet", w: 1 },
-        { id: "so11", type: "social.perPost", w: 1 },
-        { id: "so1", type: "meta.pages", w: 2 },
-        { id: "so12", type: "social.viewsByPage", w: 2 },
-        { id: "so13", type: "social.engagementByPage", w: 2 },
-        { id: "so14", type: "social.cadence", w: 4 },
-        { id: "so15", type: "social.viewsTrend", w: 4 },
-        { id: "so16", type: "social.accounts", w: 4 },
+        { id: "so36", type: "social.headTiktok", w: 4 },
+        { id: "so37", type: "tiktok.top", w: 4 },
+        { id: "so38", type: "tiktok.gained", w: 2 },
+        { id: "so39", type: "tiktok.accounts", w: 2 },
+        { id: "so40", type: "tiktok.latest", w: 2 },
+        { id: "so41", type: "tiktok.actions", w: 2 },
+        { id: "so42", type: "social.headTrends", w: 4 },
+        { id: "so43", type: "tiktok.searches", w: 2 },
+        { id: "so44", type: "tiktok.hashtags", w: 2 },
+        { id: "so45", type: "tiktok.creators", w: 4 },
+        { id: "so46", type: "social.headPosts", w: 4 },
         { id: "so17", type: "social.top", w: 2 },
         { id: "so18", type: "social.latest", w: 2 },
-        { id: "so19", type: "social.facebook", w: 2 },
-        { id: "so2", type: "instagram.followers", w: 2 },
-        { id: "so20", type: "social.instagram", w: 2 },
-        { id: "so3", type: "bluesky.followers", w: 1 },
-        { id: "so4", type: "meta.reach", w: 1 },
-        { id: "so5", type: "bluesky.engagement", w: 2 },
-        { id: "so21", type: "social.bluesky", w: 2 },
-        { id: "so6", type: "bluesky.handles", w: 4 },
-        { id: "so22", type: "social.published", w: 2 },
         { id: "so23", type: "social.queue", w: 2 },
-        { id: "so24", type: "social.project", w: 2 },
-        { id: "so25", type: "social.projectStats", w: 2 },
-        { id: "so26", type: "social.coverage", w: 2 },
-        { id: "so7", type: "meta.cannot", w: 2 },
+        { id: "so22", type: "social.published", w: 2 },
+        { id: "so16", type: "social.accounts", w: 4 },
+        { id: "so26", type: "social.coverage", w: 4 },
       ],
     },
     /*
@@ -1447,7 +1354,7 @@ export function defaultWidth(type: string): 1 | 2 | 4 {
   const kind = WIDGETS[type]?.kind;
   if (kind === "metric") return 1;
   /* A section heading runs across the whole board. */
-  if (kind === "heading" || kind === "daily" || kind === "appfilter" || kind === "appgrid" || kind === "threads" || kind === "adgallery" || kind === "sitegrid") return 4;
+  if (kind === "heading" || kind === "daily" || kind === "appfilter" || kind === "appgrid" || kind === "threads" || kind === "gallery" || kind === "adgallery" || kind === "sitegrid" || kind === "sitetiles") return 4;
   if (kind === "chart" || kind === "table" || kind === "runway") return 4;
   /* A feed carries a picture, three lines of copy and a strip of figures per
      row: at two columns the copy wraps to six lines and the figures stack. */

@@ -753,6 +753,7 @@ export function scopeLive(
       mobileHealth: scoped.mobileHealth,
       apps: scoped.apps,
       devInsights: scoped.devInsights,
+      tiktok: scoped.tiktok,
       webAnalytics: scoped.webAnalytics,
     });
     if (patch) liveTypes.add(type);
