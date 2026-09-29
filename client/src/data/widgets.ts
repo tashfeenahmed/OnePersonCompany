@@ -42,7 +42,9 @@ export type WidgetKind =
   /** The reviews themselves, with stars and the app's icon. */
   | "reviews"
   /** Conversations as readable cards — where, when, title, the post's words. */
-  | "threads";
+  | "threads"
+  /** The advertisements as people saw them: image, words, four numbers. */
+  | "adgallery";
 
 export type StatusTone = "ok" | "warn" | "bad";
 
@@ -182,6 +184,19 @@ export type RankedRow = {
   /** A SUB-AGENT ROLE (`researcher`, `seo`, …), for its artwork beside the
    *  label — see components/org/RoleIcon. */
   role?: string;
+};
+
+/** One advertisement on an `adgallery` card. `stats` are [label, value]
+ *  pairs already formatted (spend, clicks, CTR, CPC). */
+export type AdCard = {
+  id: string;
+  name: string;
+  title: string | null;
+  body: string | null;
+  image: string | null;
+  cta: string | null;
+  status: string;
+  stats: [string, string][];
 };
 
 /** One conversation on a `threads` card. */
@@ -623,6 +638,8 @@ export type Widget = {
   /** Where this card's figures are set — drawn as a small link at the right
    *  of the header, e.g. "Set rate & machines" → /finance/power. */
   configLink?: { label: string; to: string };
+  /** adgallery — the advertisements, as cards. */
+  adCards?: AdCard[];
   /** threads — the conversations, as cards. */
   threads?: ThreadCard[];
   /** appfilter / appgrid / reviews — the Apps document (see lib/api/apps). */
@@ -4312,6 +4329,19 @@ export const WIDGETS: Record<string, Widget> = {
 
   /* --- what ran: the advertisements themselves ------------------------ */
 
+  /* THE ADS BOARD, reworked 2026-09-29: the last campaign's figures and the
+     advertisements themselves, from the creatives document over the longest
+     span it keeps (90 days) — every campaign is paused, so the picked window
+     is usually empty. */
+  "ads.lastRun": { src: "meta", name: "Last campaign spend", kind: "metric", live: { ads: true } },
+  "ads.allClicks": { src: "meta", name: "Clicks", kind: "metric", live: { ads: true } },
+  "ads.allCtr": { src: "meta", name: "Click-through rate", kind: "metric", live: { ads: true } },
+  "ads.allCpc": { src: "meta", name: "Cost per click", kind: "metric", live: { ads: true } },
+  "ads.spendDaily": { src: "meta", name: "Spend per day", kind: "daily", live: { ads: true }, unit: "usd" },
+  "ads.clicksDaily": { src: "meta", name: "Clicks per day", kind: "daily", live: { ads: true }, unit: "count" },
+  "ads.gallery": { src: "meta", name: "The ads", kind: "adgallery", live: { ads: true } },
+  "ads.bestAds": { src: "meta", name: "Cheapest clicks", kind: "ranked", live: { ads: true } },
+  "ads.statusMix": { src: "meta", name: "Where the ads stand", kind: "proportion", live: { ads: true } },
   "ads.creatives": {
     src: "meta",
     name: "What ran",
