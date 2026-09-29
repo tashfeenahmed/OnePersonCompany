@@ -124,12 +124,14 @@ export function Ventures() {
           </div>
         }
       >
-        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border p-3 text-sm">
-          <span>{insights ? `${dormantIds.size} dormant ventures` : "Checking venture activity…"}</span>
-          {insights && <span className="text-muted-foreground">{insights.dormantCosts.map(c => insightNumber(c.amount, c.currency)).join(" + ") || "No priced dormant costs"}{insights.dormantCosts.length ? "/month" : ""}{!insights.dormantCostsComplete && " · some costs unpriced"}</span>}
+        {/* Only when there is something dormant to talk about: a bar that
+            says "0 dormant ventures" on every visit is noise. */}
+        {insights && dormantIds.size > 0 && <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border p-3 text-sm">
+          <span>{dormantIds.size === 1 ? "1 dormant venture" : `${dormantIds.size} dormant ventures`}</span>
+          <span className="text-muted-foreground">{insights.dormantCosts.map(c => insightNumber(c.amount, c.currency)).join(" + ") || "No priced dormant costs"}{insights.dormantCosts.length ? "/month" : ""}{!insights.dormantCostsComplete && " · some costs unpriced"}</span>
           <button className="ml-auto underline" onClick={() => setShowDormant(!showDormant)}>{showDormant ? "Hide dormant ventures" : "Show dormant ventures"}</button>
           <Link to="/insights" className="text-muted-foreground underline">Criteria and data coverage</Link>
-        </div>
+        </div>}
         <div className="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
           {state.ventures.filter(v => showDormant || !dormantIds.has(v.id)).map((v) => {
             const chats = sessionsFor(v.id);
