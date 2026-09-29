@@ -3161,37 +3161,47 @@ Object.assign(LIVE_BUILDERS, {
 
   "stripe.churnReasons": ({ stripe: S, window: W }: LiveInputs) => {
     /*
-      WHY THE MONEY LEFT. Baremetrics sells this as Cancellation Insights and
-      ChartMogul ships churn-by-reason charts: a churn figure without a reason
-      has no action in it, and Stripe already stamps a reason on most
-      cancellations. The split comes off the churn rows the route computes, so
-      the denominators and the never-billed exclusions are already decided;
-      this card only reads them. `not_stated` stays visible — a silent drop
-      would make the rows stop summing to churned MRR without saying so.
+      WHY THE MONEY LEFT, in the customer's words where there are any. The
+      buckets are Stripe's cancellation-survey feedback codes, off the churn
+      rows the route computes, so the denominators and the never-billed
+      exclusions are already decided; this card only reads them. Most
+      cancellations carry no survey answer (the survey is optional, and a
+      cancellation made from the dashboard or by the API never shows one), so
+      `no_feedback` is often the biggest row, and it stays visible: dropping
+      it would make the rows stop summing to churned MRR without saying so.
+      A failed card or a dispute is its own row: nobody chose that.
     */
     const days = churnDays(W);
     const c = churnRow(S, days);
-    if (!c || !c.byReason.length) return null;
-    // Stripe's cancellation_details.reason has exactly three values; the
-    // customer's own words (cancellation_details.feedback) are not collected.
-    const human = (reason: string) =>
+    if (!c || !c.byFeedback?.length) return null;
+    const human = (feedback: string) =>
       ({
-        cancellation_requested: "Cancelled on request",
-        payment_failed: "Payment failed",
-        payment_disputed: "Payment disputed",
-        not_stated: "Reason not stated",
-      })[reason] ?? reason.replace(/_/g, " ");
+        too_expensive: "Too expensive",
+        missing_features: "Missing features",
+        switched_service: "Switched to another service",
+        unused: "Not using it",
+        customer_service: "Customer service",
+        too_complex: "Too complicated",
+        low_quality: "Quality issues",
+        other: "Other reason",
+        involuntary: "Card failed or disputed",
+        no_feedback: "No feedback given",
+      })[feedback] ?? feedback.replace(/_/g, " ");
+    const rows = c.byFeedback.map((r): [string, string] => [
+      human(r.feedback),
+      `${inCurrency(r.mrr, c.currency, 0)}/mo · ${count(r.subscriptions)} sub${r.subscriptions === 1 ? "" : "s"}`,
+    ]);
+    const latest = c.comments?.[0];
+    if (latest) {
+      const text = latest.comment.replace(/\s+/g, " ");
+      rows.push([
+        "Latest comment",
+        `“${text.length > 90 ? `${text.slice(0, 89).trimEnd()}…` : text}”`,
+      ]);
+    }
     return {
-      rows: c.byReason
-        .slice(0, 8)
-        .map((r): [string, string] => [
-          human(r.reason),
-          `${inCurrency(r.mrr, c.currency, 0)}/mo · ${count(r.subscriptions)} sub${r.subscriptions === 1 ? "" : "s"}`,
-        ]),
-      caption: also(
-        `${c.byReason.length} reason${c.byReason.length === 1 ? "" : "s"} over ${inCurrency(c.churnedMrr, c.currency, 0)} churned · ${isAll(W) ? "90d" : `${days}d`}`,
-        c.involuntary ? `${count(c.involuntary)} involuntary — a card failed or was disputed` : "",
-      ),
+      rows,
+      caption: `${count(c.churnedSubs)} churned sub${c.churnedSubs === 1 ? "" : "s"} · ${inCurrency(c.churnedMrr, c.currency, 0)}/mo · ${isAll(W) ? "90d" : `${days}d`} · from Stripe's cancellation survey`,
     };
   },
 

@@ -1317,7 +1317,7 @@ export const WIDGETS: Record<string, Widget> = {
   },
   "stripe.churnReasons": {
     src: "stripe",
-    name: "Churn by reason",
+    name: "Why customers left",
     window: "selected",
     kind: "rows",
     live: { stripe: true },

@@ -33,7 +33,8 @@ function churnRow(days: number, patch: Record<string, unknown> = {}) {
     },
     involuntary: 0,
     byProduct: [],
-    byReason: [],
+    byFeedback: [],
+    comments: [],
     basis: "",
     approximate: true,
     ...patch,
@@ -227,42 +228,67 @@ test("one trial converting of one reads singular in the subtitle", () => {
   assert.match(p.sub!, /1 trial still running/);
 });
 
-/* ------------------------------- churn by reason (Baremetrics Cancellation
-   Insights, ChartMogul churn-by-reason): why the churned money left. */
+/* ---- stripe.churnReasons: what the churned customers said on Stripe's
+   cancellation survey, with failed cards and "no answer" as named rows. */
 
-test("churn-by-reason card exists and stays empty without reasons", () => {
+test("churn-by-feedback card exists and stays empty without churn", () => {
   assert.ok(WIDGETS["stripe.churnReasons"], "catalog entry");
   assert.equal(build("stripe.churnReasons", stripe(churnRow(30))), null);
   assert.equal(build("stripe.churnReasons", stripe(null)), null);
 });
 
-test("reasons print human, money-first, with the involuntary tail", () => {
+test("feedback prints human, money-first, every bucket kept", () => {
   const p = build("stripe.churnReasons", {
     window: 30,
     ...stripe(
       churnRow(30, {
-        churnedMrr: 70,
-        involuntary: 3,
-        byReason: [
-          { reason: "payment_disputed", mrr: 50, subscriptions: 1 },
-          { reason: "payment_failed", mrr: 20, subscriptions: 2 },
+        churnedMrr: 100,
+        churnedSubs: 5,
+        byFeedback: [
+          { feedback: "too_expensive", mrr: 50, subscriptions: 1 },
+          { feedback: "involuntary", mrr: 20, subscriptions: 2 },
+          { feedback: "no_feedback", mrr: 20, subscriptions: 1 },
+          { feedback: "missing_features", mrr: 10, subscriptions: 1 },
         ],
       }),
     ),
   })!;
   assert.deepEqual(p.rows, [
-    ["Payment disputed", "US$50/mo · 1 sub"],
-    ["Payment failed", "US$20/mo · 2 subs"],
+    ["Too expensive", "US$50/mo · 1 sub"],
+    ["Card failed or disputed", "US$20/mo · 2 subs"],
+    ["No feedback given", "US$20/mo · 1 sub"],
+    ["Missing features", "US$10/mo · 1 sub"],
   ]);
-  assert.match(p.caption!, /2 reasons over US\$70 churned · 30d/);
-  assert.match(p.caption!, /3 involuntary — a card failed or was disputed/);
+  assert.match(p.caption!, /5 churned subs · US\$100\/mo · 30d/);
 });
 
-test("an unstated reason is shown, never dropped", () => {
+test("the newest survey comment closes the rows, quoted and cut short", () => {
+  const long = "word ".repeat(40).trim();
   const p = build("stripe.churnReasons", {
     window: 30,
-    ...stripe(churnRow(30, { churnedMrr: 40, byReason: [{ reason: "not_stated", mrr: 40, subscriptions: 1 }] })),
+    ...stripe(
+      churnRow(30, {
+        churnedMrr: 40,
+        churnedSubs: 2,
+        byFeedback: [{ feedback: "too_complex", mrr: 40, subscriptions: 2 }],
+        comments: [
+          { comment: long, feedback: "too_complex", endedAt: "2026-09-20T00:00:00Z" },
+          { comment: "older", feedback: null, endedAt: "2026-09-10T00:00:00Z" },
+        ],
+      }),
+    ),
   })!;
-  assert.deepEqual(p.rows, [["Reason not stated", "US$40/mo · 1 sub"]]);
-  assert.doesNotMatch(p.caption!, /involuntary/);
+  assert.equal(p.rows!.length, 2);
+  const [label, text] = p.rows![1];
+  assert.equal(label, "Latest comment");
+  assert.ok(text.startsWith("“word") && text.endsWith("…”"), text);
+  assert.ok(text.length <= 93, `${text.length}`);
+});
+
+test("an unknown feedback code is shown readable, never dropped", () => {
+  const p = build("stripe.churnReasons", {
+    window: 30,
+    ...stripe(churnRow(30, { churnedMrr: 40, churnedSubs: 1, byFeedback: [{ feedback: "new_code", mrr: 40, subscriptions: 1 }] })),
+  })!;
+  assert.deepEqual(p.rows, [["new code", "US$40/mo · 1 sub"]]);
 });

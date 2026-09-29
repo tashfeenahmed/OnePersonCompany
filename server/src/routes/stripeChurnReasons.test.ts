@@ -4,13 +4,11 @@ import { db, insertAccount, upsertPlugin, writeStripeSubscriptions } from "../db
 import { stripeRoutes } from "./stripe.ts";
 
 /*
-  CHURN BY REASON on every churn row (Baremetrics Cancellation Insights,
-  ChartMogul's churn-by-reason charts): Stripe stamps cancellation_details.
-  reason on a cancellation when it has one, and this is the only place this
-  box can see WHY money left, not just how much. The split covers exactly the
-  real-churn population — the same rows churnedMrr counts, never the
-  never-billed ones — and a null reason is its own `not_stated` bucket so the
-  rows sum to churnedMrr instead of quietly under-reporting it.
+  CHURN BY FEEDBACK on every churn row: what the churned customers said on
+  Stripe's cancellation survey (cancellation_details.feedback), with a failed
+  card or a dispute as its own `involuntary` bucket and no answer as
+  `no_feedback`. The split covers exactly the real-churn population — the same
+  rows churnedMrr counts, never the never-billed ones — so it sums to it.
 */
 
 const DAY = 86_400_000;
@@ -45,69 +43,72 @@ const sub = (
   trialStart: null,
   trialEnd: null,
   reason: null,
+  feedback: null,
+  comment: null,
   paidCents: 1000,
   ...patch,
 });
 
-async function churnRows(): Promise<{
+type Row = {
   days: number;
   churnedMrr: number;
   churnedSubs: number;
-  byReason: { reason: string; mrr: number; subscriptions: number }[];
-}[]> {
-  const body = (await (await stripeRoutes.request("/?days=30")).json()) as {
-    churn: ReturnType<typeof Object>[];
-  };
-  return body.churn as never;
+  byFeedback: { feedback: string; mrr: number; subscriptions: number }[];
+  comments: { comment: string; feedback: string | null; endedAt: string }[];
+};
+async function row30(): Promise<Row> {
+  const body = (await (await stripeRoutes.request("/?days=30")).json()) as { churn: Row[] };
+  return body.churn.find((r) => r.days === 30)!;
 }
+const sums = (r: Row) => [
+  Number(r.byFeedback.reduce((n, b) => n + b.mrr, 0).toFixed(2)),
+  r.byFeedback.reduce((n, b) => n + b.subscriptions, 0),
+];
 
-test("a churned subscription's Stripe reason rides on the churn row", async () => {
+test("churned MRR splits by survey feedback and sums to the churn totals", async () => {
   const account = fixture("basic");
   writeStripeSubscriptions([
-    sub(account, "cr_disputed", { reason: "payment_disputed", monthlyUsd: 50 }),
-    sub(account, "cr_paid", { reason: "cancellation_requested", monthlyUsd: 20 }),
+    sub(account, "cf_price", { reason: "cancellation_requested", feedback: "too_expensive", monthlyUsd: 50 }),
+    sub(account, "cf_price2", { reason: "cancellation_requested", feedback: "too_expensive", monthlyUsd: 9.99 }),
+    sub(account, "cf_feat", { reason: "cancellation_requested", feedback: "missing_features", monthlyUsd: 20.01 }),
+    sub(account, "cf_quiet", { reason: "cancellation_requested", monthlyUsd: 15 }),
+    sub(account, "cf_card", { reason: "payment_failed", monthlyUsd: 10 }),
+    sub(account, "cf_dispute", { reason: "payment_disputed", feedback: "other", monthlyUsd: 5 }),
+    sub(account, "cf_old", { monthlyUsd: 3 }),
   ]);
-  const rows = await churnRows();
-  const row = rows.find((r) => r.days === 30)!;
-  assert.deepEqual(row.byReason, [
-    { reason: "payment_disputed", mrr: 50, subscriptions: 1 },
-    { reason: "cancellation_requested", mrr: 20, subscriptions: 1 },
+  const row = await row30();
+  assert.deepEqual(row.byFeedback, [
+    { feedback: "too_expensive", mrr: 59.99, subscriptions: 2 },
+    { feedback: "missing_features", mrr: 20.01, subscriptions: 1 },
+    { feedback: "no_feedback", mrr: 18, subscriptions: 2 },
+    { feedback: "involuntary", mrr: 15, subscriptions: 2 },
   ]);
-  const sumMrr = row.byReason.reduce((n, r) => n + r.mrr, 0);
-  const sumSubs = row.byReason.reduce((n, r) => n + r.subscriptions, 0);
-  assert.equal(sumMrr, row.churnedMrr, "the split sums to churned MRR");
-  assert.equal(sumSubs, row.churnedSubs, "the split sums to churned subs");
+  assert.deepEqual(sums(row), [row.churnedMrr, row.churnedSubs]);
 });
 
-test("a cancellation Stripe never got a reason for is not_stated, not dropped", async () => {
-  const account = fixture("null");
-  writeStripeSubscriptions([
-    sub(account, "cr_silent", { monthlyUsd: 40 }),
-    sub(account, "cr_stated", { reason: "payment_failed", monthlyUsd: 10 }),
-  ]);
-  const row = (await churnRows()).find((r) => r.days === 30)!;
-  assert.deepEqual(row.byReason, [
-    { reason: "not_stated", mrr: 40, subscriptions: 1 },
-    { reason: "payment_failed", mrr: 10, subscriptions: 1 },
-  ]);
-});
-
-test("never-billed cancellations stay out of the reason split", async () => {
+test("never-billed and still-billing subscriptions stay out of the split", async () => {
   const account = fixture("notbilled");
   writeStripeSubscriptions([
-    sub(account, "cr_trial", { reason: "cancellation_requested", paidCents: 0, trialStart: day(30) }),
-    sub(account, "cr_real", { reason: "cancellation_requested", monthlyUsd: 25 }),
+    sub(account, "cf_trial", { feedback: "unused", paidCents: 0, trialStart: day(30) }),
+    sub(account, "cf_live", { status: "active", endedAt: null, feedback: "too_complex", comment: "hmm" }),
+    sub(account, "cf_real", { feedback: "unused", monthlyUsd: 25 }),
   ]);
-  const row = (await churnRows()).find((r) => r.days === 30)!;
-  assert.deepEqual(row.byReason, [{ reason: "cancellation_requested", mrr: 25, subscriptions: 1 }]);
+  const row = await row30();
+  assert.deepEqual(row.byFeedback, [{ feedback: "unused", mrr: 25, subscriptions: 1 }]);
+  assert.deepEqual(row.comments, []);
 });
 
-test("still-billing subscriptions contribute no reason row", async () => {
-  const account = fixture("live");
+test("the two newest survey comments ride on the row, newest first", async () => {
+  const account = fixture("comments");
   writeStripeSubscriptions([
-    sub(account, "cr_live", { status: "active", reason: null, endedAt: null }),
+    sub(account, "cf_c1", { feedback: "too_complex", comment: "oldest", endedAt: day(20) }),
+    sub(account, "cf_c2", { feedback: "low_quality", comment: "newest", endedAt: day(1) }),
+    sub(account, "cf_c3", { comment: "middle", endedAt: day(5) }),
+    sub(account, "cf_trialc", { comment: "never paid", paidCents: 0, trialStart: day(40), endedAt: day(0.5) }),
   ]);
-  const rows = await churnRows();
-  const row = rows.find((r) => r.days === 30)!;
-  assert.deepEqual(row.byReason, []);
+  const row = await row30();
+  assert.deepEqual(
+    row.comments.map((c) => [c.comment, c.feedback]),
+    [["newest", "low_quality"], ["middle", null]],
+  );
 });

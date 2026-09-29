@@ -239,6 +239,9 @@ function trialConversionSection(subs: StripeSubscriptionRecord[], nowMs: number)
   };
 }
 
+/** Stripe's cancellation reasons that mean the customer never chose to go. */
+const INVOLUNTARY = new Set(["payment_failed", "payment_disputed"]);
+
 /**
  * CHURN, WITH ITS DENOMINATOR NAMED — because there are four defensible ones
  * and a rate quoted without saying which is not a measurement.
@@ -312,24 +315,32 @@ function churnSection(subs: StripeSubscriptionRecord[], nowMs: number) {
       const trials = neverBilled.filter((s) => s.trial_start);
       const expired = neverBilled.filter((s) => !s.trial_start);
       /*
-        CHURN BY REASON — what Stripe was TOLD the customer left for. Stripe
-        stamps a cancellation_details.reason on the subscription when it has
-        one (cancellation_requested, payment_failed, payment_disputed), and this
-        is the only place this box can see WHY money left, not just how much.
-        Baremetrics built Cancellation Insights on exactly this split, because
-        "we lost $400 this month" has no action in it and "we lost $400, all
-        of it to failed cards" has one. A null reason is its own bucket,
-        named: old cancellations predate the field and a silent drop would
-        make the rows below stop summing to churnedMrr without saying so.
+        CHURN BY WHAT THE CUSTOMER SAID. Stripe's cancellation survey stamps
+        cancellation_details.feedback with one of eight fixed codes
+        (too_expensive, missing_features, switched_service, unused,
+        customer_service, too_complex, low_quality, other) and a free-text
+        comment; this is the only place this box hears WHY money left, not
+        just how much. A subscription that ended on a failed card or a dispute
+        was never asked, so those land in one `involuntary` bucket rather than
+        in `no_feedback`. Everything else without an answer is `no_feedback`,
+        named, because the survey is optional and often off: a silent drop
+        would make the rows stop summing to churnedMrr without saying so.
       */
-      const byReason = new Map<string, { subs: number; mrr: number }>();
+      const byFeedback = new Map<string, { subs: number; mrr: number }>();
       for (const s of real) {
-        const key = s.reason ?? "not_stated";
-        const r = byReason.get(key) ?? { subs: 0, mrr: 0 };
+        const key = INVOLUNTARY.has(s.reason ?? "")
+          ? "involuntary"
+          : (s.feedback ?? "no_feedback");
+        const r = byFeedback.get(key) ?? { subs: 0, mrr: 0 };
         r.subs += 1;
         r.mrr += s.monthly_usd;
-        byReason.set(key, r);
+        byFeedback.set(key, r);
       }
+      const comments = real
+        .filter((s) => s.comment)
+        .sort((a, b) => (b.ended_at ?? "").localeCompare(a.ended_at ?? ""))
+        .slice(0, 2)
+        .map((s) => ({ comment: s.comment!, feedback: s.feedback, endedAt: s.ended_at! }));
       const byProduct = new Map<string, { mrr: number; subs: number }>();
       for (const s of real) {
         const p = byProduct.get(s.product ?? "Other") ?? { mrr: 0, subs: 0 };
@@ -405,18 +416,20 @@ function churnSection(subs: StripeSubscriptionRecord[], nowMs: number) {
             wouldHaveBeen: money(expired.reduce((n, s) => n + s.monthly_usd, 0)),
           },
         },
-        involuntary: real.filter(
-          (s) => s.reason === "payment_failed" || s.reason === "payment_disputed",
-        ).length,
+        involuntary: real.filter((s) => INVOLUNTARY.has(s.reason ?? "")).length,
         byProduct: [...byProduct.entries()]
           .map(([product, v]) => ({ product, mrr: money(v.mrr), subscriptions: v.subs }))
           .sort((a, b) => b.mrr - a.mrr),
-        /** Why the churned subscriptions say they left, biggest first. Raw
-         *  Stripe reason strings plus `not_stated`; the sums of subs and MRR
-         *  across these rows equal `churnedSubs`/`churnedMrr` by construction. */
-        byReason: [...byReason.entries()]
-          .map(([reason, v]) => ({ reason, mrr: money(v.mrr), subscriptions: v.subs }))
+        /** What the churned customers said when they left, biggest first:
+         *  Stripe's survey feedback codes, plus `involuntary` (a failed card or
+         *  a dispute) and `no_feedback`. The subs and MRR across these rows sum
+         *  to `churnedSubs`/`churnedMrr` by construction. */
+        byFeedback: [...byFeedback.entries()]
+          .map(([feedback, v]) => ({ feedback, mrr: money(v.mrr), subscriptions: v.subs }))
           .sort((a, b) => b.mrr - a.mrr),
+        /** The newest free-text survey comments from the same population,
+         *  at most two, verbatim (capped at collection). */
+        comments,
         basis:
           "MRR the window opened with that has since churned, over that starting book — " +
           "reconstructed as today's MRR minus what has been added plus those losses. " +
