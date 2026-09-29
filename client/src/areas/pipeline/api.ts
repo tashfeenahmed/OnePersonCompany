@@ -1,4 +1,5 @@
 import { api, call } from "@/lib/api";
+import type { WorkflowDocument } from "../../../../shared/workflow";
 
 /**
  * THE PIPELINE AND THE SYNTHESIS PASS, transcribed from the server's shapes.
@@ -88,6 +89,8 @@ export type Run = {
   ms: number | null;
   summary: string;
   note: string | null;
+  /** Each step's outcome in walk order. Absent from an older server. */
+  steps?: { stageId: string; outcome: Outcome }[];
 };
 
 export type StageResult = {
@@ -114,8 +117,36 @@ export type PipelineDoc = {
   blackoutErrors: string[];
   note: string;
   runs: Run[];
+  /** Up to thirty REAL runs, newest first. Absent from an older server, where
+   *  the page falls back to the real ones among `runs`. */
+  history?: Run[];
   last: Run | null;
 };
+
+export type RunJob = {
+  block_id: string;
+  agent_run_id: string;
+  status: string | null;
+  kind: string;
+  venture_id: string | null;
+  venture_name: string | null;
+};
+
+export type SnapshotBlock = {
+  id: string;
+  title: string;
+  about?: string;
+  definition?: { kind?: string; agent?: { role?: string } };
+};
+
+export type RunDoc = { run: Run; stages: StageResult[]; jobs: RunJob[]; workflowSnapshot: SnapshotBlock[] | null };
+
+export type EditorDoc = WorkflowDocument & {
+  roles: { id: string; title: string }[];
+  ventures: { id: string; name: string }[];
+};
+
+export type QueueDoc = { paused: boolean; queue: { id: string; title: string; kind: string; paused: number }[] };
 
 export type NightResult = {
   ran: boolean;
@@ -143,8 +174,11 @@ export const pipelineApi = {
     call<NightResult>("/pipeline/plan", { method: "POST", body: JSON.stringify(body) }),
   run: (body: { stage?: string } = {}) =>
     call<NightResult>("/pipeline/run", { method: "POST", body: JSON.stringify(body) }),
-  one: (id: string) =>
-    call<{ run: Run; stages: StageResult[]; jobs: { block_id:string;agent_run_id:string;status:string|null;kind:string;venture_id:string|null;venture_name:string|null }[];workflowSnapshot:{id:string;title:string}[]|null }>(`/pipeline/runs/${encodeURIComponent(id)}`),
+  one: (id: string) => call<RunDoc>(`/pipeline/runs/${encodeURIComponent(id)}`),
+  runs: () => call<{ runs: Run[] }>("/pipeline/runs"),
+  workflow: () => call<EditorDoc>("/pipeline/workflow"),
+  /** The single sub-agent queue the workflow's specialists wait in. */
+  queue: () => call<QueueDoc>("/runs/controls"),
   setStage: (
     id: string,
     patch: {

@@ -178,6 +178,18 @@ test("latest real run survives more than a page of previews", async () => {
   assert.equal(doc.runs.length,20); assert.ok(doc.runs.every(r=>r.dry));
 });
 
+test("the overview reads real runs with their per-step outcomes", async () => {
+  write([newBlock("alerts","wf-alerts"),newBlock("memory","wf-memory")]);
+  registerWorkflowExecutor("alerts",async () => ({outcome:"completed"}));
+  registerWorkflowExecutor("memory",async () => ({outcome:"failed",error:"boom"}));
+  const real = await runNight({trigger:"manual"});
+  await runNight({trigger:"manual",dry:true});
+  const doc = await (await pipelineRoutes.request("/")).json() as {history:{id:string;dry:boolean;steps:{stageId:string;outcome:string}[]}[];runs:{steps:unknown[]}[]};
+  assert.deepEqual(doc.history.map(r=>r.id),[real.run!.id]);
+  assert.deepEqual(doc.history[0]!.steps,[{stageId:"wf-alerts",outcome:"completed"},{stageId:"wf-memory",outcome:"failed"}]);
+  assert.equal(doc.runs.length,2); assert.ok(doc.runs.every(r=>Array.isArray(r.steps)));
+});
+
 test("stopping cancels the owned queued agent and skips later blocks", async () => {
   venture("one"); const fakeDispatch=(() => { insertRun({id:"cancel-me",kind:"demand",ventureId:"one",title:"Test",input:{}}); return {status:201,json:{run:{id:"cancel-me"}}}; });
   registerWorkflowExecutor("agent",(b,c)=>runAgentBlock(b,c,{dispatch:fakeDispatch,read:runRow,cancel:cancelRun,delayMs:5}));
