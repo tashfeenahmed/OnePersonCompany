@@ -14,7 +14,7 @@ const aliases:Record<string,string[]>={
   play:["mobile"],appstore:["mobile"],mobilehealth:["stability"],mobileHealth:["stability"],
   revenue:["stripe"],leakage:["stripe"],disputes:["stripe"],queue:["stripe"],
   bing:["bing-webmaster"],hn:["hackernews"],gmail:["mail"],resend:["mail"],
-  seoops:["seo"],instagram:["meta"],social:["meta","bluesky"],ads:["meta"],
+  seoops:["seo"],instagram:["meta"],social:["meta","bluesky"],tiktok:["tiktok-public"],ads:["meta"],
 };
 function sourcesFor(widget:PlacedWidget):Set<string> {
   const def=WIDGETS[widget.type];

@@ -42,7 +42,11 @@ export type WidgetKind =
   /** The reviews themselves, with stars and the app's icon. */
   | "reviews"
   /** Conversations as readable cards — where, when, title, the post's words. */
-  | "threads";
+  | "threads"
+  /** A grid of pictures, each with one big figure on it — videos by views,
+   *  creators by followers. For "which one" questions a thumbnail answers
+   *  faster than a caption. */
+  | "gallery";
 
 export type StatusTone = "ok" | "warn" | "bad";
 
@@ -182,6 +186,24 @@ export type RankedRow = {
   /** A SUB-AGENT ROLE (`researcher`, `seo`, …), for its artwork beside the
    *  label — see components/org/RoleIcon. */
   role?: string;
+};
+
+/**
+ * One tile on a `gallery` card: a picture, the ONE figure that ranks it
+ * (already formatted — "12.4k"), and a short line under it. `href` opens the
+ * thing itself. A picture that fails to load leaves the tile with its figure
+ * on a plain ground, never a broken frame.
+ */
+export type GalleryItem = {
+  image: string | null;
+  value: string;
+  /** The unit under the figure — "views", "followers". */
+  unit?: string;
+  title: string;
+  sub?: string;
+  href?: string | null;
+  /** A small word in the corner — "new", "pinned". */
+  badge?: string;
 };
 
 /** One conversation on a `threads` card. */
@@ -572,6 +594,9 @@ export type Widget = {
     apps?: boolean;
     /** /api/github/insights — stars by day, releases, per-repo traffic. */
     devInsights?: boolean;
+    /** /api/tiktok-public — watched accounts, every video's counts, daily
+     *  snapshots, search suggestions and the Discover page. */
+    tiktok?: boolean;
     /**
      * WHAT THE APPS DO, beside `mobile`'s account of what they earn: crash and
      * ANR rates and counts, which report each store answered, the reviews and
@@ -719,6 +744,10 @@ export type Widget = {
   /** feed — the published things themselves, with their pictures and their
    *  words. `caption` closes the card as it does everywhere else. */
   feed?: FeedItem[];
+  /** gallery — thumbnails, each with the one figure that ranks it. */
+  gallery?: GalleryItem[];
+  /** gallery — the pictures' shape: tall video covers or square avatars. */
+  galleryShape?: "portrait" | "square";
   /**
    * table — a judgement per row, drawn as a dot before the first cell. Null
    * for a row that is not judged; absent when no row on the table is. A
@@ -963,6 +992,9 @@ export const SOURCES: Record<string, WidgetSource> = {
     tint: "#7a5cc4",
     connected: true,
   },
+  /* PUBLIC TIKTOK — the `tiktok-public` plugin's own clock, apart from the
+     posting plugin, which reads nothing. */
+  tiktok: { name: "TikTok", icon: "tiktok", connected: true },
   fleet: {
     name: "Fleet",
     icon: null,
@@ -4063,7 +4095,7 @@ export const WIDGETS: Record<string, Widget> = {
     name: "Last post",
     kind: "metric",
     window: "now",
-    live: { social: true },
+    live: { social: true, bluesky: true, tiktok: true },
   },
   "social.perPost": {
     src: "social",
@@ -4169,7 +4201,7 @@ export const WIDGETS: Record<string, Widget> = {
     src: "social",
     name: "What is being read",
     kind: "statuses",
-    live: { social: true, meta: true, bluesky: true },
+    live: { social: true, meta: true, bluesky: true, tiktok: true },
   },
   "social.project": {
     src: "social",
@@ -4187,6 +4219,50 @@ export const WIDGETS: Record<string, Widget> = {
     perProject: true,
     live: { social: true, meta: true },
   },
+  /* ======================================================================
+     THE SOCIAL BOARD, MADE TO BE READ AT A GLANCE — 2026-09-29.
+
+     Pictures first: posts per day by network, views per account with the
+     product's own icon, the videos themselves as thumbnails. One short line
+     under each figure. Followers and views are never added across networks.
+     ====================================================================== */
+  "social.headAudience": { src: "social", name: "Audience", kind: "heading", sub: "Followers and views per network — never added across networks." },
+  "social.headTiktok": { src: "tiktok", name: "TikTok", kind: "heading", sub: "Every public video on the watched accounts, read four times a day." },
+  "social.headTrends": { src: "tiktok", name: "Trending on TikTok", kind: "heading", sub: "What people search around your products, and what TikTok is featuring." },
+  "social.headPosts": { src: "social", name: "Posts and publishing", kind: "heading", sub: "What went out on Facebook, Instagram and Bluesky, and what is queued." },
+  "social.postsDaily": {
+    src: "social",
+    name: "Posts per day",
+    kind: "daily",
+    window: "selected",
+    live: { social: true, bluesky: true, tiktok: true },
+    unit: "count",
+  },
+  "social.byAccount": {
+    src: "social",
+    name: "Views by account",
+    kind: "ranked",
+    window: "selected",
+    live: { social: true, tiktok: true },
+  },
+  "social.networks": {
+    src: "social",
+    name: "Posts by network",
+    kind: "proportion",
+    window: "selected",
+    live: { social: true, bluesky: true, tiktok: true },
+  },
+  /* ---------------------------------------------------------------- TikTok */
+  "tiktok.followers": { src: "tiktok", name: "TikTok followers", kind: "metric", window: "now", live: { tiktok: true } },
+  "tiktok.views": { src: "tiktok", name: "TikTok views", kind: "metric", window: "selected", live: { tiktok: true } },
+  "tiktok.top": { src: "tiktok", name: "Best TikToks", kind: "gallery", window: "selected", live: { tiktok: true } },
+  "tiktok.gained": { src: "tiktok", name: "TikTok views gained per day", kind: "daily", window: "selected", live: { tiktok: true }, unit: "count" },
+  "tiktok.accounts": { src: "tiktok", name: "TikTok accounts", kind: "ranked", window: "now", live: { tiktok: true } },
+  "tiktok.latest": { src: "tiktok", name: "Latest TikToks", kind: "feed", window: "selected", live: { tiktok: true } },
+  "tiktok.actions": { src: "tiktok", name: "What viewers did", kind: "proportion", window: "selected", live: { tiktok: true } },
+  "tiktok.searches": { src: "tiktok", name: "Searched on TikTok", kind: "ranked", window: "now", live: { tiktok: true } },
+  "tiktok.hashtags": { src: "tiktok", name: "Trending hashtags", kind: "ranked", window: "now", live: { tiktok: true } },
+  "tiktok.creators": { src: "tiktok", name: "Trending creators", kind: "gallery", window: "now", live: { tiktok: true } },
   /* ======================================================================
      ADS BOARD PARITY (Workdash /ads) — workstream "ads-board", 2026-09-08.
 

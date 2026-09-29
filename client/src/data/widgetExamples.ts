@@ -26,5 +26,6 @@ export function widgetExample(widget: Widget): Partial<Widget> {
     case "proportion": return { ...base, value: "100", parts };
     case "waterfall": return { ...base, steps: [{ label: "Added", value: 30, text: "30" }, { label: "Removed", value: -10, text: "10" }, { label: "Net", value: 20, text: "20", total: true }] };
     case "feed": return { ...base, feed: [{ title: "Example update", text: "An illustrative item for this widget." }] };
+    case "gallery": return { ...base, gallery: [{ image: null, value: "100", unit: "example", title: "Example item" }] };
   }
 }

@@ -19,6 +19,7 @@ import {
   Dumbbell,
   Feed,
   Figures,
+  Gallery,
   MeterRow,
   Profile,
   Proportion,
@@ -93,6 +94,7 @@ function inputsOf(live: LiveData, points: LiveInputs["points"], extra: Pick<Live
     mobileHealth: live.mobileHealth,
     apps: live.apps,
     devInsights: live.devInsights,
+    tiktok: live.tiktok,
     webAnalytics: live.webAnalytics,
     window: live.window,
     ...extra,
@@ -846,6 +848,13 @@ export function WidgetCard({
                   contract the table kind keeps. */}
               {def.caption ?? "Nothing published yet."}
             </p>
+          ))}
+
+        {!empty && def.kind === "gallery" &&
+          (def.gallery?.length ? (
+            <Gallery items={def.gallery} shape={def.galleryShape} caption={def.caption} />
+          ) : (
+            <p className="text-muted-foreground mt-2 text-[12.5px]">{def.caption ?? "Nothing to show yet."}</p>
           ))}
 
         {!empty && def.kind === "table" &&

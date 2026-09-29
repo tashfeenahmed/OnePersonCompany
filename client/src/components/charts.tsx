@@ -26,6 +26,7 @@ import type {
   DonutSlice,
   DumbbellRow,
   FeedItem,
+  GalleryItem,
   Meter,
   ProfileFigure,
   ProportionPart,
@@ -2449,6 +2450,84 @@ export function Feed({ items, caption }: { items: FeedItem[]; caption?: string }
       ))}
       {caption && <p className="text-muted-foreground mt-2 text-[12px] leading-snug">{caption}</p>}
     </div>
+  );
+}
+
+/**
+ * PICTURES WITH ONE FIGURE EACH — the `gallery` kind.
+ *
+ * A grid of thumbnails, the ranking figure set large on a dark scrim at the
+ * foot of each, the name under it. For "which video did best" a cover you
+ * recognise beats a caption you have to read. The grid reflows by width, so
+ * a two-column card shows four across and a full-width one eight.
+ */
+export function Gallery({
+  items,
+  shape = "portrait",
+  caption,
+}: {
+  items: GalleryItem[];
+  shape?: "portrait" | "square";
+  caption?: string;
+}) {
+  return (
+    <div className="mt-1">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2.5">
+        {items.map((item, i) => (
+          <GalleryTile key={`${item.href ?? item.title}-${i}`} item={item} shape={shape} />
+        ))}
+      </div>
+      {caption && <p className="text-muted-foreground mt-2 text-[12px] leading-snug">{caption}</p>}
+    </div>
+  );
+}
+
+function GalleryTile({ item, shape }: { item: GalleryItem; shape: "portrait" | "square" }) {
+  const [broken, setBroken] = useState(false);
+  const body = (
+    <>
+      <div
+        className={cn(
+          "bg-muted border-line-soft relative overflow-hidden rounded-[10px] border",
+          shape === "portrait" ? "aspect-[3/4]" : "aspect-square",
+        )}
+      >
+        {item.image && !broken && (
+          <img
+            src={item.image}
+            alt={item.title}
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            onError={() => setBroken(true)}
+            className="absolute inset-0 size-full object-cover"
+          />
+        )}
+        {item.badge && (
+          <span className="absolute top-1.5 left-1.5 rounded-full bg-black/65 px-1.5 py-px text-[10.5px] font-medium text-white">
+            {item.badge}
+          </span>
+        )}
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 via-black/35 to-transparent px-2 pt-6 pb-1.5 text-white">
+          <div className="text-[19px] leading-none font-semibold tracking-[-0.02em] tabular-nums">{item.value}</div>
+          {item.unit && <div className="mt-0.5 text-[10.5px] leading-none opacity-85">{item.unit}</div>}
+        </div>
+      </div>
+      <div className="mt-1 truncate text-[12px] leading-tight font-medium">{item.title}</div>
+      {item.sub && <div className="text-muted-foreground truncate text-[11px] leading-tight">{item.sub}</div>}
+    </>
+  );
+  return item.href ? (
+    <a
+      href={item.href}
+      target="_blank"
+      rel="noreferrer"
+      className="block min-w-0 hover:opacity-90"
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      {body}
+    </a>
+  ) : (
+    <div className="min-w-0">{body}</div>
   );
 }
 
