@@ -2889,7 +2889,7 @@ export async function collectReddit(): Promise<DemandSummary> {
   /* The same stale-row pass collectHackerNews explains: rows an earlier,
      looser matcher wrote must not go on counting after the matcher tightens.
      Only algolia- and searxng-tier rows are eligible; feed rows are not. */
-  deleteDemandRowsWhere(demand.isStaleMatch);
+  deleteDemandRowsWhere((r) => r.source === "reddit" && demand.isStaleMatch(r));
 
   try {
     const pending = pendingTerms("reddit", terms);
@@ -3049,7 +3049,7 @@ export async function collectHackerNews(): Promise<DemandSummary> {
      "HN 18 for a Python tutorial" would sit on the card after the fix as
      loudly as before it. One pass per collection, deleting only what the
      matcher can positively see is off-phrase. */
-  const stale = deleteDemandRowsWhere(demand.isStaleMatch);
+  const stale = deleteDemandRowsWhere((r) => r.source === "hn" && demand.isStaleMatch(r));
 
   try {
     const pending = pendingTerms("hn", terms);

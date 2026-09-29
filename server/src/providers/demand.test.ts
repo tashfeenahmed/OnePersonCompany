@@ -102,6 +102,12 @@ test("the purge never touches the quoted feed tier", () => {
   assert.equal(isStaleMatch(row({ source: "reddit", tier: "feed+token" })), false);
 });
 
+test("the purge never judges a comment by its parent title", () => {
+  /* A comment row's title is its parent story's; it was kept on its own text,
+     which is not stored, so an off-phrase title proves nothing. */
+  assert.equal(isStaleMatch(row({ context: "comment", title: "Show HN: My analytics dashboard" })), false);
+});
+
 test("a searxng row off the phrase is purged", () => {
   assert.equal(
     isStaleMatch(row({ source: "reddit", tier: "searxng", context: "r/paint" })),

@@ -1191,10 +1191,11 @@ export function isStaleMatch(row: {
   context: string | null;
 }): boolean {
   if (row.tier !== "algolia" && row.tier !== "searxng") return false;
-  /* Comment rows matched on their body at write time; the body is not
-     stored, so on a purge their last chance is the parent title. Accepting
-     on the title is the conservative call — this pass only deletes what it
-     can positively see is off-phrase. */
+  /* Comment rows matched on their body at write time, and the body is not
+     stored — their title is the PARENT story's. An off-phrase parent title
+     says nothing about the comment, so this pass cannot positively see a
+     comment is off-phrase and leaves it alone. */
+  if (row.context === "comment") return false;
   return !matchesPhrase(row.term, row.title);
 }
 
