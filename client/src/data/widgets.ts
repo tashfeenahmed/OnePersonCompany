@@ -40,7 +40,9 @@ export type WidgetKind =
   /** One card per app: icon, stores, installs, rating, reviews. */
   | "appgrid"
   /** The reviews themselves, with stars and the app's icon. */
-  | "reviews";
+  | "reviews"
+  /** Conversations as readable cards — where, when, title, the post's words. */
+  | "threads";
 
 export type StatusTone = "ok" | "warn" | "bad";
 
@@ -180,6 +182,20 @@ export type RankedRow = {
   /** A SUB-AGENT ROLE (`researcher`, `seo`, …), for its artwork beside the
    *  label — see components/org/RoleIcon. */
   role?: string;
+};
+
+/** One conversation on a `threads` card. */
+export type ThreadCard = {
+  source: "Reddit" | "Hacker News";
+  where: string;
+  title: string;
+  body: string | null;
+  url: string;
+  term: string;
+  createdAt: string | null;
+  points: number | null;
+  comments: number | null;
+  unanswered: boolean;
 };
 
 /** One day of a `daily` card. `parts` carry a `mark` when they are models. */
@@ -607,6 +623,8 @@ export type Widget = {
   /** Where this card's figures are set — drawn as a small link at the right
    *  of the header, e.g. "Set rate & machines" → /finance/power. */
   configLink?: { label: string; to: string };
+  /** threads — the conversations, as cards. */
+  threads?: ThreadCard[];
   /** appfilter / appgrid / reviews — the Apps document (see lib/api/apps). */
   appsDoc?: AppsDoc;
   /** daily — one entry per day: the total and, for the split tab, its parts. */
@@ -2584,8 +2602,8 @@ export const WIDGETS: Record<string, Widget> = {
   "demand.daily": { src: "reddit", name: "Conversations per day", window: "selected", kind: "daily", live: { demand: true }, unit: "count" },
   "demand.phrases": { src: "reddit", name: "Which phrases people talk about", window: "selected", kind: "ranked", live: { demand: true } },
   "demand.searchRanked": { src: "bing", name: "What people search for", kind: "ranked", live: { bing: true } },
-  "demand.top": { src: "reddit", name: "Most active threads", window: "selected", kind: "feed", live: { demand: true } },
-  "demand.open": { src: "reddit", name: "Threads nobody has answered", window: "selected", kind: "feed", live: { demand: true } },
+  "demand.top": { src: "reddit", name: "Most active threads", window: "selected", kind: "threads", live: { demand: true } },
+  "demand.open": { src: "reddit", name: "Threads nobody has answered", window: "selected", kind: "threads", live: { demand: true } },
   "demand.subs": { src: "reddit", name: "Where the conversations are", window: "selected", kind: "ranked", live: { demand: true } },
 
   /* ---------------------------------------------------------- development

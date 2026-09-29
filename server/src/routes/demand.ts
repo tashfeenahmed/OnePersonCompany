@@ -77,6 +77,7 @@ type Signal = {
   /** How this box first knew about it. Ours, not the source's — which is what
    *  makes it the one freshness figure the unaged tier can still contribute. */
   firstSeenAt: string;
+  body: string | null;
 };
 
 const shapeSignal = (r: DemandItemRow): Signal => ({
@@ -91,6 +92,7 @@ const shapeSignal = (r: DemandItemRow): Signal => ({
   comments: r.comments,
   tier: r.tier,
   firstSeenAt: r.first_seen_at,
+  body: r.body ?? null,
 });
 
 /** The most recent moment a source was actually asked anything. Null means it
