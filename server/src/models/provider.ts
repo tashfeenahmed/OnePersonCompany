@@ -1,16 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { OUTPUT_TOKENS_CEILING, budgets, budgeted, runContext } from "../runtime/budgets.ts";
+import { OUTPUT_TOKENS_CEILING, budgeted, runContext, runLimitSignal } from "../runtime/budgets.ts";
 
 /** How long one document completion may take on the wire: thirty minutes,
  *  which is a 27B model on a single P40 writing a full page after a long
  *  prefill. The run's own budget still bounds it; this is only the wire's
  *  backstop, and it is only this wide for a `document` turn. */
-const DOCUMENT_TIMEOUT_MS = 1_800_000;
+const DOCUMENT_TIMEOUT_MS = 7_200_000;
 /** How long a document stream may be silent before it is given up on. A local
  *  server sends nothing while it prefills a 16k-token brief, and on a P40
  *  that is minutes; the chat's ninety seconds would call an honest first
  *  token a dead gateway. */
-const DOCUMENT_IDLE_MS = 600_000;
+const DOCUMENT_IDLE_MS = 1_800_000;
 /**
  * MODEL PROVIDERS — where the completions actually come from, and how many at
  * once.
@@ -469,7 +469,7 @@ export async function complete(turns: VisionTurn[], opts: CompleteOptions = {}):
       completeUnmetered(turns, opts, maxOutputTokens),
     false, want, opts.venture);
   if (runContext.getStore()) return work();
-  return runContext.run({ id: `direct:${randomUUID()}`, venture: null, automation: true, signal: opts.signal ?? AbortSignal.timeout(budgets().runSeconds * 1000), sequence: 0, resume: false }, work);
+  return runContext.run({ id: `direct:${randomUUID()}`, venture: null, automation: true, signal: opts.signal ?? runLimitSignal(), sequence: 0, resume: false }, work);
 }
 async function completeUnmetered(turns: VisionTurn[], opts: CompleteOptions, maxOutputTokens?: number): Promise<ProviderReply> {
   const p = providerFor(opts.provider);
@@ -694,7 +694,7 @@ export async function completeTooled(
       id: `direct:${randomUUID()}`,
       venture: null,
       automation: true,
-      signal: opts.signal ?? AbortSignal.timeout(budgets().runSeconds * 1000),
+      signal: opts.signal ?? runLimitSignal(),
       sequence: 0,
       resume: false,
     },

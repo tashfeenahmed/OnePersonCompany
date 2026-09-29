@@ -23,10 +23,29 @@ export function saveBudgets(value: unknown): string | null {
     if (typeof p[key] !== "number" || !Number.isFinite(p[key]) || p[key] < 0 || p[key] > 1e9) return `Invalid ${key}.`;
     if (!key.toLowerCase().includes("usd") && !Number.isInteger(p[key])) return `${key} must be a whole number.`;
   }
-  if (p.runSeconds < 1 || p.maxOutputTokens < 1 || p.maxOutputTokens > 65536) return "Choose a positive runtime and an output limit of 1–65,536 tokens.";
+  if (p.maxOutputTokens < 1 || p.maxOutputTokens > 65536) return "Choose a positive runtime and an output limit of 1–65,536 tokens.";
   if ((p.runUsd || p.dailyUsd || p.ventureDailyUsd) && !p.usdPerMillion) return "Set a conservative model price per million tokens before enabling dollar budgets.";
   writeJson(RUNTIME_KEYS.budgets, p);
   return null;
+}
+/**
+ * A JOB'S RUNTIME LIMIT IN MILLISECONDS, OR NULL FOR NONE. `runSeconds: 0`
+ * means no time limit (since 2026-09-29, at the owner's word: a slow local
+ * model should be allowed to finish). The stall timers still end a job whose
+ * model has gone silent, so "no limit" never means "hangs forever".
+ *
+ * Capped at 20 days because Node fires any timer longer than 2^31 ms at once.
+ */
+export function runLimitMs(): number | null {
+  const s = budgets().runSeconds;
+  return s > 0 ? Math.min(s * 1000, MAX_TIMER_MS) : null;
+}
+/** The longest a Node timer can safely wait. */
+export const MAX_TIMER_MS = 1_728_000_000;
+/** A signal that aborts at the job's runtime limit, or never. */
+export function runLimitSignal(): AbortSignal {
+  const ms = runLimitMs();
+  return ms ? AbortSignal.timeout(ms) : new AbortController().signal;
 }
 export function queuePaused() { return readFlag(RUNTIME_KEYS.queuePaused); }
 export function setQueuePaused(paused: boolean) { writeFlag(RUNTIME_KEYS.queuePaused, paused); }

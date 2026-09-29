@@ -175,7 +175,7 @@ export async function demandRun(opts: {
      rather than auditing a whole business, and the cap is what stops a model
      paging through a subreddit for an hour. */
   const investigation = demandInvestigationShape({
-    minutes: Math.max(5, Math.min(60, Math.round(opts.runSeconds / 120))),
+    minutes: opts.runSeconds > 0 ? Math.max(5, Math.min(60, Math.round(opts.runSeconds / 120))) : 60,
     calls: 20,
   });
   const notes = hasTools
