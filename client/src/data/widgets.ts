@@ -2574,6 +2574,20 @@ export const WIDGETS: Record<string, Widget> = {
     live: { costs: true },
   },
 
+  /* --------------------------------------------------------------- demand
+     THE DEMAND BOARD, reworked 2026-09-29 for reading at a glance: what people
+     are saying (threads, phrases, the threads worth replying to) first, and
+     the collection plumbing at the foot. */
+  "demand.found": { src: "reddit", name: "Conversations found", window: "selected", kind: "metric", live: { demand: true } },
+  "demand.unanswered": { src: "reddit", name: "Waiting for an answer", window: "selected", kind: "metric", live: { demand: true } },
+  "demand.search": { src: "bing", name: "Searches a week", kind: "metric", live: { bing: true } },
+  "demand.daily": { src: "reddit", name: "Conversations per day", window: "selected", kind: "daily", live: { demand: true }, unit: "count" },
+  "demand.phrases": { src: "reddit", name: "Which phrases people talk about", window: "selected", kind: "ranked", live: { demand: true } },
+  "demand.searchRanked": { src: "bing", name: "What people search for", kind: "ranked", live: { bing: true } },
+  "demand.top": { src: "reddit", name: "Most active threads", window: "selected", kind: "feed", live: { demand: true } },
+  "demand.open": { src: "reddit", name: "Threads nobody has answered", window: "selected", kind: "feed", live: { demand: true } },
+  "demand.subs": { src: "reddit", name: "Where the conversations are", window: "selected", kind: "ranked", live: { demand: true } },
+
   /* ---------------------------------------------------------- development
      THE DEVELOPMENT BOARD since 2026-09-29: stars by day and release
      downloads from /api/github/insights beside the collector's own figures. */

@@ -14344,7 +14344,9 @@ function insightDays(D: DevInsights): string[] {
 function byRepoDaily(D: DevInsights, rows: { repo: string; day: string; value: number }[], trim = false) {
   /* `trim` stops the grid at the newest day the source has reported, so
      days GitHub has not published yet are absent rather than drawn as zero. */
-  const newest = rows.reduce((m, r) => (r.day > m ? r.day : m), "");
+  /* The newest day with anything in it: GitHub back-fills zeros for days it
+     has not computed yet, so a zero at the end is "not published", not quiet. */
+  const newest = rows.reduce((m, r) => (r.value > 0 && r.day > m ? r.day : m), "");
   const grid = insightDays(D).filter((d) => !trim || d <= newest);
   const repos = [...new Set(rows.map((r) => r.repo))];
   const at = new Map(rows.map((r) => [`${r.repo}|${r.day}`, r.value]));
@@ -14419,7 +14421,7 @@ Object.assign(LIVE_BUILDERS, {
       daily,
       dailySplit: "By repo",
       unit: "count" as const,
-      caption: `${count(total)} views · GitHub keeps 14 days, this box keeps everything it has read since`,
+      caption: `${count(total)} views · GitHub has published up to ${daily.length ? dayShort(daily.at(-1)!.day) : "—"}; newer days fill in as it does (checked every 6 hours)`,
     };
   },
 
@@ -14551,6 +14553,147 @@ Object.assign(LIVE_BUILDERS, {
       dailySplit: "By package",
       unit: "count" as const,
       caption: "Tarball fetches, not installs — CI and mirrors count too",
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* =============================================================== demand
+   THE DEMAND BOARD, for reading — what people are saying and where, then the
+   threads worth replying to. Reddit and Hacker News threads come from the
+   same document (`demand`); Bing's weekly search volumes from `bing`.
+   ======================================================================== */
+
+const demandThreads = (D: NonNullable<LiveInputs["demand"]>) => [
+  ...D.reddit.signals.map((s) => ({ ...s, source: "Reddit" as const })),
+  ...D.hn.signals.map((s) => ({ ...s, source: "Hacker News" as const })),
+];
+const threadMeta = (s: ReturnType<typeof demandThreads>[number]): [string, string][] =>
+  [
+    ["where", s.source === "Reddit" ? (s.context ?? "Reddit") : "Hacker News"],
+    ["phrase", s.term],
+    ...(s.points !== null ? [["points", count(s.points)] as [string, string]] : []),
+    ...(s.comments !== null ? [["replies", count(s.comments)] as [string, string]] : []),
+    ...(s.createdAt ? [["posted", ago(s.createdAt)] as [string, string]] : []),
+  ];
+
+Object.assign(LIVE_BUILDERS, {
+  "demand.found": ({ demand: D }: LiveInputs) => {
+    if (!D) return null;
+    const all = demandThreads(D);
+    if (!all.length) return null;
+    const r = all.filter((s) => s.source === "Reddit").length;
+    return {
+      value: count(all.length),
+      sub: `Reddit ${count(r)} · Hacker News ${count(all.length - r)} · ${count(D.terms.length)} phrases watched`,
+    };
+  },
+
+  "demand.unanswered": ({ demand: D }: LiveInputs) => {
+    if (!D) return null;
+    const all = demandThreads(D);
+    if (!all.length) return null;
+    const open = all.filter((s) => s.comments === 0);
+    return {
+      value: count(open.length),
+      tone: open.length ? ("warn" as StatusTone) : undefined,
+      sub: open.length ? "threads with no reply yet — the easiest ones to be first in" : "every thread found has a reply",
+    };
+  },
+
+  "demand.search": ({ bing: B }: LiveInputs) => {
+    const ks = (B?.keywords.phrases ?? []).filter((k) => k.volume !== null);
+    if (!ks.length) return null;
+    const total = ks.reduce((n, k) => n + k.volume!, 0);
+    const top = ks.slice().sort((a, b) => b.volume! - a.volume!)[0]!;
+    return { value: count(total), sub: `on Bing across ${count(ks.length)} phrases · most: “${top.phrase}” ${count(top.volume!)}` };
+  },
+
+  "demand.daily": ({ demand: D }: LiveInputs) => {
+    if (!D) return null;
+    const all = demandThreads(D).filter((s) => s.createdAt);
+    if (!all.length) return null;
+    const days: string[] = [];
+    for (let i = D.windowDays - 1; i >= 0; i--) days.push(new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10));
+    const on = (src: string, day: string) => all.filter((s) => s.source === src && s.createdAt!.slice(0, 10) === day).length;
+    const daily = days.map((day) => {
+      const parts = [
+        { label: "Reddit", value: on("Reddit", day) },
+        { label: "Hacker News", value: on("Hacker News", day) },
+      ];
+      return { day, total: parts[0]!.value + parts[1]!.value, parts };
+    });
+    return {
+      daily,
+      dailySplit: "By source",
+      unit: "count" as const,
+      caption: `${count(all.length)} threads by the day they were posted · collected every ${D.everyHours} hours`,
+    };
+  },
+
+  "demand.phrases": ({ demand: D }: LiveInputs) => {
+    if (!D) return null;
+    const all = demandThreads(D);
+    const by = new Map<string, { r: number; h: number }>();
+    for (const t of D.terms) by.set(t, { r: 0, h: 0 });
+    for (const s of all) {
+      const e = by.get(s.term) ?? { r: 0, h: 0 };
+      if (s.source === "Reddit") e.r++;
+      else e.h++;
+      by.set(s.term, e);
+    }
+    const rows = [...by.entries()].sort((a, b) => b[1].r + b[1].h - (a[1].r + a[1].h));
+    if (!rows.length) return null;
+    const silent = rows.filter(([, v]) => v.r + v.h === 0);
+    return {
+      ranked: rows
+        .filter(([, v]) => v.r + v.h > 0)
+        .slice(0, 12)
+        .map(([term, v]) => ({ label: term, value: v.r + v.h, text: count(v.r + v.h), sub: `Reddit ${v.r} · HN ${v.h}` })),
+      caption: silent.length ? `No threads yet for ${count(silent.length)} phrase${silent.length === 1 ? "" : "s"}: ${silent.slice(0, 4).map(([t]) => t).join(", ")}${silent.length > 4 ? "…" : ""}` : undefined,
+    };
+  },
+
+  "demand.searchRanked": ({ bing: B }: LiveInputs) => {
+    const ks = (B?.keywords.phrases ?? []).filter((k) => k.volume !== null && k.volume > 0);
+    if (!ks.length) return null;
+    return {
+      ranked: ks
+        .sort((a, b) => b.volume! - a.volume!)
+        .slice(0, 12)
+        .map((k) => ({ label: k.phrase, value: k.volume!, text: `${count(k.volume!)}/wk`, sub: k.peak ? `peak ${count(k.peak)}` : undefined })),
+      caption: "Bing searches a week for each exact phrase · Google publishes no volumes",
+    };
+  },
+
+  "demand.top": ({ demand: D }: LiveInputs) => {
+    if (!D) return null;
+    const all = demandThreads(D)
+      .filter((s) => (s.points ?? 0) + (s.comments ?? 0) > 0)
+      .sort((a, b) => (b.points ?? 0) + 2 * (b.comments ?? 0) - ((a.points ?? 0) + 2 * (a.comments ?? 0)));
+    if (!all.length) return null;
+    return {
+      feed: all.slice(0, 8).map((s) => ({ title: s.title, href: s.url, meta: threadMeta(s), at: s.createdAt ?? undefined })),
+    };
+  },
+
+  "demand.open": ({ demand: D }: LiveInputs) => {
+    if (!D) return null;
+    const open = demandThreads(D)
+      .filter((s) => s.comments === 0)
+      .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+    if (!open.length) return null;
+    return {
+      feed: open.slice(0, 8).map((s) => ({ title: s.title, href: s.url, meta: threadMeta(s), at: s.createdAt ?? undefined, tone: "warn" as StatusTone })),
+    };
+  },
+
+  "demand.subs": ({ demand: D }: LiveInputs) => {
+    const subs = D?.reddit.subreddits ?? [];
+    if (!subs.length) return null;
+    const whole = subs.reduce((n, s) => n + s.threads, 0);
+    return {
+      ranked: subs.slice(0, 10).map((s) => ({ label: s.name, value: s.threads, text: count(s.threads), sub: pct(s.threads / whole, { digits: 0 }) })),
+      caption: subs.length > 10 ? `+ ${count(subs.length - 10)} more subreddits` : undefined,
     };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
