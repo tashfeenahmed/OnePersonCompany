@@ -10,6 +10,7 @@ export function widgetExample(widget: Widget): Partial<Widget> {
     case "appfilter": case "appgrid": case "reviews": return {};
     case "threads": return { threads: [] };
     case "adgallery": return { adCards: [] };
+    case "sitegrid": return { ...base, sites: [{ label: "example.com", value: "100", unit: "clicks", bars: series, figures: [["Impr.", "2k"], ["CTR", "5%"], ["Pos.", "8.1"]] }] };
     case "daily": return { ...base, daily: series.map((total, i) => ({ day: `2025-01-0${i + 1}`, total })) };
     case "domain-search": return { sub: "Search across TLDs or check domains in bulk." };
     case "metric": return { ...base, value: "100", series };

@@ -13,6 +13,7 @@ import { AppFilter, AppGrid, ReviewList } from "@/components/apps/AppsWidgets";
 import { ThreadCards } from "@/components/demand/ThreadCards";
 import { AdGallery } from "@/components/ads/AdGallery";
 import { HostMark } from "@/components/HostMark";
+import { SiteGrid } from "@/components/SiteGrid";
 import {
   Bars,
   Chart,
@@ -674,6 +675,10 @@ export function WidgetCard({
 
         {!empty && def.kind === "reviews" && def.appsDoc && (
           <ReviewList reviews={def.appsDoc.reviews} apps={def.appsDoc.apps} />
+        )}
+
+        {!empty && def.kind === "sitegrid" && def.sites && (
+          <SiteGrid sites={def.sites} caption={def.caption} />
         )}
 
         {!empty && def.kind === "daily" && def.daily && (
