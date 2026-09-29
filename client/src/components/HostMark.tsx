@@ -1,6 +1,5 @@
 import { VentureMark } from "@/components/VentureChrome";
 import { useStore } from "@/lib/store";
-import { cn } from "@/lib/utils";
 
 /**
  * A HOSTNAME'S VENTURE FAVICON — "freellmapi.co", "https://www.livetutor.io/",
@@ -28,8 +27,8 @@ export function HostMark({
   host: string | null | undefined;
   size?: number;
   className?: string;
-  /** In a list, a host with no venture gets a quiet initial in the favicon's
-   *  place, so the names still line up. A monogram, not a guessed icon. */
+  /** Draw the host's first letter when no venture owns it, for a place
+   *  where an empty gap would misalign a grid of cards. */
   fallback?: boolean;
 }) {
   const { state } = useStore();
@@ -43,13 +42,10 @@ export function HostMark({
   return (
     <span
       aria-hidden
-      className={cn(
-        "bg-muted text-muted-foreground inline-grid shrink-0 place-items-center rounded-[4px] font-medium uppercase",
-        className,
-      )}
-      style={{ width: size, height: size, fontSize: Math.round(size * 0.62), lineHeight: 1 }}
+      className={`bg-muted text-muted-foreground inline-flex shrink-0 items-center justify-center font-medium uppercase ${className ?? ""}`}
+      style={{ width: size, height: size, borderRadius: size * 0.225, fontSize: size * 0.5 }}
     >
-      {key.charAt(0)}
+      {key.slice(0, 1)}
     </span>
   );
 }

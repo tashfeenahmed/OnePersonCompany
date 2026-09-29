@@ -237,3 +237,55 @@ export function segmentsFor(websiteId: string, windowDays: 7 | 30): SiteSegments
     notes,
   };
 }
+
+/** One site's reading as the every-site overview publishes it. */
+export type SiteOverview = {
+  websiteId: string;
+  raw: SiteSegments["raw"];
+  adjusted: { value: number | null; excluded: number; heuristic: string | null };
+  /** Each dimension's largest `keep` values, with the block's own total and
+   *  `capped` so a reader can tell a floor from a whole. */
+  segments: (Omit<SegmentBlock, "values" | "gapReason"> & {
+    values: { value: string; count: number }[];
+    /** Values the block held and this trim left out. */
+    more: number;
+  })[];
+};
+
+/**
+ * ONE SITE'S SEGMENT DOCUMENT, CUT DOWN FOR THE EVERY-SITE OVERVIEW.
+ *
+ * The board draws every website at once, so it cannot afford the whole
+ * document per site — the heuristics, the notes and a two-hundred-row
+ * referrer tail twenty-four times over. What survives is what a board card
+ * draws: the raw window, the adjusted visitor figure with what it took off,
+ * and the top `keep` values of each dimension WITH the block's own total, so
+ * a share drawn from the trimmed rows is still a share of the whole block.
+ *
+ * NOTHING IS ADDED ACROSS SITES HERE. A visitor is de-duplicated per website;
+ * whoever sums two sites' country rows is summing site-visitors and must say
+ * so, and that is the card's sentence to write, not this function's.
+ */
+export function overviewOf(doc: SiteSegments, keep = 25): SiteOverview {
+  return {
+    websiteId: doc.websiteId,
+    raw: doc.raw,
+    adjusted: {
+      value: doc.adjusted.visitors.value,
+      excluded: doc.adjusted.visitors.excluded,
+      heuristic: doc.adjusted.visitors.heuristic,
+    },
+    segments: doc.segments.map((b) => ({
+      dimension: b.dimension,
+      counts: b.counts,
+      startDay: b.startDay,
+      endDay: b.endDay,
+      total: b.total,
+      capped: b.capped,
+      siteTotal: b.siteTotal,
+      unattributed: b.unattributed,
+      values: b.values.slice(0, keep).map((v) => ({ value: v.value, count: v.count })),
+      more: Math.max(0, b.values.length - keep),
+    })),
+  };
+}

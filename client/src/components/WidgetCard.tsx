@@ -12,7 +12,9 @@ import { narrowApps } from "@/lib/api/apps";
 import { AppFilter, AppGrid, ReviewList } from "@/components/apps/AppsWidgets";
 import { ThreadCards } from "@/components/demand/ThreadCards";
 import { AdGallery } from "@/components/ads/AdGallery";
+import { SiteGrid } from "@/components/seo/SiteGrid";
 import { HostMark } from "@/components/HostMark";
+import { SiteTiles } from "@/components/SiteTiles";
 import {
   Bars,
   Chart,
@@ -666,6 +668,10 @@ export function WidgetCard({
           <AdGallery ads={def.adCards} caption={def.caption} />
         )}
 
+        {!empty && def.kind === "sitegrid" && def.siteCards && (
+          <SiteGrid sites={def.siteCards} quiet={def.quietSites} caption={def.caption} />
+        )}
+
         {!empty && def.kind === "threads" && def.threads && (
           <ThreadCards threads={def.threads} caption={def.caption} />
         )}
@@ -678,8 +684,12 @@ export function WidgetCard({
           <ReviewList reviews={def.appsDoc.reviews} apps={def.appsDoc.apps} />
         )}
 
+        {!empty && def.kind === "sitetiles" && def.sites && (
+          <SiteTiles sites={def.sites} caption={def.caption} />
+        )}
+
         {!empty && def.kind === "daily" && def.daily && (
-          <DailyBars days={def.daily} unit={def.unit ?? "count"} caption={def.caption} split={def.dailySplit} />
+          <DailyBars days={def.daily} unit={def.unit ?? "count"} caption={def.caption} split={def.dailySplit} open={def.dailyOpen} />
         )}
 
         {!empty && def.kind === "chart" && (

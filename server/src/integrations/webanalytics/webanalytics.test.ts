@@ -734,3 +734,51 @@ test("taggedViews is null when no UTM row was ever collected, and 0 only when ro
   assert.equal(c.tagged[0]?.campaign, "summer");
   assert.equal(c.tagged[0]?.matchedCampaignId, null, "no campaign is mapped, so nothing matched by name");
 });
+
+test("overviewOf keeps the block's whole total while trimming its values", async () => {
+  const { overviewOf } = await import("./segments.ts");
+  const values = Array.from({ length: 30 }, (_, i) => ({
+    value: `v${i}`,
+    count: 30 - i,
+    share: 0,
+    was: null,
+    change: null,
+  }));
+  const total = values.reduce((n, v) => n + v.count, 0);
+  const doc = {
+    websiteId: "w",
+    windowDays: 30,
+    compareWindow: null,
+    raw: { startDay: "2026-08-30", endDay: "2026-09-28", pageviews: 10, visitors: 5, visits: 6, bounces: 3 },
+    adjusted: {
+      visitors: { value: 4, heuristic: "h", fingerprint: "f", excluded: 1, basis: "b" },
+      pageviews: null,
+      note: "",
+    },
+    findings: [],
+    refusals: [],
+    heuristics: [],
+    segments: [
+      {
+        dimension: "country",
+        counts: "visitors",
+        startDay: "2026-08-30",
+        endDay: "2026-09-28",
+        total,
+        capped: false,
+        siteTotal: 500,
+        unattributed: 500 - total,
+        gapReason: "long sentence",
+        values,
+      },
+    ],
+    notes: [],
+  } as unknown as Parameters<typeof overviewOf>[0];
+  const o = overviewOf(doc, 10);
+  assert.equal(o.segments[0]!.values.length, 10);
+  assert.equal(o.segments[0]!.total, total);
+  assert.equal(o.segments[0]!.more, 20);
+  assert.equal(o.adjusted.value, 4);
+  assert.equal(o.adjusted.excluded, 1);
+  assert.equal("gapReason" in o.segments[0]!, false);
+});

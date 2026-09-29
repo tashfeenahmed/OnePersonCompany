@@ -1,6 +1,7 @@
 import {
   webAnalytics,
   type Events,
+  type Overview,
   type Segments,
   type SiteRow,
   type Sites,
@@ -42,6 +43,11 @@ export type WebAnalyticsDocs = {
    *  website named. Occurrences and participants are two populations and the
    *  cards keep them apart. */
   events: Events | null;
+  /** EVERY site's segments over thirty days, trimmed — the Analytics board's
+   *  portfolio cards (countries, devices, browsers). Thirty whatever the
+   *  picker says: the seven-day country rows are collected for too few sites
+   *  to rank. Null on a server that does not serve `/overview` yet. */
+  overview?: Overview | null;
   /** When the bundle was assembled — never a source's own clock. */
   fetchedAt: string;
 };
@@ -56,9 +62,10 @@ const settled = async <T,>(p: Promise<T>): Promise<T | null> => {
 
 export const webanalyticsboard = {
   docs: async (days: 7 | 30): Promise<WebAnalyticsDocs> => {
-    const [sites, events] = await Promise.all([
+    const [sites, events, overview] = await Promise.all([
       settled(webAnalytics.sites()),
       settled(webAnalytics.events("")),
+      settled(webAnalytics.overview(30)),
     ]);
     /* The report page's own default, transcribed: the first site the rotation
        has read, and otherwise the first site at all. A site with no `readAt`
@@ -68,6 +75,6 @@ export const webanalyticsboard = {
       (sites?.sites ?? []).find((s) => s.readAt) ?? (sites?.sites ?? [])[0] ?? null;
     const segments =
       site && site.readAt ? await settled(webAnalytics.segments(site.websiteId, days)) : null;
-    return { sites, site, segments, events, fetchedAt: new Date().toISOString() };
+    return { sites, site, segments, events, overview, fetchedAt: new Date().toISOString() };
   },
 };
