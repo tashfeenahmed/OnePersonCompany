@@ -271,6 +271,11 @@ export type ThreadCard = {
 export type DailyBar = {
   day: string;
   total: number;
+  /** A bar that is not one day — a month of renewals — says what it is:
+   *  `label` ("Dec 2026") in the hover and at the axis ends, `tick` ("Dec")
+   *  under the bar itself when every bar has one. */
+  label?: string;
+  tick?: string;
   /** `host` is a hostname for the venture favicon in the legend. */
   parts?: { label: string; value: number; mark?: string | null; host?: string | null }[];
 };
@@ -2368,6 +2373,49 @@ export const WIDGETS: Record<string, Widget> = {
     kind: "rows",
     live: { domains: true },
   },
+
+  /* THE DOMAINS BOARD'S VISUAL CARDS — the registrar read joined with the
+     finance ledger's renewal prices, Cloudflare's per-zone traffic and the
+     uptime probe. Every row carries its hostname for the venture favicon. */
+  "domains.held": { src: "registrars", name: "Domains held", kind: "proportion", live: { domains: true } },
+  "domains.yearly": { src: "registrars", name: "Renewal cost a year", kind: "proportion", live: { domains: true, finance: true } },
+  "domains.next": { src: "registrars", name: "Next renewal", kind: "metric", live: { domains: true, finance: true } },
+  "domains.inUse": { src: "registrars", name: "Names in use", kind: "proportion", live: { domains: true, cloudflare: true, uptime: true } },
+  "domains.renewals": {
+    src: "registrars",
+    name: "Renewals, next 12 months",
+    kind: "daily",
+    unit: "usd",
+    live: { domains: true, finance: true },
+  },
+  "domains.attention": {
+    src: "registrars",
+    name: "To decide",
+    kind: "table",
+    live: { domains: true, cloudflare: true, uptime: true },
+    headers: ["Domain", "To do", "Renews"],
+  },
+  "domains.protection": { src: "registrars", name: "Auto-renew and protection", kind: "proportion", live: { domains: true, cloudflare: true } },
+  "domains.grid": {
+    src: "registrars",
+    name: "Every domain",
+    kind: "table",
+    live: { domains: true, finance: true, cloudflare: true, uptime: true },
+    headers: ["Domain", "Site", "Renews", "Price", "Auto", "Lock", "Privacy"],
+  },
+  "domains.traffic": { src: "registrars", name: "Page views by domain", window: "selected", kind: "ranked", live: { domains: true, cloudflare: true } },
+  "domains.priciest": { src: "registrars", name: "Dearest to renew", kind: "ranked", live: { domains: true, finance: true } },
+  "domains.soonest": {
+    src: "registrars",
+    name: "Next to renew",
+    kind: "runway",
+    live: { domains: true, finance: true },
+    thresholds: { warn: 30, crit: 7 },
+    cap: 400,
+  },
+  "domains.byTld": { src: "registrars", name: "Yearly cost by extension", kind: "donut", live: { domains: true, finance: true } },
+  "domains.dns": { src: "registrars", name: "Where the names point", kind: "proportion", live: { domains: true } },
+  "domains.age": { src: "registrars", name: "Registered by year", kind: "ranked", live: { domains: true } },
   "spaceship.domains": {
     src: "spaceship",
     name: "Spaceship domains",
@@ -5760,18 +5808,20 @@ export const DASHBOARD_PRESETS: {
     label: "Domains",
     note: "the portfolio and what renews next",
     widgets: [
-      "registrars.total",
-      "registrars.lapsed",
-      "registrars.expiring",
-      "registrars.autoRenewOff",
-      "registrars.runway",
-      "registrars.attention",
-      "registrars.security",
-      "registrars.table",
-      "registrars.byTld",
-      "registrars.byRegistrar",
-      "registrars.nameservers",
-      "registrars.newest",
+      "domains.held",
+      "domains.yearly",
+      "domains.next",
+      "domains.inUse",
+      "domains.renewals",
+      "domains.attention",
+      "domains.protection",
+      "domains.grid",
+      "domains.traffic",
+      "domains.priciest",
+      "domains.soonest",
+      "domains.byTld",
+      "domains.dns",
+      "domains.age",
       "registrars.search",
     ],
   },
