@@ -718,6 +718,10 @@ const SEED: StoreState = {
         { id: "py27", type: "stripe.atRisk", w: 1 },
         { id: "py28", type: "stripe.trialConversion", w: 1 },
         { id: "py8", type: "stripe.churn", w: 1 },
+        /* CHURN BY FEEDBACK next to the churn rate: what the churned
+           customers said on Stripe's cancellation survey. Starter layout only,
+           as above. */
+        { id: "py29", type: "stripe.churnReasons", w: 2 },
         { id: "py10", type: "stripe.fees", w: 2 },
         { id: "py15", type: "stripe.declines", w: 2 },
         { id: "py19", type: "payments.attemptDays", w: 2 },

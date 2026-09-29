@@ -13,7 +13,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { invoiceAttribution, pickAttribution, sessionAttribution } from "./stripe.ts";
+import {
+  CANCELLATION_COMMENT_MAX,
+  cancellationOf,
+  invoiceAttribution,
+  pickAttribution,
+  sessionAttribution,
+} from "./stripe.ts";
 
 const prices = new Map<string, string>([["price_life", "Lifetime Licence"]]);
 
@@ -172,4 +178,34 @@ test("a charge no walk saw is unattributed, which is never Other", () => {
   /* The intent alone still answers — an account using Checkout without
      invoicing has no charge-keyed source at all. */
   assert.deepEqual(pickAttribution("ch_x", "pi_1", { byIntent: new Map([["pi_1", pro]]) }), pro);
+});
+
+/* ---- cancellationOf: Stripe's reason and the customer's survey answer. ---- */
+
+test("a cancellation's reason, survey feedback and comment are all kept", () => {
+  assert.deepEqual(
+    cancellationOf({
+      cancellation_details: {
+        reason: "cancellation_requested",
+        feedback: "too_expensive",
+        comment: "  Great tool, just over budget.  ",
+      },
+    }),
+    { reason: "cancellation_requested", feedback: "too_expensive", comment: "Great tool, just over budget." },
+  );
+});
+
+test("no details, nulls and empty strings all read as absent", () => {
+  const none = { reason: null, feedback: null, comment: null };
+  assert.deepEqual(cancellationOf({}), none);
+  assert.deepEqual(cancellationOf({ cancellation_details: null }), none);
+  assert.deepEqual(
+    cancellationOf({ cancellation_details: { reason: null, feedback: "", comment: "   " } }),
+    none,
+  );
+});
+
+test("a long comment is capped, never dropped", () => {
+  const out = cancellationOf({ cancellation_details: { comment: "x".repeat(CANCELLATION_COMMENT_MAX + 50) } });
+  assert.equal(out.comment!.length, CANCELLATION_COMMENT_MAX);
 });

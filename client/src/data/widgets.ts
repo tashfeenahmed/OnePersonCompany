@@ -1332,6 +1332,13 @@ export const WIDGETS: Record<string, Widget> = {
     kind: "metric",
     live: { stripe: true },
   },
+  "stripe.churnReasons": {
+    src: "stripe",
+    name: "Why customers left",
+    window: "selected",
+    kind: "rows",
+    live: { stripe: true },
+  },
   "stripe.declines": {
     src: "stripe",
     name: "Failed payments",

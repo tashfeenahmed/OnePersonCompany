@@ -33,6 +33,8 @@ function churnRow(days: number, patch: Record<string, unknown> = {}) {
     },
     involuntary: 0,
     byProduct: [],
+    byFeedback: [],
+    comments: [],
     basis: "",
     approximate: true,
     ...patch,
@@ -224,4 +226,69 @@ test("one trial converting of one reads singular in the subtitle", () => {
   ))!;
   assert.match(p.sub!, /1 of 1 trials converted/);
   assert.match(p.sub!, /1 trial still running/);
+});
+
+/* ---- stripe.churnReasons: what the churned customers said on Stripe's
+   cancellation survey, with failed cards and "no answer" as named rows. */
+
+test("churn-by-feedback card exists and stays empty without churn", () => {
+  assert.ok(WIDGETS["stripe.churnReasons"], "catalog entry");
+  assert.equal(build("stripe.churnReasons", stripe(churnRow(30))), null);
+  assert.equal(build("stripe.churnReasons", stripe(null)), null);
+});
+
+test("feedback prints human, money-first, every bucket kept", () => {
+  const p = build("stripe.churnReasons", {
+    window: 30,
+    ...stripe(
+      churnRow(30, {
+        churnedMrr: 100,
+        churnedSubs: 5,
+        byFeedback: [
+          { feedback: "too_expensive", mrr: 50, subscriptions: 1 },
+          { feedback: "involuntary", mrr: 20, subscriptions: 2 },
+          { feedback: "no_feedback", mrr: 20, subscriptions: 1 },
+          { feedback: "missing_features", mrr: 10, subscriptions: 1 },
+        ],
+      }),
+    ),
+  })!;
+  assert.deepEqual(p.rows, [
+    ["Too expensive", "US$50/mo · 1 sub"],
+    ["Card failed or disputed", "US$20/mo · 2 subs"],
+    ["No feedback given", "US$20/mo · 1 sub"],
+    ["Missing features", "US$10/mo · 1 sub"],
+  ]);
+  assert.match(p.caption!, /5 churned subs · US\$100\/mo · 30d/);
+});
+
+test("the newest survey comment closes the rows, quoted and cut short", () => {
+  const long = "word ".repeat(40).trim();
+  const p = build("stripe.churnReasons", {
+    window: 30,
+    ...stripe(
+      churnRow(30, {
+        churnedMrr: 40,
+        churnedSubs: 2,
+        byFeedback: [{ feedback: "too_complex", mrr: 40, subscriptions: 2 }],
+        comments: [
+          { comment: long, feedback: "too_complex", endedAt: "2026-09-20T00:00:00Z" },
+          { comment: "older", feedback: null, endedAt: "2026-09-10T00:00:00Z" },
+        ],
+      }),
+    ),
+  })!;
+  assert.equal(p.rows!.length, 2);
+  const [label, text] = p.rows![1];
+  assert.equal(label, "Latest comment");
+  assert.ok(text.startsWith("“word") && text.endsWith("…”"), text);
+  assert.ok(text.length <= 93, `${text.length}`);
+});
+
+test("an unknown feedback code is shown readable, never dropped", () => {
+  const p = build("stripe.churnReasons", {
+    window: 30,
+    ...stripe(churnRow(30, { churnedMrr: 40, churnedSubs: 1, byFeedback: [{ feedback: "new_code", mrr: 40, subscriptions: 1 }] })),
+  })!;
+  assert.deepEqual(p.rows, [["new code", "US$40/mo · 1 sub"]]);
 });

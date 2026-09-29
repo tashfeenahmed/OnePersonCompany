@@ -1028,6 +1028,13 @@ export type StripeReport = {
     >;
     involuntary: number;
     byProduct: { product: string; mrr: number; subscriptions: number }[];
+    /** What the churned customers said when they left: Stripe's survey
+     *  feedback codes (too_expensive, missing_features, ...), plus
+     *  `involuntary` (failed card or dispute) and `no_feedback`. Biggest
+     *  first; sums to `churnedSubs`/`churnedMrr`. */
+    byFeedback: { feedback: string; mrr: number; subscriptions: number }[];
+    /** The newest free-text survey comments, at most two, verbatim. */
+    comments: { comment: string; feedback: string | null; endedAt: string }[];
     basis: string;
     approximate: boolean;
   }[];
