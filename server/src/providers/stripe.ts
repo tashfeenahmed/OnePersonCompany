@@ -363,6 +363,13 @@ export type SubscriptionRow = {
    *  subscriptions older than the field. Null is treated as voluntary:
    *  guessing "involuntary" would flatter the retention story. */
   reason: string | null;
+  /** What the CUSTOMER said when they cancelled, from Stripe's cancellation
+   *  survey (cancellation_details.feedback): too_expensive, missing_features,
+   *  switched_service, unused, customer_service, too_complex, low_quality or
+   *  other. Null when no survey was shown or it was skipped. */
+  feedback: string | null;
+  /** Their free-text comment from the same survey, trimmed and capped. */
+  comment: string | null;
   /**
    * Cents this subscription has ever collected, or null for "not asked yet".
    *
@@ -642,11 +649,39 @@ type StripeSubscription = {
   cancel_at_period_end?: boolean;
   trial_start?: number | null;
   trial_end?: number | null;
-  cancellation_details?: { reason?: string | null } | null;
+  cancellation_details?: {
+    reason?: string | null;
+    feedback?: string | null;
+    comment?: string | null;
+  } | null;
   discount?: StripeDiscount | null;
   discounts?: (StripeDiscount | string)[] | null;
   items?: { data?: { price?: StripePrice; quantity?: number }[] };
 };
+
+/** A free-text cancellation comment is the customer's, verbatim; this caps it
+ *  so one essay cannot bloat the row a dashboard reads on every load. */
+export const CANCELLATION_COMMENT_MAX = 500;
+
+/**
+ * Why a subscription ended, in two voices: Stripe's `reason` (what the SYSTEM
+ * saw — a request, a failed card, a dispute) and the customer's `feedback` and
+ * `comment` from the cancellation survey (what THEY said). Empty strings are
+ * read as absent: a skipped survey is not a comment.
+ */
+export function cancellationOf(s: Pick<StripeSubscription, "cancellation_details">): {
+  reason: string | null;
+  feedback: string | null;
+  comment: string | null;
+} {
+  const d = s.cancellation_details ?? {};
+  const comment = d.comment?.trim() ?? "";
+  return {
+    reason: d.reason || null,
+    feedback: d.feedback || null,
+    comment: comment ? comment.slice(0, CANCELLATION_COMMENT_MAX) : null,
+  };
+}
 
 /**
  * The share of a subscription's list price that is actually invoiced.
@@ -1016,7 +1051,7 @@ async function collectAccount(
       cancelAt: iso(s.cancel_at ?? s.current_period_end),
       trialStart: iso(s.trial_start),
       trialEnd: iso(s.trial_end),
-      reason: s.cancellation_details?.reason ?? null,
+      ...cancellationOf(s),
       paidCents,
     });
   }
