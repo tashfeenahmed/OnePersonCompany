@@ -43,8 +43,17 @@ export type WidgetKind =
   | "reviews"
   /** Conversations as readable cards — where, when, title, the post's words. */
   | "threads"
+  /** A grid of pictures, each with one big figure on it — videos by views,
+   *  creators by followers. For "which one" questions a thumbnail answers
+   *  faster than a caption. */
+  | "gallery"
   /** The advertisements as people saw them: image, words, four numbers. */
-  | "adgallery";
+  | "adgallery"
+  /** One small card per website: favicon, audit grade, clicks, three figures. */
+  | "sitegrid"
+  /** One small card per website: favicon, headline figure, its days as
+   *  bars, three figures under it (the Search board's sites). */
+  | "sitetiles";
 
 export type StatusTone = "ok" | "warn" | "bad";
 
@@ -189,6 +198,24 @@ export type RankedRow = {
   role?: string;
 };
 
+/**
+ * One tile on a `gallery` card: a picture, the ONE figure that ranks it
+ * (already formatted — "12.4k"), and a short line under it. `href` opens the
+ * thing itself. A picture that fails to load leaves the tile with its figure
+ * on a plain ground, never a broken frame.
+ */
+export type GalleryItem = {
+  image: string | null;
+  value: string;
+  /** The unit under the figure — "views", "followers". */
+  unit?: string;
+  title: string;
+  sub?: string;
+  href?: string | null;
+  /** A small word in the corner — "new", "pinned". */
+  badge?: string;
+};
+
 /** One advertisement on an `adgallery` card. `stats` are [label, value]
  *  pairs already formatted (spend, clicks, CTR, CPC). */
 export type AdCard = {
@@ -199,6 +226,29 @@ export type AdCard = {
   image: string | null;
   cta: string | null;
   status: string;
+  stats: [string, string][];
+};
+
+/**
+ * One website on a `sitegrid` card (the SEO board). Every figure is already
+ * formatted, and a null is a source that has nothing for the site — drawn
+ * as a dash, never as a nought.
+ */
+export type SiteCard = {
+  host: string;
+  name: string;
+  /** A venture id, for the venture's own favicon. */
+  venture?: string | null;
+  /** The audit's letter, by a stated rule (see the SEO builders); null when
+   *  the site was never audited. */
+  grade: "A" | "B" | "C" | "D" | null;
+  /** "2 errors", "clean", "not audited" — under the ring. */
+  gradeNote: string;
+  /** Search clicks over the window, and the second half against the first. */
+  clicks: string;
+  change: number | null;
+  spark: number[] | null;
+  /** Up to three small figures — [label, value]. */
   stats: [string, string][];
 };
 
@@ -216,12 +266,29 @@ export type ThreadCard = {
   unanswered: boolean;
 };
 
-/** One day of a `daily` card. `parts` carry a `mark` when they are models. */
+/** One day of a `daily` card. `parts` carry a `mark` when they are models,
+ *  a `host` when they are websites (for the favicon in the key). */
 export type DailyBar = {
   day: string;
   total: number;
-  /** `host` is a hostname for the part's venture favicon in the legend. */
+  /** `host` is a hostname for the venture favicon in the legend. */
   parts?: { label: string; value: number; mark?: string | null; host?: string | null }[];
+};
+
+/**
+ * One website on a `sitetiles` card: its favicon, one headline figure, its
+ * days as bars and up to three small figures. Everything is formatted by the
+ * builder; `change` is a short movement ("+42%") with the way it went, null
+ * when there was no window before to compare with.
+ */
+export type SiteTile = {
+  label: string;
+  host?: string | null;
+  value: string;
+  unit: string;
+  change?: { text: string; good: boolean | null } | null;
+  bars?: number[];
+  figures?: [string, string][];
 };
 
 /**
@@ -591,6 +658,9 @@ export type Widget = {
     apps?: boolean;
     /** /api/github/insights — stars by day, releases, per-repo traffic. */
     devInsights?: boolean;
+    /** /api/tiktok-public — watched accounts, every video's counts, daily
+     *  snapshots, search suggestions and the Discover page. */
+    tiktok?: boolean;
     /**
      * WHAT THE APPS DO, beside `mobile`'s account of what they earn: crash and
      * ANR rates and counts, which report each store answered, the reviews and
@@ -647,10 +717,15 @@ export type Widget = {
   rowHosts?: (string | null)[];
   /** adgallery — the advertisements, as cards. */
   adCards?: AdCard[];
+  /** sitegrid — one card per website, and the quiet ones as chips. */
+  siteCards?: SiteCard[];
+  quietSites?: { name: string; host: string; venture?: string | null }[];
   /** threads — the conversations, as cards. */
   threads?: ThreadCard[];
   /** appfilter / appgrid / reviews — the Apps document (see lib/api/apps). */
   appsDoc?: AppsDoc;
+  /** sitetiles — one small card per website (Search board). */
+  sites?: SiteTile[];
   /** daily — one entry per day: the total and, for the split tab, its parts. */
   daily?: DailyBar[];
   /** daily — the split tab's name: "By model", "By source". */
@@ -746,6 +821,10 @@ export type Widget = {
   /** feed — the published things themselves, with their pictures and their
    *  words. `caption` closes the card as it does everywhere else. */
   feed?: FeedItem[];
+  /** gallery — thumbnails, each with the one figure that ranks it. */
+  gallery?: GalleryItem[];
+  /** gallery — the pictures' shape: tall video covers or square avatars. */
+  galleryShape?: "portrait" | "square";
   /**
    * table — a judgement per row, drawn as a dot before the first cell. Null
    * for a row that is not judged; absent when no row on the table is. A
@@ -990,6 +1069,9 @@ export const SOURCES: Record<string, WidgetSource> = {
     tint: "#7a5cc4",
     connected: true,
   },
+  /* PUBLIC TIKTOK — the `tiktok-public` plugin's own clock, apart from the
+     posting plugin, which reads nothing. */
+  tiktok: { name: "TikTok", icon: "tiktok", connected: true },
   fleet: {
     name: "Fleet",
     icon: null,
@@ -1604,10 +1686,12 @@ export const WIDGETS: Record<string, Widget> = {
     live: { gsc: true },
     headers: ["Property", "Impressions", "Clicks", "CTR", "Position", "Δ impressions"],
   },
+  /* Clicks gained or lost per site against the window before — a bar per
+     site, so the one that really moved is the longest. */
   "gsc.movers": {
     src: "gsc",
-    name: "Biggest movers · 28d",
-    kind: "rows",
+    name: "What moved",
+    kind: "ranked",
     live: { gsc: true },
   },
   /* "PORTFOLIO" IS IN THE NAME because the line is every property summed —
@@ -1616,8 +1700,9 @@ export const WIDGETS: Record<string, Widget> = {
      instead; the builder renames it. */
   "gsc.trend": {
     src: "gsc",
-    name: "Impressions a day · portfolio",
-    kind: "chart",
+    name: "Impressions per day · Google",
+    window: "selected",
+    kind: "daily",
     live: { gsc: true },
     /* A count, not a percentage: this is a quantity of times a link was shown.
        Clicks are deliberately not a second line — they run about forty times
@@ -1719,7 +1804,7 @@ export const WIDGETS: Record<string, Widget> = {
   "bing.queries": {
     src: "bing",
     name: "Top queries · Bing",
-    kind: "rows",
+    kind: "ranked",
     live: { bing: true },
   },
   "bing.sites": {
@@ -1731,11 +1816,20 @@ export const WIDGETS: Record<string, Widget> = {
   },
   "bing.trend": {
     src: "bing",
-    name: "Impressions a day · Bing",
-    kind: "chart",
+    name: "Impressions per day · Bing",
+    window: "selected",
+    kind: "daily",
     live: { bing: true },
     unit: "count",
   },
+  /* THE SEARCH BOARD AT A GLANCE (2026-09-29): every site as a small card
+     with its favicon, Bing's clicks as bars, Bing's own page-two list and its
+     crawl errors. Google and Bing stay on separate cards. */
+  "search.googleSites": { src: "gsc", name: "Every site on Google", kind: "sitetiles", live: { gsc: true } },
+  "search.bingSites": { src: "bing", name: "Every site on Bing", kind: "sitetiles", live: { bing: true } },
+  "search.bingDaily": { src: "bing", name: "Clicks per day · Bing", window: "selected", kind: "daily", live: { bing: true }, unit: "count" },
+  "search.bingStriking": { src: "bing", name: "Page-two opportunities · Bing", kind: "ranked", live: { bing: true } },
+  "search.bingCrawl": { src: "bing", name: "Crawl errors · Bing", kind: "metric", live: { bing: true }, invert: true },
   /*
     CLOUDFLARE. Two catalog samples became measurements, and both had to change
     what they claim in order to become one.
@@ -1870,6 +1964,35 @@ export const WIDGETS: Record<string, Widget> = {
     name: "What this token will not read",
     kind: "rows",
     live: { cloudflare: true },
+  },
+
+  /* THE TRAFFIC & DNS BOARD'S VISUAL CARDS — sites as favicons, days as stacks
+     of sites, mail and DNS as ticks. Same document as the cf.* cards above. */
+  "traffic.pageViews": { src: "cf", name: "Page views", window: "selected", kind: "metric", live: { cloudflare: true } },
+  "traffic.daily": { src: "cf", name: "Requests per day", window: "selected", kind: "daily", live: { cloudflare: true }, unit: "count" },
+  "traffic.visitors": { src: "cf", name: "Visitors per day", window: "selected", kind: "daily", live: { cloudflare: true }, unit: "count" },
+  "traffic.sites": { src: "cf", name: "Requests by site", window: "selected", kind: "ranked", live: { cloudflare: true } },
+  "traffic.countries": { src: "cf", name: "Where requests come from", window: "selected", kind: "ranked", live: { cloudflare: true } },
+  "traffic.status": { src: "cf", name: "Response codes", window: "selected", kind: "proportion", live: { cloudflare: true } },
+  "traffic.cache": { src: "cf", name: "Cache hit ratio", window: "selected", kind: "proportion", live: { cloudflare: true } },
+  "traffic.threatsBySite": { src: "cf", name: "Threats blocked by site", window: "selected", kind: "ranked", live: { cloudflare: true } },
+  "traffic.dnsHealth": {
+    src: "cf",
+    name: "DNS and mail checklist",
+    window: "now",
+    kind: "table",
+    live: { cloudflare: true },
+    headers: ["Site", "Records", "Proxied", "MX", "SPF", "DMARC", "DKIM"],
+  },
+  "traffic.email": { src: "cf", name: "Mail protection", window: "now", kind: "proportion", live: { cloudflare: true } },
+  "traffic.delegation": { src: "cf", name: "Nameserver delegation", window: "now", kind: "proportion", live: { cloudflare: true } },
+  "traffic.table": {
+    src: "cf",
+    name: "Every site",
+    window: "selected",
+    kind: "table",
+    live: { cloudflare: true },
+    headers: ["Site", "Requests", "Visitors/day", "Views", "Cached", "Bandwidth", "Threats", "5xx"],
   },
   /*
     THE ONE UPTIME CARD THAT PREDATES THE PROBE.
@@ -3559,6 +3682,28 @@ export const WIDGETS: Record<string, Widget> = {
     live: { audit: true },
   },
 
+  /* THE SEO BOARD, REWORKED 2026-09-29 at the owner's word — "more visuals,
+     less text, favicons where you can". Every site as a small card, then what
+     moved, what to fix, and the lists as favicon bars. The audit grade is a
+     stated rule over the error and warning counts (A clean, B warnings only,
+     C one or two errors, D three or more) — never a weighted score. */
+  "seo.clicks": { src: "gsc", name: "Search clicks", kind: "metric", live: { gsc: true } },
+  "seo.impressions": { src: "gsc", name: "Search impressions", kind: "metric", live: { gsc: true } },
+  "seo.needsFix": { src: "audit", name: "Sites with audit errors", kind: "metric", live: { audit: true } },
+  "seo.aiFound": { src: "geo", name: "Found by AI", kind: "metric", live: { seo: true } },
+  "seo.sites": { src: "audit", name: "Every site", kind: "sitegrid", live: { audit: true, gsc: true, bing: true, seo: true } },
+  "seo.clicksDaily": { src: "gsc", name: "Search clicks a day", kind: "daily", live: { gsc: true }, unit: "count" },
+  "seo.movers": { src: "gsc", name: "What moved", kind: "ranked", live: { gsc: true } },
+  "seo.fixFirst": { src: "audit", name: "Fix first", kind: "rows", live: { audit: true, gsc: true, bing: true, seo: true } },
+  "seo.queries": { src: "gsc", name: "Top searches", kind: "ranked", live: { gsc: true } },
+  "seo.striking": { src: "gsc", name: "Almost page one", kind: "ranked", live: { gsc: true } },
+  "seo.grades": { src: "audit", name: "Audit grades", kind: "proportion", live: { audit: true } },
+  "seo.errors": { src: "audit", name: "Audit errors by site", kind: "ranked", live: { audit: true } },
+  "seo.ai": { src: "geo", name: "AI visibility by site", kind: "ranked", live: { seo: true } },
+  "seo.indexed": { src: "bing", name: "Pages in Bing's index", kind: "ranked", live: { bing: true } },
+  "seo.links": { src: "bing", name: "Inbound links · Bing", kind: "ranked", live: { bing: true } },
+  "seo.listed": { src: "presence", name: "Listed on", kind: "ranked", live: { presence: true } },
+
   /* ------------------------------------------------------------------- runs
      WHAT THE AGENT HAS BEEN ASKED TO DO, and how far it got.
 
@@ -3858,8 +4003,9 @@ export const WIDGETS: Record<string, Widget> = {
      theirs: forty times apart, the two cannot share one. */
   "gsc.clicksTrend": {
     src: "gsc",
-    name: "Clicks a day · portfolio",
-    kind: "chart",
+    name: "Clicks per day · Google",
+    window: "selected",
+    kind: "daily",
     live: { gsc: true },
     unit: "count",
   },
@@ -4173,7 +4319,7 @@ export const WIDGETS: Record<string, Widget> = {
     name: "Last post",
     kind: "metric",
     window: "now",
-    live: { social: true },
+    live: { social: true, bluesky: true, tiktok: true },
   },
   "social.perPost": {
     src: "social",
@@ -4279,7 +4425,7 @@ export const WIDGETS: Record<string, Widget> = {
     src: "social",
     name: "What is being read",
     kind: "statuses",
-    live: { social: true, meta: true, bluesky: true },
+    live: { social: true, meta: true, bluesky: true, tiktok: true },
   },
   "social.project": {
     src: "social",
@@ -4297,6 +4443,50 @@ export const WIDGETS: Record<string, Widget> = {
     perProject: true,
     live: { social: true, meta: true },
   },
+  /* ======================================================================
+     THE SOCIAL BOARD, MADE TO BE READ AT A GLANCE — 2026-09-29.
+
+     Pictures first: posts per day by network, views per account with the
+     product's own icon, the videos themselves as thumbnails. One short line
+     under each figure. Followers and views are never added across networks.
+     ====================================================================== */
+  "social.headAudience": { src: "social", name: "Audience", kind: "heading", sub: "Followers and views per network — never added across networks." },
+  "social.headTiktok": { src: "tiktok", name: "TikTok", kind: "heading", sub: "Every public video on the watched accounts, read four times a day." },
+  "social.headTrends": { src: "tiktok", name: "Trending on TikTok", kind: "heading", sub: "What people search around your products, and what TikTok is featuring." },
+  "social.headPosts": { src: "social", name: "Posts and publishing", kind: "heading", sub: "What went out on Facebook, Instagram and Bluesky, and what is queued." },
+  "social.postsDaily": {
+    src: "social",
+    name: "Posts per day",
+    kind: "daily",
+    window: "selected",
+    live: { social: true, bluesky: true, tiktok: true },
+    unit: "count",
+  },
+  "social.byAccount": {
+    src: "social",
+    name: "Views by account",
+    kind: "ranked",
+    window: "selected",
+    live: { social: true, tiktok: true },
+  },
+  "social.networks": {
+    src: "social",
+    name: "Posts by network",
+    kind: "proportion",
+    window: "selected",
+    live: { social: true, bluesky: true, tiktok: true },
+  },
+  /* ---------------------------------------------------------------- TikTok */
+  "tiktok.followers": { src: "tiktok", name: "TikTok followers", kind: "metric", window: "now", live: { tiktok: true } },
+  "tiktok.views": { src: "tiktok", name: "TikTok views", kind: "metric", window: "selected", live: { tiktok: true } },
+  "tiktok.top": { src: "tiktok", name: "Best TikToks", kind: "gallery", window: "selected", live: { tiktok: true } },
+  "tiktok.gained": { src: "tiktok", name: "TikTok views gained per day", kind: "daily", window: "selected", live: { tiktok: true }, unit: "count" },
+  "tiktok.accounts": { src: "tiktok", name: "TikTok accounts", kind: "ranked", window: "now", live: { tiktok: true } },
+  "tiktok.latest": { src: "tiktok", name: "Latest TikToks", kind: "feed", window: "selected", live: { tiktok: true } },
+  "tiktok.actions": { src: "tiktok", name: "What viewers did", kind: "proportion", window: "selected", live: { tiktok: true } },
+  "tiktok.searches": { src: "tiktok", name: "Searched on TikTok", kind: "ranked", window: "now", live: { tiktok: true } },
+  "tiktok.hashtags": { src: "tiktok", name: "Trending hashtags", kind: "ranked", window: "now", live: { tiktok: true } },
+  "tiktok.creators": { src: "tiktok", name: "Trending creators", kind: "gallery", window: "now", live: { tiktok: true } },
   /* ======================================================================
      ADS BOARD PARITY (Workdash /ads) — workstream "ads-board", 2026-09-08.
 
@@ -5528,9 +5718,9 @@ export const DASHBOARD_PRESETS: {
       "bing.queries",
       "gsc.coverage",
       "cf.total",
-      "cf.daily",
-      "cf.requests",
-      "cf.dns",
+      "traffic.daily",
+      "traffic.sites",
+      "traffic.dnsHealth",
     ],
   },
   {

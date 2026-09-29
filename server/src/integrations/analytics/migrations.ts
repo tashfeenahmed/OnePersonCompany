@@ -428,4 +428,121 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       ALTER TABLE demand_items ADD COLUMN body TEXT;
     `,
   },
+  {
+    name: "496_tiktok_profiles",
+    sql: `
+      -- PUBLIC TIKTOK ACCOUNTS, as the last read of each profile page saw
+      -- them. One row per watched handle; a failing read keeps the figures it
+      -- had and records why beside them.
+      CREATE TABLE IF NOT EXISTS tiktok_profiles (
+        handle      TEXT PRIMARY KEY,
+        user_id     TEXT,
+        sec_uid     TEXT,
+        nickname    TEXT,
+        avatar      TEXT,
+        bio         TEXT,
+        bio_host    TEXT,
+        followers   INTEGER,
+        following   INTEGER,
+        likes       INTEGER,
+        videos      INTEGER,
+        seen_at     TEXT,
+        last_ok_at  TEXT,
+        last_error  TEXT
+      );
+      -- ONE SNAPSHOT PER HANDLE PER DAY, the last read of the day winning.
+      -- TikTok publishes no history of any of these, so this table IS the
+      -- history. \`views\` is the sum of play counts over the videos read that
+      -- day and \`views_complete\` says whether that was every video — the
+      -- difference between two complete days is that day's views gained.
+      CREATE TABLE IF NOT EXISTS tiktok_profile_days (
+        handle          TEXT NOT NULL,
+        day             TEXT NOT NULL,
+        followers       INTEGER,
+        likes           INTEGER,
+        videos          INTEGER,
+        views           INTEGER,
+        views_complete  INTEGER NOT NULL DEFAULT 0,
+        videos_read     INTEGER,
+        seen_at         TEXT NOT NULL,
+        PRIMARY KEY (handle, day)
+      ) WITHOUT ROWID;
+    `,
+  },
+  {
+    name: "497_tiktok_videos",
+    sql: `
+      -- EVERY VIDEO THE GRID ENDPOINT RETURNED, with its counts as of the last
+      -- read. Replaced per handle when the read reached the end of the
+      -- catalogue (a deleted video leaves), upserted when it did not (a video
+      -- nobody reached is not a deleted one). \`cover\` is a signed CDN URL
+      -- that expires within days; nothing downloads it.
+      CREATE TABLE IF NOT EXISTS tiktok_videos (
+        handle     TEXT NOT NULL,
+        video_id   TEXT NOT NULL,
+        created_at TEXT,
+        caption    TEXT,
+        cover      TEXT,
+        url        TEXT,
+        duration   INTEGER,
+        is_photo   INTEGER NOT NULL DEFAULT 0,
+        pinned     INTEGER NOT NULL DEFAULT 0,
+        views      INTEGER,
+        likes      INTEGER,
+        comments   INTEGER,
+        shares     INTEGER,
+        saves      INTEGER,
+        seen_at    TEXT NOT NULL,
+        PRIMARY KEY (handle, video_id)
+      ) WITHOUT ROWID;
+      CREATE INDEX IF NOT EXISTS tiktok_videos_created ON tiktok_videos(created_at);
+    `,
+  },
+  {
+    name: "498_tiktok_searches",
+    sql: `
+      -- WHAT TIKTOK'S SEARCH BOX SUGGESTS around each seed phrase, one ranked
+      -- list per seed per day. A score is reciprocal rank summed over probes —
+      -- ORDINAL, never a search volume, which TikTok does not publish.
+      CREATE TABLE IF NOT EXISTS tiktok_searches (
+        seed     TEXT NOT NULL,
+        term     TEXT NOT NULL,
+        day      TEXT NOT NULL,
+        score    REAL NOT NULL,
+        rank     INTEGER NOT NULL,
+        hits     INTEGER NOT NULL,
+        seen_at  TEXT NOT NULL,
+        PRIMARY KEY (seed, term, day)
+      ) WITHOUT ROWID;
+      CREATE INDEX IF NOT EXISTS tiktok_searches_day ON tiktok_searches(day);
+    `,
+  },
+  {
+    name: "499_tiktok_discover",
+    sql: `
+      -- TIKTOK'S DISCOVER PAGE, one snapshot a day: suggested creators with
+      -- follower counts and featured hashtags with view counts, for the region
+      -- the request came from (stored beside each row).
+      CREATE TABLE IF NOT EXISTS tiktok_discover (
+        kind        TEXT NOT NULL,
+        item_id     TEXT NOT NULL,
+        day         TEXT NOT NULL,
+        rank        INTEGER NOT NULL,
+        title       TEXT,
+        subtitle    TEXT,
+        description TEXT,
+        link        TEXT,
+        cover       TEXT,
+        views       INTEGER,
+        followers   INTEGER,
+        likes       INTEGER,
+        videos      INTEGER,
+        verified    INTEGER,
+        region      TEXT,
+        seen_at     TEXT NOT NULL,
+        PRIMARY KEY (kind, item_id, day)
+      ) WITHOUT ROWID;
+      CREATE INDEX IF NOT EXISTS tiktok_discover_day ON tiktok_discover(day);
+    `,
+  },
 ];

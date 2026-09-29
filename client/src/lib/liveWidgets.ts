@@ -64,6 +64,7 @@ import type { AdRow, AdsBoardDocs } from "@/lib/api/adsboard";
 import type { MobileHealthDocs } from "@/lib/api/mobilehealthboard";
 import type { AppsDoc } from "@/lib/api/apps";
 import type { DevInsights } from "@/lib/api/devInsights";
+import type { TiktokHandle, TiktokReport, TiktokVideo } from "@/lib/api/tiktok";
 import type { WebAnalyticsDocs } from "@/lib/api/webanalyticsboard";
 import { rateBetween } from "./fx.ts";
 import {
@@ -346,6 +347,8 @@ export type LiveInputs = {
   appFilter?: string | null;
   /** Stars by day, release downloads, per-repo traffic (Development board). */
   devInsights?: DevInsights | null;
+  /** Public TikTok — accounts, videos, search suggestions, Discover. */
+  tiktok?: TiktokReport | null;
   webAnalytics?: WebAnalyticsDocs | null;
   /*
     THE PER-PROJECT CONTRACT. A widget whose catalog entry says `perProject`
@@ -3491,7 +3494,7 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "cf.total": ({ cloudflare: C, window: W }: LiveInputs) => {
+  "cf.total": ({ cloudflare: C }: LiveInputs) => {
     if (!C || !C.summary.withTraffic) return null;
     /* The sparkline is the window's own complete days — today is in the
        document and deliberately not on the line, because a bucket Cloudflare
@@ -3501,7 +3504,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       value: compact(C.summary.requests),
       sub: also(
-        `${C.summary.withTraffic} zone${C.summary.withTraffic === 1 ? "" : "s"} · ${cfDays(C, W)} to ${dayShort(C.window.through)}`,
+        `${C.summary.withTraffic} site${C.summary.withTraffic === 1 ? "" : "s"} · to ${dayShort(C.window.through)}`,
         blind ? `${blind} not measured` : "",
       ),
       series: done.length > 1 ? done.map((d) => d.requests) : undefined,
@@ -3585,9 +3588,13 @@ Object.assign(LIVE_BUILDERS, {
 
   "cf.bandwidth": ({ cloudflare: C, window: W }: LiveInputs) => {
     if (!C || !C.summary.withTraffic) return null;
+    const done = C.daily.filter((d) => !d.partial);
     return {
       value: bytes(C.summary.bytes, { base: 1000 }),
-      sub: `served from the edge over ${cfDays(C, W)}, ${C.summary.withTraffic} zones`,
+      sub: `served over ${cfDays(C, W)}`,
+      series: done.length > 1 ? done.map((d) => d.bytes) : undefined,
+      seriesAt: done.length > 1 ? done.map((d) => at(d.day)) : undefined,
+      unit: "bytes" as const,
     };
   },
 
@@ -3598,12 +3605,12 @@ Object.assign(LIVE_BUILDERS, {
     const share = C.summary.requests
       ? (C.summary.threats / C.summary.requests) * 100
       : null;
+    const done = C.daily.filter((d) => !d.partial && d.threats !== null);
     return {
-      value: count(C.summary.threats),
-      sub: also(
-        `Cloudflare's own count over ${cfDays(C, W)}`,
-        share === null ? "" : `${percent(share, 2)} of requests`,
-      ),
+      value: compact(C.summary.threats),
+      sub: also(share === null ? "" : `${percent(share, 1)} of requests`, cfDays(C, W)),
+      series: done.length > 1 ? done.map((d) => d.threats!) : undefined,
+      seriesAt: done.length > 1 ? done.map((d) => at(d.day)) : undefined,
     };
   },
 
@@ -3827,6 +3834,303 @@ Object.assign(LIVE_BUILDERS, {
     return { rows };
   },
 
+  /* ------------------------------------------------- traffic (visual) */
+
+  /*
+    THE TRAFFIC & DNS BOARD, DRAWN RATHER THAN WRITTEN. Same rules as the cf.*
+    cards above — a zone nobody could measure is left out, never drawn as a
+    zero; today's half-written bucket is never on a bar — with the site as the
+    unit a reader recognises: every row carries its favicon, every day is a
+    stack of sites, and the checklists are ticks rather than sentences.
+  */
+
+  "traffic.pageViews": ({ cloudflare: C, window: W }: LiveInputs) => {
+    if (!C || C.summary.pageViews === null || !C.summary.withTraffic) return null;
+    const done = C.daily.filter((d) => !d.partial && d.pageViews !== null);
+    return {
+      value: compact(C.summary.pageViews),
+      sub: also(
+        C.summary.requests ? `${pct(C.summary.pageViews / C.summary.requests, { digits: 0 })} of requests` : "",
+        cfDays(C, W),
+      ),
+      series: done.length > 1 ? done.map((d) => d.pageViews!) : undefined,
+      seriesAt: done.length > 1 ? done.map((d) => at(d.day)) : undefined,
+    };
+  },
+
+  "traffic.daily": ({ cloudflare: C }: LiveInputs) => {
+    const done = (C?.daily ?? []).filter((d) => !d.partial);
+    if (done.length < 2) return null;
+    const total = done.reduce((n, d) => n + d.requests, 0);
+    const peak = done.reduce((b, d) => (d.requests > b.requests ? d : b), done[0]!);
+    return {
+      daily: done.map((d) => ({
+        day: d.day,
+        total: d.requests,
+        parts: (d.sites ?? []).map((s) => ({ label: s.name, value: s.requests, host: s.name })),
+      })),
+      dailySplit: "By site",
+      unit: "count" as const,
+      caption: `${compact(total)} requests · busiest ${dayShort(peak.day)} · today not drawn until it settles`,
+    };
+  },
+
+  "traffic.visitors": ({ cloudflare: C }: LiveInputs) => {
+    const done = (C?.daily ?? []).filter((d) => !d.partial && d.uniquesByZone !== null);
+    if (done.length < 2) return null;
+    return {
+      daily: done.map((d) => ({
+        day: d.day,
+        total: d.uniquesByZone!,
+        parts: (d.sites ?? [])
+          .filter((s) => s.uniques)
+          .map((s) => ({ label: s.name, value: s.uniques!, host: s.name })),
+      })),
+      dailySplit: "By site",
+      unit: "count" as const,
+      caption: "Counted per site per day — someone who reads two sites counts twice",
+    };
+  },
+
+  "traffic.sites": ({ cloudflare: C }: LiveInputs) => {
+    const measured = (C?.zones ?? []).filter((z) => z.traffic && z.traffic.requests > 0);
+    if (!measured.length) return null;
+    const whole = measured.reduce((n, z) => n + z.traffic!.requests, 0);
+    const done = C!.daily.filter((d) => !d.partial);
+    const spark = (name: string) =>
+      done.map((d) => d.sites?.find((s) => s.name === name)?.requests ?? 0);
+    const top = [...measured].sort((a, b) => b.traffic!.requests - a.traffic!.requests).slice(0, 10);
+    const rest = measured.length - top.length;
+    return {
+      ranked: top.map((z) => ({
+        label: z.name,
+        host: z.name,
+        value: z.traffic!.requests,
+        text: compact(z.traffic!.requests),
+        sub: pct(z.traffic!.requests / whole, { digits: 0 }),
+        spark: done.length > 1 && done.some((d) => d.sites) ? spark(z.name) : undefined,
+      })),
+      caption: rest ? `+ ${rest} smaller site${rest === 1 ? "" : "s"}` : undefined,
+    };
+  },
+
+  "traffic.countries": ({ cloudflare: C }: LiveInputs) => {
+    const list = C?.summary.countries;
+    if (!C || !list?.length || !C.summary.requests) return null;
+    const whole = C.summary.requests;
+    const name = (code: string) =>
+      code === "XX" ? "Unknown" : code === "T1" ? "🧅 Tor" : countryName(code);
+    const threatTop = [...list].sort((a, b) => b.threats - a.threats)[0];
+    return {
+      ranked: list.slice(0, 10).map((c) => ({
+        label: name(c.code),
+        value: c.requests,
+        text: compact(c.requests),
+        sub: pct(c.requests / whole, { digits: 0 }),
+      })),
+      caption: threatTop && threatTop.threats
+        ? `Most threats from ${name(threatTop.code)} · ${compact(threatTop.threats)}`
+        : undefined,
+    };
+  },
+
+  "traffic.status": ({ cloudflare: C }: LiveInputs) => {
+    const measured = (C?.zones ?? []).filter((z) => z.traffic);
+    if (!measured.length) return null;
+    /* One null anywhere and the split is unknown, as on cf.responses. */
+    const t = { s2xx: 0, s3xx: 0, s4xx: 0, s5xx: 0 };
+    for (const z of measured)
+      for (const k of ["s2xx", "s3xx", "s4xx", "s5xx"] as const) {
+        const v = z.traffic!.status[k];
+        if (v === null) return null;
+        t[k] += v;
+      }
+    const all = t.s2xx + t.s3xx + t.s4xx + t.s5xx;
+    if (!all) return null;
+    const failing = measured
+      .map((z) => ({ z, n: z.traffic!.status.s5xx ?? 0, of: z.traffic!.requests }))
+      .filter((r) => r.n > 0 && r.of >= 100 && r.n / r.of >= 0.005)
+      .sort((a, b) => b.n / b.of - a.n / a.of)
+      .slice(0, 5);
+    return {
+      value: pct((t.s2xx + t.s3xx) / all, { digits: 0 }),
+      sub: "answered OK or redirected",
+      partsLabel: "Response codes",
+      parts: [
+        { label: "2xx", value: t.s2xx, tone: "ok" as const },
+        { label: "3xx", value: t.s3xx },
+        { label: "4xx", value: t.s4xx, tone: "warn" as const },
+        { label: "5xx", value: t.s5xx, tone: "bad" as const },
+      ],
+      ranked: failing.map((r) => ({
+        label: r.z.name,
+        host: r.z.name,
+        value: r.n / r.of,
+        text: pct(r.n / r.of, { digits: r.n / r.of < 0.1 ? 1 : 0 }),
+        sub: `${compact(r.n)} 5xx`,
+      })),
+      caption: failing.length ? "Sites where 5xx server errors are ½% or more of requests" : "No site above ½% server errors",
+    };
+  },
+
+  "traffic.cache": ({ cloudflare: C }: LiveInputs) => {
+    const s = C?.summary;
+    if (!C || !s || s.cacheRatio === null) return null;
+    const top = C.zones
+      .filter((z) => z.traffic && z.traffic.cacheRatio !== null && z.traffic.requests > 0)
+      .sort((a, b) => b.traffic!.requests - a.traffic!.requests)
+      .slice(0, 6);
+    return {
+      value: pct(s.cacheRatio),
+      sub: `of ${compact(s.requests)} requests served from cache`,
+      partsLabel: "Cache",
+      parts: [
+        { label: "Cached", value: s.cached, text: compact(s.cached), tone: "ok" as const },
+        { label: "From origin", value: s.requests - s.cached, text: compact(s.requests - s.cached) },
+      ],
+      ranked: top.map((z) => ({
+        label: z.name,
+        host: z.name,
+        value: z.traffic!.cacheRatio!,
+        text: pct(z.traffic!.cacheRatio!, { digits: 0 }),
+        sub: bytes(z.traffic!.bytes, { base: 1000 }),
+      })),
+      caption: "Busiest sites: share cached · bandwidth served",
+    };
+  },
+
+  "traffic.threatsBySite": ({ cloudflare: C }: LiveInputs) => {
+    const rows = (C?.zones ?? []).filter((z) => z.traffic && z.traffic.threats);
+    if (!rows.length) return null;
+    const top = [...rows].sort((a, b) => b.traffic!.threats! - a.traffic!.threats!).slice(0, 8);
+    return {
+      ranked: top.map((z) => ({
+        label: z.name,
+        host: z.name,
+        value: z.traffic!.threats!,
+        text: compact(z.traffic!.threats!),
+        sub: z.traffic!.requests ? `${percent((z.traffic!.threats! / z.traffic!.requests) * 100, 1)} of requests` : undefined,
+      })),
+    };
+  },
+
+  "traffic.dnsHealth": ({ cloudflare: C }: LiveInputs) => {
+    if (!C?.zones.length) return null;
+    /* The checklist: ✓ present, ✗ missing where the site handles mail, — not
+       needed because the site has no mail to protect, ? records unreadable. */
+    const rank = (z: CloudflareZone) => {
+      const e = z.email;
+      if (!e) return 1;
+      const sending = e.mx || e.spf;
+      if (sending && (!e.spf || !e.dmarc || e.dkim === false)) return 0;
+      if (e.dmarc && e.dmarcPolicy === "none") return 2;
+      return 3;
+    };
+    const zones = [...C.zones].sort(
+      (a, b) => rank(a) - rank(b) || (b.traffic?.requests ?? -1) - (a.traffic?.requests ?? -1),
+    );
+    const cells = (z: CloudflareZone): string[] => {
+      const e = z.email;
+      if (!e) return ["?", "?", "?", "?"];
+      const sending = e.mx || e.spf;
+      return [
+        e.mx ? "✓" : "—",
+        e.spf ? "✓" : sending ? "✗" : "—",
+        e.dmarc ? (e.dmarcPolicy === "none" ? "p=none" : "✓") : sending ? "✗" : "—",
+        e.dkim === true ? "✓" : e.dkim === false ? "✗" : "—",
+      ];
+    };
+    return {
+      headers: ["Site", "Records", "Proxied", "MX", "SPF", "DMARC", "DKIM"],
+      table: zones.map((z) => [
+        z.name,
+        z.records === null ? "?" : String(z.records),
+        z.records === null || z.proxied === null ? "?" : `${z.proxied} of ${z.records}`,
+        ...cells(z),
+      ]),
+      rowHosts: zones.map((z) => z.name),
+      caption: "Gaps first · — means no mail on that site · p=none reports but does not block spoofing",
+    };
+  },
+
+  "traffic.email": ({ cloudflare: C }: LiveInputs) => {
+    const zones = (C?.zones ?? []).filter((z) => z.email && (z.email.mx || z.email.spf));
+    if (!zones.length) return null;
+    const enforced = zones.filter(
+      (z) => z.email!.spf && z.email!.dmarc && z.email!.dmarcPolicy !== null && z.email!.dmarcPolicy !== "none",
+    );
+    const missing = zones.filter((z) => !z.email!.spf || !z.email!.dmarc);
+    const monitoring = zones.length - enforced.length - missing.length;
+    const gaps = zones
+      .map((z) => {
+        const e = z.email!;
+        const lack = [!e.spf && "SPF", !e.dmarc && "DMARC", e.dkim === false && "DKIM"].filter(Boolean);
+        return lack.length ? ([z.name, `no ${lack.join(" or ")}`] as [string, string]) : null;
+      })
+      .filter((r): r is [string, string] => r !== null);
+    return {
+      value: `${enforced.length} of ${zones.length}`,
+      sub: "sites that take mail enforce DMARC",
+      partsLabel: "Mail protection",
+      parts: [
+        { label: "Enforced", value: enforced.length, text: String(enforced.length), tone: "ok" as const },
+        { label: "p=none", value: monitoring, text: String(monitoring), tone: "warn" as const },
+        { label: "Missing SPF/DMARC", value: missing.length, text: String(missing.length), tone: "bad" as const },
+      ],
+      rows: gaps.slice(0, 6),
+    };
+  },
+
+  "traffic.delegation": ({ cloudflare: C }: LiveInputs) => {
+    if (!C?.zones.length) return null;
+    const a = C.alignment;
+    const off = a.offCloudflare.length + a.elsewhereOnCloudflare.length;
+    const rows: [string, string][] = [
+      ...a.offCloudflare.map((z) => [z.name, "points off Cloudflare"] as [string, string]),
+      ...a.elsewhereOnCloudflare.map((z) => [z.name, "other Cloudflare account"] as [string, string]),
+      ...a.registrarOnly.map((d) => [d.name, `${d.registrar} · no zone`] as [string, string]),
+    ];
+    return {
+      value: `${a.aligned.length} of ${C.zones.length}`,
+      sub: "sites confirmed pointing at their zone",
+      partsLabel: "Delegation",
+      parts: [
+        { label: "Confirmed", value: a.aligned.length, text: String(a.aligned.length), tone: "ok" as const },
+        { label: "Registrar not connected", value: a.zoneOnly.length, text: String(a.zoneOnly.length) },
+        ...(a.unknown.length
+          ? [{ label: "Unknown", value: a.unknown.length, text: String(a.unknown.length), tone: "warn" as const }]
+          : []),
+        ...(off ? [{ label: "Elsewhere", value: off, text: String(off), tone: "bad" as const }] : []),
+      ],
+      rows: rows.slice(0, 5),
+    };
+  },
+
+  "traffic.table": ({ cloudflare: C }: LiveInputs) => {
+    if (!C?.zones.length) return null;
+    const zones = [...C.zones].sort((a, b) => (b.traffic?.requests ?? -1) - (a.traffic?.requests ?? -1));
+    return {
+      headers: ["Site", "Requests", "Visitors/day", "Views", "Cached", "Bandwidth", "Threats", "5xx"],
+      /* A dash for a site nobody could measure; the site that really served
+         nothing prints 0. */
+      table: zones.map((z) => {
+        const t = z.traffic;
+        if (!t) return [z.name, DASH, DASH, DASH, DASH, DASH, DASH, DASH];
+        return [
+          z.name,
+          compact(t.requests),
+          t.uniquesByDay === null || !t.days ? DASH : compact(t.uniquesByDay / t.days),
+          t.pageViews === null ? DASH : compact(t.pageViews),
+          t.cacheRatio === null ? DASH : pct(t.cacheRatio, { digits: 0 }),
+          bytes(t.bytes, { base: 1000 }),
+          t.threats === null ? DASH : compact(t.threats),
+          t.status.s5xx === null || !t.requests ? DASH : pct(t.status.s5xx / t.requests, { digits: 1 }),
+        ];
+      }),
+      rowHosts: zones.map((z) => z.name),
+    };
+  },
+
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
 
 /* ------------------------------------------------------------------ search */
@@ -3859,16 +4163,6 @@ Object.assign(LIVE_BUILDERS, {
  *   take them for a world figure or for Google's.
  */
 
-/** A movement, said as a phrase rather than as a bare percent. `null` when
- *  the window before was empty: going from nothing to eight impressions is not
- *  an infinite improvement, and a card that says so is a card nobody trusts
- *  twice. */
-function movedBy(delta: number | null, days: number): string {
-  if (delta === null) return "no comparable window before it";
-  const rounded = Math.abs(delta) >= 10 ? Math.round(delta) : Number(delta.toFixed(1));
-  return `${rounded > 0 ? "+" : ""}${rounded}% on the previous ${days}d`;
-}
-
 /** A rank, at one decimal and never as a percentage. */
 const place = (n: number | null | undefined) =>
   n === null || n === undefined ? "—" : n.toFixed(1);
@@ -3884,6 +4178,74 @@ function pathOf(url: string): string {
   }
 }
 
+/** A tile's movement in three words — "+49% vs prior" — or nothing when
+ *  there was no window before to compare with (never a zero). */
+function tileMove(delta: number | null): string {
+  if (delta === null) return "";
+  const rounded = Math.abs(delta) >= 10 ? Math.round(delta) : Number(delta.toFixed(1));
+  return `${rounded > 0 ? "+" : ""}${rounded}% vs prior`;
+}
+
+/**
+ * GOOGLE'S DAYS AS BARS, split by site. The total is the portfolio's own
+ * daily figure; the split tab stacks each property's own rows for the day
+ * (the busiest six named, with their favicons, the rest as Other). A day
+ * is one bar, so a quiet day is visibly quiet.
+ */
+function gscDaily(G: GscReport | null | undefined, by: "clicks" | "impressions"): Partial<Widget> | null {
+  if (!G || G.series.length < 2) return null;
+  const perDay = new Map<string, { label: string; host: string; value: number }[]>();
+  let sites = 0;
+  for (const p of G.properties) {
+    let any = false;
+    for (const d of p.series ?? []) {
+      if (!d[by]) continue;
+      any = true;
+      const list = perDay.get(d.day) ?? [];
+      list.push({ label: p.label, host: p.property, value: d[by] });
+      perDay.set(d.day, list);
+    }
+    if (any) sites += 1;
+  }
+  const split = sites > 1;
+  return {
+    daily: G.series.map((d) => ({ day: d.day, total: d[by], parts: split ? (perDay.get(d.day) ?? []) : undefined })),
+    dailySplit: split ? "By site" : undefined,
+    unit: "count" as const,
+    caption: G.window.end ? `To ${dayShort(G.window.end)} · Google takes 3 days to finalise a day` : undefined,
+  };
+}
+
+/** Bing's days as bars, split by site — its own engine, never added to
+ *  Google's. Bing's route is always read over 90 days, so the bars are cut
+ *  to the board's window here. */
+function bingDaily(B: BingReport | null | undefined, W: LiveInputs["window"], by: "clicks" | "impressions"): Partial<Widget> | null {
+  if (!B || B.series.length < 2) return null;
+  const keep = W === "all" || !W ? B.series.length : W;
+  const series = B.series.slice(-keep);
+  const from = series[0]!.day;
+  const perDay = new Map<string, { label: string; host: string; value: number }[]>();
+  let sites = 0;
+  for (const s of B.sites) {
+    let any = false;
+    for (const d of s.series ?? []) {
+      if (d.day < from || !d[by]) continue;
+      any = true;
+      const list = perDay.get(d.day) ?? [];
+      list.push({ label: s.label, host: s.site, value: d[by] });
+      perDay.set(d.day, list);
+    }
+    if (any) sites += 1;
+  }
+  const split = sites > 1;
+  return {
+    daily: series.map((d) => ({ day: d.day, total: d[by], parts: split ? (perDay.get(d.day) ?? []) : undefined })),
+    dailySplit: split ? "By site" : undefined,
+    unit: "count" as const,
+    caption: B.window.end ? `To ${dayShort(B.window.end)} · every verified site` : undefined,
+  };
+}
+
 Object.assign(LIVE_BUILDERS, {
   /* --------------------------------------------------- search console */
 
@@ -3897,13 +4259,7 @@ Object.assign(LIVE_BUILDERS, {
         finished the ones after that. Naming the day is the difference between
         a reader seeing a lag and a reader seeing a decline.
       */
-      sub: also(
-        also(
-          `${G.totals.properties} of ${G.properties.length} properties with traffic`,
-          movedBy(G.delta.impressions, G.window.days),
-        ),
-        `${G.window.days}d to ${dayShort(G.window.end)}`,
-      ),
+      sub: also(tileMove(G.delta.impressions), `${G.window.days}d to ${dayShort(G.window.end)}`),
       series: G.series.length > 1 ? G.series.map((d) => d.impressions) : undefined,
       seriesAt: G.series.length > 1 ? G.series.map((d) => at(d.day)) : undefined,
     };
@@ -3916,13 +4272,7 @@ Object.assign(LIVE_BUILDERS, {
       /* CTR is clicks over impressions across the whole window, never the mean
          of the daily rates — a quiet Sunday and a launch day are not equal
          halves of anything. */
-      sub: also(
-        also(
-          G.totals.ctr === null ? "" : `CTR ${percent(G.totals.ctr, 2)} of ${count(G.totals.impressions)} impressions`,
-          movedBy(G.delta.clicks, G.window.days),
-        ),
-        `${G.window.days}d to ${dayShort(G.window.end)}`,
-      ),
+      sub: also(tileMove(G.delta.clicks), `${G.window.days}d to ${dayShort(G.window.end)}`),
       series: G.series.length > 1 ? G.series.map((d) => d.clicks) : undefined,
       seriesAt: G.series.length > 1 ? G.series.map((d) => at(d.day)) : undefined,
     };
@@ -3938,9 +4288,11 @@ Object.assign(LIVE_BUILDERS, {
     */
     const moved = G.delta.position;
     const drift =
-      moved === null || moved === 0
-        ? "no change on the previous window"
-        : `${Math.abs(moved).toFixed(1)} ${moved > 0 ? "worse" : "better"} than the previous ${G.window.days}d`;
+      moved === null
+        ? ""
+        : moved === 0
+          ? "no change"
+          : `${Math.abs(moved).toFixed(1)} places ${moved > 0 ? "worse" : "better"}`;
     /*
       THE DAILY LINE IS WEIGHTED THE SAME WAY THE HEADLINE IS. The portfolio
       series on the wire carries no position — a day's rank across properties
@@ -3962,10 +4314,7 @@ Object.assign(LIVE_BUILDERS, {
       .map(([day, e]) => ({ day, position: Number((e.weighted / e.impressions).toFixed(1)) }));
     return {
       value: place(G.totals.position),
-      sub: also(
-        `impression-weighted across ${G.totals.properties} properties`,
-        drift,
-      ),
+      sub: also(drift, `${G.window.days}d · lower is better`),
       series: line.length > 1 ? line.map((d) => d.position) : undefined,
       seriesAt: line.length > 1 ? line.map((d) => at(d.day)) : undefined,
     };
@@ -3973,9 +4322,8 @@ Object.assign(LIVE_BUILDERS, {
 
   "gsc.queries": ({ gsc: G }: LiveInputs) => {
     if (!G?.connected || !G.queries.length) return null;
-    const rows: [string, string][] = G.queries
-      .slice(0, 6)
-      .map((q) => [q.query, `${count(q.clicks)} clicks · #${place(q.position)}`]);
+    const top = G.queries.slice(0, 6);
+    const rows: [string, string][] = top.map((q) => [q.query, `${count(q.clicks)} clicks · #${place(q.position)}`]);
     /*
       THE LAST ROW IS THE POINT OF THE CARD. Google withholds queries too rare
       to keep a searcher anonymous and caps the rows it will return at all, so
@@ -3989,15 +4337,15 @@ Object.assign(LIVE_BUILDERS, {
         ? "an unknown share of impressions"
         : `${percent(G.coverage.pct)} of impressions`,
     ]);
-    return { rows };
+    return { rows, rowHosts: [...top.map((q) => q.property), null] };
   },
 
   "gsc.pages": ({ gsc: G }: LiveInputs) => {
     if (!G?.connected || !G.pages.length) return null;
+    const top = G.pages.slice(0, 6);
     return {
-      rows: G.pages
-        .slice(0, 6)
-        .map((p) => [pathOf(p.page), `${count(p.clicks)} clicks`] as [string, string]),
+      rows: top.map((p) => [pathOf(p.page), `${count(p.clicks)} clicks`] as [string, string]),
+      rowHosts: top.map((p) => p.page),
     };
   },
 
@@ -4038,55 +4386,49 @@ Object.assign(LIVE_BUILDERS, {
     return {
       headers: ["Property", "Impressions", "Clicks", "CTR", "Position", "Δ impressions"],
       table,
+      rowHosts: [...shown.map((p) => p.property), ...(rest.length ? [null] : [])],
     };
   },
 
   "gsc.movers": ({ gsc: G }: LiveInputs) => {
     /*
-      A MOVER NEEDS A BASE WORTH MOVING FROM. Eleven impressions becoming
-      thirty-three is a 200% rise and is noise; without a floor this card is a
-      list of the quietest properties on the account, every time. Fifty
-      impressions in the window before is the floor, and the card says so.
+      WHAT MOVED, IN CLICKS AND NOT IN PERCENT. Eleven clicks becoming
+      thirty-three is +200% and is noise; the bar is the number of clicks
+      gained or lost against the 28 days before, so the property that really
+      moved is the longest bar. A property needs 50+ impressions in the
+      window before to be listed at all — below that there is nothing to
+      move from. Nothing is listed when the window before was not measured.
     */
-    const moved = (G?.properties ?? [])
-      .filter((p) => p.delta.impressions !== null && p.previous.impressions >= 50)
-      .sort((a, b) => Math.abs(b.delta.impressions!) - Math.abs(a.delta.impressions!))
-      .slice(0, 5);
+    if (!G?.connected) return null;
+    const moved = G.properties
+      .filter((p) => p.previous.clicks !== null && p.previous.clicks !== undefined && (p.previous.impressions ?? 0) >= 50)
+      .map((p) => ({ p, by: p.clicks - p.previous.clicks! }))
+      .filter((m) => m.by !== 0)
+      .sort((a, b) => Math.abs(b.by) - Math.abs(a.by))
+      .slice(0, 8);
     if (!moved.length) return null;
-    const rows: [string, string][] = moved.map((p) => [
-      p.label,
-      `${p.delta.impressions! > 0 ? "+" : ""}${Math.round(p.delta.impressions!)}% · ${count(p.impressions)} impr`,
-    ]);
-    rows.push(["Floor", `50+ impressions in the previous ${G!.window.days}d`]);
-    return { rows };
-  },
-
-  "gsc.trend": ({ gsc: G, window: W }: LiveInputs) => {
-    if (!G || G.series.length < 2) return null;
     return {
-      /* "PORTFOLIO" ON THE CARD — Workdash's "Portfolio impressions per
-         day" — unless the document was narrowed to one property, in which
-         case the property's name is the honest word; see `portfolioLine`. */
-      name: `Impressions a day · ${portfolioWord(G)} · ${windowLabel(W ?? G.seriesDays)}`,
-      chart: [
-        {
-          label: "impressions",
-          points: G.series.map((d) => ({ ts: at(d.day), value: d.impressions })),
-        },
-      ],
-      unit: "count" as const,
-      /* Clicks are NOT drawn beside this. They run about forty times smaller on
-         this portfolio, and on a shared axis starting at zero they would be a
-         flat line along the bottom pretending to be a measurement. */
-      caption: portfolioLine(G),
+      name: `What moved · ${G.window.days}d`,
+      ranked: moved.map(({ p, by }) => ({
+        label: p.label,
+        host: p.property,
+        value: Math.abs(by),
+        text: `${by > 0 ? "+" : "−"}${count(Math.abs(by))} clicks`,
+        sub: also(
+          p.delta.clicks === null ? "" : `${p.delta.clicks > 0 ? "+" : ""}${Math.round(p.delta.clicks)}%`,
+          `${compact(p.clicks)} now`,
+        ),
+      })),
+      caption: `Clicks gained or lost against the ${G.window.days} days before`,
     };
   },
 
+  "gsc.trend": ({ gsc: G }: LiveInputs) => gscDaily(G, "impressions"),
+
   "gsc.striking": ({ gsc: G }: LiveInputs) => {
     if (!G?.connected || !G.striking.length) return null;
-    const rows: [string, string][] = G.striking
-      .slice(0, 6)
-      .map((q) => [q.query, `#${place(q.position)} · ${count(q.impressions)} impr`]);
+    const top = G.striking.slice(0, 6);
+    const rows: [string, string][] = top.map((q) => [q.query, `#${place(q.position)} · ${count(q.impressions)} impr`]);
     /*
       THE CAVEAT IS PART OF THE CARD BECAUSE IT IS PART OF THE MEASUREMENT.
       Google returns these rows ordered by CLICKS and offers no other order, so
@@ -4094,7 +4436,7 @@ Object.assign(LIVE_BUILDERS, {
       this card exists to surface — can be missing entirely.
     */
     rows.push(["Drawn from", "Google's clicks-ordered rows, so some are missing"]);
-    return { rows };
+    return { rows, rowHosts: [...top.map((q) => q.property), null] };
   },
 
   "gsc.coverage": ({ gsc: G }: LiveInputs) => {
@@ -4150,10 +4492,7 @@ Object.assign(LIVE_BUILDERS, {
     if (!B?.connected || !B.window.end) return null;
     return {
       value: count(B.totals.impressions),
-      sub: also(
-        `${B.totals.verified} verified site${B.totals.verified === 1 ? "" : "s"}`,
-        `${B.window.days}d to ${dayShort(B.window.end)}`,
-      ),
+      sub: `${B.window.days}d to ${dayShort(B.window.end)}`,
       series: B.series.length > 1 ? B.series.map((d) => d.impressions) : undefined,
       seriesAt: B.series.length > 1 ? B.series.map((d) => at(d.day)) : undefined,
     };
@@ -4164,9 +4503,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       value: count(B.totals.clicks),
       sub: also(
-        B.totals.ctr === null
-          ? ""
-          : `CTR ${percent(B.totals.ctr, 2)} of ${count(B.totals.impressions)} impressions`,
+        B.totals.ctr === null ? "" : `${percent(B.totals.ctr, 1)} CTR`,
         `${B.window.days}d to ${dayShort(B.window.end)}`,
       ),
       series: B.series.length > 1 ? B.series.map((d) => d.clicks) : undefined,
@@ -4181,10 +4518,7 @@ Object.assign(LIVE_BUILDERS, {
       /* Pages HELD, not pages submitted. The sitemap figure on the Google side
          of this board is the other one, and they are not comparable: one is
          what we asked a crawler to look at, this is what a crawler kept. */
-      sub: also(
-        `pages Bing is holding across ${B.totals.sites} site${B.totals.sites === 1 ? "" : "s"}`,
-        `crawled ${count(B.index.crawledPages)} on ${dayShort(B.index.day)}`,
-      ),
+      sub: `${B.totals.sites} site${B.totals.sites === 1 ? "" : "s"} · as of ${dayShort(B.index.day)}`,
     };
   },
 
@@ -4202,25 +4536,27 @@ Object.assign(LIVE_BUILDERS, {
   },
 
   "bing.queries": ({ bing: B }: LiveInputs) => {
+    /* Bing's own query report — a rear-view mirror on a different engine
+       from Google's, and never added to it. The bar is clicks. */
     if (!B?.connected || !B.queries.length) return null;
-    const rows: [string, string][] = B.queries
-      .slice(0, 6)
-      .map((q) => [q.query, `${count(q.impressions)} impr · #${place(q.position)}`]);
-    /*
-      NAMED AS BING'S OWN REPORT, because the card next to it is Google's and
-      the two lists disagree — that is the interesting part and it stops being
-      interesting the moment a reader assumes they measure the same thing.
-      This is still a rear-view mirror: it can only contain phrases a page of
-      ours already ranks for. The keyword card is the other question.
-    */
-    rows.push(["From", `Bing's own query report · ${B.window.days}d`]);
-    return { rows };
+    const top = [...B.queries].sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions).slice(0, 8);
+    return {
+      name: `Top queries · ${B.window.days}d · Bing`,
+      ranked: top.map((q) => ({
+        label: q.query,
+        host: q.site,
+        value: q.clicks,
+        text: clicksWord(q.clicks),
+        sub: also(`${compact(q.impressions)} impr`, q.position === null ? "" : `#${place(q.position)}`),
+      })),
+    };
   },
 
   "bing.sites": ({ bing: B }: LiveInputs) => {
     if (!B?.sites.length) return null;
     return {
       headers: ["Site", "Impressions", "Clicks", "CTR", "In index", "Inbound links"],
+      rowHosts: B.sites.map((s) => s.site),
       table: B.sites.map((s) => [
         s.label,
         count(s.impressions),
@@ -4232,21 +4568,7 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
-  "bing.trend": ({ bing: B }: LiveInputs) => {
-    if (!B || B.series.length < 2) return null;
-    return {
-      chart: [
-        {
-          label: "impressions",
-          points: B.series.map((d) => ({ ts: at(d.day), value: d.impressions })),
-        },
-      ],
-      unit: "count" as const,
-      caption: B.window.end
-        ? `daily, every verified site summed · Bing's own newest day is ${dayShort(B.window.end)}`
-        : "daily, every verified site summed",
-    };
-  },
+  "bing.trend": ({ bing: B, window: W }: LiveInputs) => bingDaily(B, W, "impressions"),
 
   "bing.backlinks": ({ bing: B }: LiveInputs) => {
     if (!B?.connected || !B.sites.length) return null;
@@ -4264,12 +4586,13 @@ Object.assign(LIVE_BUILDERS, {
       s.label,
       `${count(s.inLinks)} inbound`,
     ]);
+    const rowHosts: (string | null)[] = B.sites.map((s) => s.site);
     rows.push([
       "Linking pages Bing will name",
       B.links.namedPages === 0 ? "none, on any site" : count(B.links.namedPages),
     ]);
     rows.push(["Referring domains", "not answerable — the link list is empty"]);
-    return { rows };
+    return { rows, rowHosts };
   },
 
   "bing.keywords": ({ bing: B }: LiveInputs) => {
@@ -8764,19 +9087,14 @@ Object.assign(LIVE_BUILDERS, {
     /* POINTS, NOT PERCENT OF A PERCENT. A CTR that went from 3.3% to 3.8%
        moved half a point; "+15%" over it is a figure in no unit. */
     const moved =
-      prev === null
-        ? "no comparable window before it"
-        : `${G.totals.ctr - prev >= 0 ? "+" : ""}${(G.totals.ctr - prev).toFixed(2)} pts on the previous ${G.window.days}d`;
+      prev === null ? "" : `${G.totals.ctr - prev >= 0 ? "+" : ""}${(G.totals.ctr - prev).toFixed(1)} pts`;
     return {
       /* NO TAG ON THIS TILE OR THE ONE BELOW: its siblings carry none, and a
          one-column tile has room for a name or a tag, not both. What kind of
          number it is — measured, weighted — is in the sentence under it. */
-      name: `CTR · Google · ${G.window.days}d`,
-      value: percent(G.totals.ctr, 2),
-      sub: also(
-        also(`${count(G.totals.clicks)} clicks of ${count(G.totals.impressions)} impressions, weighted across properties`, moved),
-        gscEnds(G),
-      ),
+      name: `CTR · Google`,
+      value: percent(G.totals.ctr, 1),
+      sub: also(moved, gscEnds(G)),
     };
   },
 
@@ -8805,20 +9123,13 @@ Object.assign(LIVE_BUILDERS, {
        nobody yet is not a broken one, and a card that listed it in red would
        send somebody to fix a thing that only needs time. */
     rows.push(["Data accumulates over time", "quiet is not broken"]);
-    return { name: `No search data yet · ${G.window.days}d`, rows };
+    const rowHosts = [...quiet.slice(0, 8).map((p) => p.property)];
+    return { name: `No search data yet · ${G.window.days}d`, rows, rowHosts };
   },
 
   /* ----------------------------------------------------- daily lines */
 
-  "gsc.clicksTrend": ({ gsc: G, window: W }: LiveInputs) => {
-    if (!G || G.series.length < 2) return null;
-    return {
-      name: `Clicks a day · ${portfolioWord(G)} · ${windowLabel(W ?? G.seriesDays)}`,
-      chart: [{ label: "clicks", points: G.series.map((d) => ({ ts: at(d.day), value: d.clicks })) }],
-      unit: "count" as const,
-      caption: portfolioLine(G),
-    };
-  },
+  "gsc.clicksTrend": ({ gsc: G }: LiveInputs) => gscDaily(G, "clicks"),
 
   "gsc.propertyClicks": ({ gsc: G }: LiveInputs) => {
     if (!G) return null;
@@ -8834,10 +9145,7 @@ Object.assign(LIVE_BUILDERS, {
       /* WHAT IS NOT DRAWN IS SAID. Four lines is what the eye can follow;
          the other properties are on the table beside this, not folded into
          a fifth line called "other". */
-      caption: also(
-        `${drawn.length} of ${of} properties drawn, busiest by clicks in the ${gscEnds(G)} · the rest are on the property table, not summed`,
-        G.window.end ? `ends ${dayShort(G.window.end)}` : "",
-      ),
+      caption: `Busiest ${drawn.length} of ${of} sites by clicks`,
     };
   },
 
@@ -8852,10 +9160,7 @@ Object.assign(LIVE_BUILDERS, {
         points: (p.series ?? []).map((d) => ({ ts: at(d.day), value: d.impressions })),
       })),
       unit: "count" as const,
-      caption: also(
-        `${drawn.length} of ${of} properties drawn, busiest by impressions in the ${gscEnds(G)} · the rest are on the property table, not summed`,
-        G.window.end ? `ends ${dayShort(G.window.end)}` : "",
-      ),
+      caption: `Busiest ${drawn.length} of ${of} sites by impressions`,
     };
   },
 
@@ -8880,7 +9185,7 @@ Object.assign(LIVE_BUILDERS, {
       dumbbell: rows,
       names: ["Clicks", "Impressions"] as [string, string],
       log: true,
-      caption: `${rows.length} properties with impressions, most first · ${gscEnds(G)} · the axis is in decades, so a step is tenfold, and a property with no clicks is parked at the floor`,
+      caption: `${rows.length} sites · log scale, each step is tenfold`,
     };
   },
 
@@ -8892,16 +9197,17 @@ Object.assign(LIVE_BUILDERS, {
       name: `Top queries · ${G.window.days}d · Google`,
       ranked: G.queries.slice(0, 8).map((q) => ({
         label: q.query,
+        host: q.property,
         value: q.clicks,
         text: `${count(q.clicks)} clicks`,
-        sub: `${q.property} · ${count(q.impressions)} impr · #${place(q.position)}`,
+        sub: `${compact(q.impressions)} impr · #${place(q.position)}`,
       })),
-      /* THE CAPTION IS THE POINT OF THE CARD, as it is on `gsc.queries`:
-         these rows sit inside a fifth of the impressions the properties had. */
+      /* A SAMPLE, SAID IN ONE LINE: Google withholds rare queries and caps
+         the rows, so these never sum to the property totals. */
       caption:
         G.coverage.pct === null
-          ? "Google's clicks-ordered rows — a sample of the impressions, never all of them"
-          : `these rows cover ${percent(G.coverage.pct)} of impressions — Google withholds rare queries and caps the rows`,
+          ? "A sample — Google hides rare queries"
+          : `These cover ${percent(G.coverage.pct, 0)} of impressions — Google hides rare queries`,
     };
   },
 
@@ -8911,11 +9217,11 @@ Object.assign(LIVE_BUILDERS, {
       name: `Top pages · ${G.window.days}d · Google`,
       ranked: G.pages.slice(0, 8).map((p) => ({
         label: pageLabel(p.page),
+        host: p.page,
         value: p.clicks,
         text: `${count(p.clicks)} clicks`,
-        sub: `${count(p.impressions)} impr · #${place(p.position)}`,
+        sub: `${compact(p.impressions)} impr · #${place(p.position)}`,
       })),
-      caption: "landing pages from search, by clicks · Google's own capped page rows",
     };
   },
 
@@ -8924,14 +9230,14 @@ Object.assign(LIVE_BUILDERS, {
     return {
       ranked: G.striking.slice(0, 8).map((q) => ({
         label: q.query,
+        host: q.property,
         /* THE BAR IS IMPRESSIONS, not the rank: what is at stake is how often
            the page is one push from a click, and a rank is not a length. */
         value: q.impressions,
         text: `${count(q.impressions)} impr`,
-        sub: `${q.property} · #${place(q.position)} · ${count(q.clicks)} click${q.clicks === 1 ? "" : "s"}`,
+        sub: `#${place(q.position)} · ${clicksWord(q.clicks)}`,
       })),
-      caption:
-        "position 5–20 with 3+ impressions, most impressions first · drawn from Google's clicks-ordered rows, so a high-impression query with no clicks can be missing",
+      caption: "Ranking 5–20 — a push onto page one's top spots",
     };
   },
 
@@ -8962,6 +9268,7 @@ Object.assign(LIVE_BUILDERS, {
     if (seen.length > shown.length)
       table.push([`+${seen.length - shown.length} smaller properties`, "—", "—", "—", "—", "—"]);
     return {
+      rowHosts: shown.map((p) => p.property),
       name: `Top query, every property · ${G.window.days}d`,
       headers: ["Property", "Top query", "Clicks", "Impressions", "Position", "Rows cover"],
       table,
@@ -8984,6 +9291,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       headers: ["Property", "Query", "Position", "Impressions", "Clicks"],
       table,
+      rowHosts: rows.slice(0, 12).map((p) => p.property),
     };
   },
 
@@ -8993,8 +9301,8 @@ Object.assign(LIVE_BUILDERS, {
        one that submitted nothing is the row after it. */
     const order = (p: GscProperty) =>
       p.sitemaps.state === "reported" ? -((p.sitemaps.errors ?? 0) * 1000 + (p.sitemaps.warnings ?? 0)) : p.sitemaps.state === "none" ? 1 : 2;
-    const table = [...G.properties]
-      .sort((a, b) => order(a) - order(b) || b.impressions - a.impressions)
+    const sorted = [...G.properties].sort((a, b) => order(a) - order(b) || b.impressions - a.impressions);
+    const table = sorted
       .map((p) => {
         const s = p.sitemaps;
         if (s.state === "reported")
@@ -9013,6 +9321,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       headers: ["Property", "Sitemaps", "URLs submitted", "Errors", "Warnings", "Last read"],
       table,
+      rowHosts: sorted.map((p) => p.property),
     };
   },
 
@@ -9026,12 +9335,13 @@ Object.assign(LIVE_BUILDERS, {
     const rows: [string, string][] = pages
       .slice(0, 6)
       .map((z) => [pageLabel(z.page), `${count(z.impressions)} impr · never clicked`]);
+    const rowHosts = pages.slice(0, 6).map((z) => z.page);
     if (!pages.length) rows.push(["No page shown and never clicked", "within the rows Google returned"]);
     else if (total > rows.length) rows.push([`${count(total)} such pages in all`, `${rows.length} drawn`]);
     /* A FLOOR, AND TAGGED AS ONE: only the pages Google's capped page rows
        returned could be counted, and a page past the cap is unmeasured. */
     rows.push(["Within Google's top pages per property", "a floor, not a total"]);
-    return { name: `Zero-click pages · ${G.window.days}d`, tag: "floor", rows };
+    return { name: `Zero-click pages · ${G.window.days}d`, tag: "floor", rows, rowHosts };
   },
 
   "gsc.cannot": ({ gsc: G }: LiveInputs) => {
@@ -9062,15 +9372,17 @@ Object.assign(LIVE_BUILDERS, {
     return {
       ranked: worst.slice(0, 10).map((v) => ({
         label: v.name,
+        /* The venture's favicon beside its name (SEO board, 2026-09-29). */
+        venture: v.id,
         value: v.issues.error,
         text: v.issues.error ? `${count(v.issues.error)} error${v.issues.error === 1 ? "" : "s"}` : "clean",
         /* Warnings ride beside the name and are NEVER in the bar: forty
            notices must not outweigh a dead homepage. */
-        sub: `${count(v.pages)} page${v.pages === 1 ? "" : "s"} · ${count(v.issues.warning)} warn`,
+        sub: `${count(v.issues.warning)} warn · ${count(v.pages)} page${v.pages === 1 ? "" : "s"}`,
       })),
       caption: also(
-        "errors, worst first — there is no score by design",
-        never ? `${never} venture${never === 1 ? "" : "s"} never crawled, not drawn` : "",
+        "Worst first",
+        never ? `${never} never audited` : "",
       ),
     };
   },
@@ -9248,26 +9560,6 @@ Object.assign(LIVE_BUILDERS, {
    "Search · Example App 1" saying why.
 */
 
-/** "portfolio", or the one property's name when the document holds only
- *  one — a venture board with a single property, where "portfolio" would
- *  be a word for something that is not there. */
-function portfolioWord(G: GscReport): string {
-  return G.properties.length === 1 ? G.properties[0]!.label : "portfolio";
-}
-
-/** The caption under a summed daily line: how many properties are in the
- *  sum, how many days landed, and why it stops short of today. */
-function portfolioLine(G: GscReport): string {
-  const n = G.properties.length;
-  const who = n === 1 ? "one property" : `${n} properties summed, ${G.totals.properties} of them with traffic`;
-  return also(
-    `daily · ${who} · ${G.series.length} days drawn`,
-    G.window.end
-      ? `ends ${dayShort(G.window.end)} — the last three days are missing because Google has not finalised them`
-      : "",
-  );
-}
-
 /** A movement in the short form a tile's small print has room for. Null is
  *  "no window before it", never a zero. */
 function movedShort(delta: number | null): string {
@@ -9313,6 +9605,7 @@ Object.assign(LIVE_BUILDERS, {
       tag: "measured",
       ranked: seen.map((p) => ({
         label: p.label,
+        host: p.property,
         /* THE BAR IS CLICKS, against the busiest property rather than the
            sum — Workdash's rail asks "how does this one compare with the
            busiest", and a share of the total draws eighteen invisible bars
@@ -9328,8 +9621,8 @@ Object.assign(LIVE_BUILDERS, {
         spark: p.series.length > 1 ? p.series.map((d) => d.clicks) : undefined,
       })),
       caption: also(
-        `${seen.length} propert${seen.length === 1 ? "y" : "ies"} with impressions in the ${gscEnds(G)}, busiest first · the line beside each name is its own clicks a day over ${G.seriesDays}d`,
-        quiet ? `${quiet} quiet, listed on "No search data yet"` : "",
+        `${seen.length} site${seen.length === 1 ? "" : "s"} with impressions · line = clicks a day`,
+        quiet ? `${quiet} quiet` : "",
       ),
     };
   },
@@ -9638,6 +9931,127 @@ Object.assign(LIVE_BUILDERS, {
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
 
+/* ============================================ the search board, at a glance
+   ADDED 2026-09-29 when the Search board was reworked to read at a glance:
+   every site as a small card with its favicon, Bing's clicks as bars, Bing's
+   own page-two list and its crawl errors. Google and Bing stay apart — no
+   card here reads both documents.
+*/
+
+/** "+42%" with the way it went, or null when there was no window before. */
+function tileChange(delta: number | null): { text: string; good: boolean | null } | null {
+  if (delta === null) return null;
+  const rounded = Math.abs(delta) >= 10 ? Math.round(delta) : Number(delta.toFixed(1));
+  return { text: `${rounded > 0 ? "+" : ""}${rounded}%`, good: rounded === 0 ? null : rounded > 0 };
+}
+
+Object.assign(LIVE_BUILDERS, {
+  "search.googleSites": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.properties.length) return null;
+    const seen = G.properties
+      .filter((p) => p.impressions > 0)
+      .sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions);
+    if (!seen.length) return null;
+    const shown = seen.slice(0, 12);
+    const rest = seen.length - shown.length;
+    return {
+      name: `Every site on Google · ${G.window.days}d`,
+      sites: shown.map((p) => ({
+        label: p.label,
+        host: p.property,
+        value: count(p.clicks),
+        unit: p.clicks === 1 ? "click" : "clicks",
+        change: tileChange(p.delta.clicks),
+        bars: (p.series?.length ?? 0) > 1 ? p.series.map((d) => d.clicks) : undefined,
+        figures: [
+          ["Impr.", compact(p.impressions)],
+          ["CTR", p.ctr === null ? DASH : percent(p.ctr, 1)],
+          ["Position", place(p.position)],
+        ] as [string, string][],
+      })),
+      caption: also(
+        rest ? `+${rest} smaller site${rest === 1 ? "" : "s"}` : "",
+        `bars are clicks a day · ${gscEnds(G)}`,
+      ),
+    };
+  },
+
+  "search.bingSites": ({ bing: B }: LiveInputs) => {
+    if (!B?.connected || !B.sites.length) return null;
+    /* A site Bing showed fewer than five times is a row of zeroes here;
+       it is counted in the caption instead of drawn. */
+    const seen = B.sites
+      .filter((s) => s.clicks > 0 || s.impressions >= 5)
+      .sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions);
+    if (!seen.length) return null;
+    const shown = seen.slice(0, 12);
+    const quiet = B.sites.length - seen.length;
+    return {
+      name: `Every site on Bing · ${B.window.days}d`,
+      sites: shown.map((s) => ({
+        label: s.label,
+        host: s.site,
+        value: count(s.clicks),
+        unit: s.clicks === 1 ? "click" : "clicks",
+        bars: (s.series?.length ?? 0) > 1 ? s.series.map((d) => d.clicks) : undefined,
+        figures: [
+          ["Impr.", compact(s.impressions)],
+          ["CTR", s.ctr === null ? DASH : percent(s.ctr, 1)],
+          ["Indexed", s.index.inIndex === null ? DASH : compact(s.index.inIndex)],
+        ] as [string, string][],
+      })),
+      caption: also(
+        seen.length > shown.length ? `+${seen.length - shown.length} smaller` : "",
+        also(quiet ? `${quiet} barely seen on Bing` : "", "bars are clicks a day"),
+      ),
+    };
+  },
+
+  "search.bingDaily": ({ bing: B, window: W }: LiveInputs) => bingDaily(B, W, "clicks"),
+
+  "search.bingStriking": ({ bing: B }: LiveInputs) => {
+    /* The same band as Google's page-two list — position 5 to 20 with a few
+       impressions — cut from Bing's own query report. */
+    if (!B?.connected || !B.queries.length) return null;
+    const near = B.queries
+      .filter((q) => q.position !== null && q.position >= 5 && q.position <= 20 && q.impressions >= 3)
+      .sort((a, b) => b.impressions - a.impressions)
+      .slice(0, 8);
+    if (!near.length) return null;
+    return {
+      name: `Page-two opportunities · Bing`,
+      ranked: near.map((q) => ({
+        label: q.query,
+        host: q.site,
+        value: q.impressions,
+        text: `${count(q.impressions)} impr`,
+        sub: `#${place(q.position)} · ${clicksWord(q.clicks)}`,
+      })),
+      caption: "Ranking 5–20 on Bing — a push onto page one's top spots",
+    };
+  },
+
+  "search.bingCrawl": ({ bing: B }: LiveInputs) => {
+    if (!B?.connected || !B.index.day) return null;
+    const line = B.index.series.slice(-28);
+    const before = line.slice(0, -1).slice(-14).map((d) => d.errors).sort((a, b) => a - b);
+    const usual = before.length ? before[Math.floor(before.length / 2)]! : null;
+    /* A SPIKE, NOT A LIMIT: flagged when the latest day is more than three
+       times the usual day of the fortnight before it. */
+    const spike = usual !== null && B.index.crawlErrors > 100 && B.index.crawlErrors > usual * 3;
+    return {
+      value: count(B.index.crawlErrors),
+      tone: spike ? ("warn" as StatusTone) : undefined,
+      sub: also(
+        usual !== null ? `usually ~${count(usual)}` : "",
+        `${compact(B.index.blockedByRobots)} blocked by robots · ${dayShort(B.index.day)}`,
+      ),
+      series: line.length > 1 ? line.map((d) => d.errors) : undefined,
+      seriesAt: line.length > 1 ? line.map((d) => at(d.day)) : undefined,
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
 /* ============================================================== SOCIAL BOARD
 
    WHAT WAS ACTUALLY PUBLISHED, AND WHETHER ANYBODY SAW IT.
@@ -9783,7 +10197,7 @@ function feedItem(p: SocialPost): FeedItem {
   if (clicks !== null && clicks > 0) meta.push(["clicks", count(clicks)]);
   return {
     title: p.pageName ?? p.pageId,
-    at: postDay(p.createdTime),
+    at: whenWords(p.createdTime),
     text: p.text,
     image: p.imageUrl,
     href: p.permalink,
@@ -9935,7 +10349,7 @@ Object.assign(LIVE_BUILDERS, {
       /* Short, because this is a one-column tile: the argument for why the
          window cannot move this figure belongs on the card that has room for
          it, and `social.accounts` carries it. */
-      caption: "No history is published for these, so the window cannot move them. Never added across networks.",
+      caption: "Facebook Pages · as of now",
     };
   },
 
@@ -9971,12 +10385,7 @@ Object.assign(LIVE_BUILDERS, {
         text: count(g.t.views),
       })),
       partsLabel: "Views by Page",
-      rows: [
-        ["Posts published", count(t.posts)],
-        ["Meta measured", count(t.measured)],
-        ["Reactions + comments", count(t.engagement)],
-      ],
-      caption: `${VIEWS_NOTE} ${FLOOR_NOTE}`,
+      caption: `Facebook · ${count(t.engagement)} reactions + comments`,
     };
   },
 
@@ -9992,11 +10401,22 @@ Object.assign(LIVE_BUILDERS, {
     it inside a seven-day window would answer "quiet for 7 days" about a Page
     silent since June, which is the worst answer this board could give.
   */
-  "social.quiet": ({ social: S }: LiveInputs) => {
+  "social.quiet": ({ social: S, bluesky: B, tiktok: T }: LiveInputs) => {
     const posts = allPosts(S);
-    if (!S?.posts) return null;
+    if (!S?.posts && !T) return null;
     const t = totals(posts);
-    const quiet = daysAgo(t.latest);
+    /* THE NEWEST POST ON ANY NETWORK. A TikTok yesterday means the owner is
+       publishing, whatever the Facebook Pages say — the per-Page line under
+       it is where a quiet Page shows. */
+    const latestAny = [
+      t.latest,
+      ...(B?.handles ?? []).flatMap((h) => (h.posts ?? []).map((p) => p.at)),
+      ...ttVideos(T).map((v) => v.createdAt),
+    ]
+      .filter((at): at is string => !!at)
+      .sort()
+      .at(-1) ?? null;
+    const quiet = daysAgo(latestAny);
     const pages = byPage(posts);
     const cold = pages.filter((g) => {
       const d = daysAgo(totals(g.posts).latest);
@@ -10007,7 +10427,7 @@ Object.assign(LIVE_BUILDERS, {
       value: quiet === null ? DASH : quiet === 0 ? "today" : `${quiet}d ago`,
       tone: quiet !== null && quiet > 14 ? "warn" : undefined,
       sub: also(
-        t.latest ? `last post ${postDay(t.latest)}` : "nothing collected",
+        latestAny ? "newest post on any network" : "nothing collected",
         pages.length
           ? cold > 0
             ? `${cold} of ${pages.length} Page${pages.length === 1 ? "" : "s"} quiet a fortnight or more`
@@ -10245,9 +10665,7 @@ Object.assign(LIVE_BUILDERS, {
       ],
       table: table.map((r) => r.row),
       rowTones: table.map((r) => (r.bad ? ("bad" as const) : null)),
-      caption:
-        `Followers and the last post ignore the window — one has no history and the other is a fact about ` +
-        `today. Everything between them follows it. ${FLOOR_NOTE}`,
+      caption: "Followers and the last post ignore the window",
     };
   },
 
@@ -10292,12 +10710,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       tag: "metered",
       feed: ranked.map(feedItem),
-      caption:
-        `Ranked by ${byResponse ? "reactions and comments" : "views"}${
-          byResponse
-            ? ""
-            : " — no post in this window drew a reaction or a comment, so views are the only measure left"
-        }. An older post has had longer to gather what it has, so this is a total and not a rate. ${VIEWS_NOTE}`,
+      caption: `Ranked by ${byResponse ? "reactions + comments" : "views"}`,
     };
   },
 
@@ -10321,10 +10734,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       tag: "measured",
       feed: inWindow.map(feedItem),
-      caption: also(
-        older > 0 ? `${older} more in this window` : "Everything published in this window",
-        `${VIEWS_NOTE} A post generated on this box carries the draft it came from; most were made elsewhere.`,
-      ),
+      caption: older > 0 ? `${older} more in this window` : undefined,
     };
   },
 
@@ -10473,9 +10883,7 @@ Object.assign(LIVE_BUILDERS, {
       return {
         tag: "measured",
         feed: [],
-        caption:
-          "Nothing has been published from this box yet. Everything on the feeds above was posted somewhere " +
-          "else and read back — which is most posts, and is why the timeline reader exists.",
+        caption: "Nothing published from here yet",
       };
     const withLink = sent.filter((i) => i.permalink).length;
     return {
@@ -10484,7 +10892,7 @@ Object.assign(LIVE_BUILDERS, {
         title: i.destination
           ? `${i.destination.label}${i.destination.handle ? ` · ${i.destination.handle}` : ""}`
           : "no destination",
-        at: postDay(i.publishedAt),
+        at: whenWords(i.publishedAt),
         text: i.caption,
         image: i.media.url,
         href: i.permalink,
@@ -10494,7 +10902,7 @@ Object.assign(LIVE_BUILDERS, {
         ] as [string, string][],
         tone: "ok" as const,
       })),
-      caption: `${withLink} of ${sent.length} carry the address the network handed back. Nothing here is added to the figures above: a published item and the post it became are one post seen from two ends.`,
+      caption: `${withLink} of ${sent.length} link back to the live post`,
     };
   },
 
@@ -10532,9 +10940,7 @@ Object.assign(LIVE_BUILDERS, {
     return {
       tag: "measured",
       rows,
-      caption:
-        "Nothing is published that the owner did not approve first. A draft with a problem cannot be " +
-        "approved and will wait indefinitely — which is why it is a row here rather than a count.",
+      caption: "Nothing goes out until you approve it",
     };
   },
 
@@ -10548,7 +10954,7 @@ Object.assign(LIVE_BUILDERS, {
     never heard of and reading those would be collecting somebody else's data.
     An unmapped Page is silence, and silence that is a choice must say so.
   */
-  "social.coverage": ({ social: S, meta: M, bluesky: B }: LiveInputs) => {
+  "social.coverage": ({ social: S, meta: M, bluesky: B, tiktok: T }: LiveInputs) => {
     if (!S?.posts) return null;
     const accounts = S.posts.accounts;
     const failing = accounts.filter((a) => a.error ?? a.insightsError);
@@ -10584,7 +10990,17 @@ Object.assign(LIVE_BUILDERS, {
         : "No Bluesky handle configured — a list of handles is the whole configuration",
       B?.portfolio.handles ? "ok" : "warn",
     ]);
-    statuses.push(["Shares: no surviving metric reports them", "warn"]);
+    const tt = T?.handles ?? [];
+    const ttFailing = tt.filter((h) => h.lastError).length;
+    statuses.push([
+      !tt.length
+        ? "No TikTok handle configured — add them under TikTok (public)"
+        : ttFailing
+          ? `${ttFailing} of ${tt.length} TikTok handle${tt.length === 1 ? "" : "s"} failing`
+          : `${tt.length} TikTok handle${tt.length === 1 ? "" : "s"} read${tt[0]?.lastOkAt ? ` ${ago(tt.map((h) => h.lastOkAt ?? "").sort().at(-1))}` : ""}`,
+      !tt.length ? "warn" : ttFailing ? "bad" : "ok",
+    ]);
+    statuses.push(["Facebook shares: no surviving metric reports them", "warn"]);
     return { tag: "measured", statuses };
   },
 
@@ -15171,6 +15587,384 @@ Object.assign(LIVE_BUILDERS, {
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
 
+/* ================================================================ tiktok
+   THE SOCIAL BOARD'S TIKTOK CARDS AND ITS AT-A-GLANCE PICTURES — 2026-09-29.
+   Every card reads /api/tiktok-public (and the posts bundle for the cross-
+   network ones). A video's counts are TikTok's running totals as of the last
+   read, so "in the window" means posted in the window, counted now. Nothing
+   is added across networks except posts, which are posts wherever they went.
+   ======================================================================== */
+
+/** A date as people say it: "today", "yesterday", "3 days ago", "Aug 12". */
+function whenWords(at: string | null | undefined): string {
+  if (!at) return DASH;
+  const ms = Date.parse(at);
+  if (Number.isNaN(ms)) return DASH;
+  const startOf = (t: number) => {
+    const d = new Date(t);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  };
+  const days = Math.round((startOf(Date.now()) - startOf(ms)) / 86_400_000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 14) return `${days} days ago`;
+  if (days < 60) return `${Math.round(days / 7)} weeks ago`;
+  return postDay(at);
+}
+
+type TtVideo = TiktokVideo & { handle: string; ventureId: string | null };
+
+const ttVideos = (T: TiktokReport | null | undefined): TtVideo[] =>
+  (T?.handles ?? []).flatMap((h) => h.videos.map((v) => ({ ...v, handle: h.handle, ventureId: h.ventureId })));
+
+/** Posted inside the picker's window, measured against today. */
+function inWindowAt(at: string | null, W: WindowValue | undefined): boolean {
+  const days = W ?? 30;
+  if (days === "all") return true;
+  const d = daysAgo(at);
+  return d !== null && d <= days;
+}
+
+/** The days a daily card draws: the window, or from the oldest item for "all"
+ *  (at most 120 bars, which is where a bar stops being readable). */
+function ttDayGrid(W: WindowValue | undefined, dates: (string | null)[]): string[] {
+  const oldest = dates.filter((d): d is string => !!d).sort()[0];
+  const span =
+    W === "all" ? Math.min(120, oldest ? (daysAgo(oldest) ?? 0) + 1 : 30) : Math.min(120, W ?? 30);
+  const out: string[] = [];
+  for (let i = span - 1; i >= 0; i--) out.push(new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10));
+  return out;
+}
+
+/** Views GAINED per day for one handle: the difference between two consecutive
+ *  days whose reads were both complete. A gap or a partial read is no figure. */
+function ttGained(h: TiktokHandle): Map<string, number> {
+  const out = new Map<string, number>();
+  const days = h.days.filter((d) => d.viewsComplete && d.views !== null);
+  for (let i = 1; i < days.length; i++) {
+    const a = days[i - 1]!;
+    const b = days[i]!;
+    if (Date.parse(`${b.day}T00:00:00Z`) - Date.parse(`${a.day}T00:00:00Z`) !== 86_400_000) continue;
+    out.set(b.day, Math.max(0, b.views! - a.views!));
+  }
+  return out;
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${count(n)} ${n === 1 ? one : many}`;
+const shortText = (t: string | null | undefined, n = 42) => {
+  const s = (t ?? "").replace(/\s+/g, " ").trim();
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
+};
+
+/** Every post any network reader holds, as (network, date). */
+function everyPost(d: LiveInputs): { network: string; at: string | null }[] {
+  return [
+    ...allPosts(d.social).map((p) => ({ network: networkWord(p.platform), at: p.createdTime })),
+    ...(d.bluesky?.handles ?? []).flatMap((h) => (h.posts ?? []).map((p) => ({ network: "Bluesky", at: p.at }))),
+    ...ttVideos(d.tiktok).map((v) => ({ network: "TikTok", at: v.createdAt })),
+  ];
+}
+
+Object.assign(LIVE_BUILDERS, {
+  /* ------------------------------------------------------ at a glance */
+
+  "social.postsDaily": (d: LiveInputs) => {
+    if (!d.social?.posts && !d.tiktok && !d.bluesky) return null;
+    const all = everyPost(d);
+    const inWin = all.filter((p) => inWindowAt(p.at, d.window));
+    const grid = ttDayGrid(d.window, all.map((p) => p.at));
+    const networks = [...new Set(all.map((p) => p.network))].sort();
+    if (!networks.length) return null;
+    const on = (n: string, day: string) => inWin.filter((p) => p.network === n && p.at?.slice(0, 10) === day).length;
+    return {
+      daily: grid.map((day) => {
+        const parts = networks.map((n) => ({ label: n, value: on(n, day) }));
+        return { day, total: parts.reduce((s, p) => s + p.value, 0), parts };
+      }),
+      dailySplit: "By network",
+      unit: "count" as const,
+      caption: `${plural(inWin.length, "post")} on ${plural(networks.length, "network")} · an empty day is a day nothing went out`,
+    };
+  },
+
+  "social.networks": (d: LiveInputs) => {
+    if (!d.social?.posts && !d.tiktok && !d.bluesky) return null;
+    const inWin = everyPost(d).filter((p) => inWindowAt(p.at, d.window));
+    const by = new Map<string, number>();
+    for (const p of inWin) by.set(p.network, (by.get(p.network) ?? 0) + 1);
+    const parts = [...by.entries()].sort((a, b) => b[1] - a[1]);
+    return {
+      value: count(inWin.length),
+      sub: inWin.length ? `posts on ${plural(parts.length, "network")}` : "nothing posted in this window",
+      parts: parts.map(([label, value]) => ({ label, value, text: count(value) })),
+      partsLabel: "Posts by network",
+    };
+  },
+
+  "social.byAccount": (d: LiveInputs) => {
+    const rows: RankedRow[] = [];
+    const fb = allPosts(d.social).filter((p) => inWindowAt(p.createdTime, d.window));
+    for (const g of byPage(fb)) {
+      const t = totals(g.posts);
+      if (t.views === null) continue;
+      rows.push({
+        label: g.name,
+        value: t.views,
+        text: compact(t.views),
+        sub: `${networkWord(g.platform)} · ${plural(t.posts, "post")}`,
+        venture: g.posts.find((p) => p.ventureId)?.ventureId ?? undefined,
+      });
+    }
+    for (const h of d.tiktok?.handles ?? []) {
+      const vids = h.videos.filter((v) => inWindowAt(v.createdAt, d.window) && v.views !== null);
+      if (!vids.length) continue;
+      const views = vids.reduce((n, v) => n + v.views!, 0);
+      rows.push({
+        label: `@${h.handle}`,
+        value: views,
+        text: compact(views),
+        sub: `TikTok · ${plural(vids.length, "video")}`,
+        venture: h.ventureId ?? undefined,
+      });
+    }
+    if (!rows.length) return d.social?.posts || d.tiktok ? { ranked: [], caption: "Nothing posted in this window was measured." } : null;
+    return {
+      ranked: rows.sort((a, b) => b.value - a.value),
+      caption: "Views on posts published in the window, as they stand now",
+    };
+  },
+
+  /* ------------------------------------------------------------ tiktok */
+
+  "tiktok.followers": ({ tiktok: T }: LiveInputs) => {
+    const hs = (T?.handles ?? []).filter((h) => h.profile.followers !== null);
+    if (!hs.length) return null;
+    const total = hs.reduce((n, h) => n + h.profile.followers!, 0);
+    /* The line is drawn only over days every answering handle was read on —
+       a day missing one account is not a dip in followers. */
+    const days = [...new Set(hs.flatMap((h) => h.days.map((x) => x.day)))].sort();
+    const line = days
+      .map((day) => {
+        const vals = hs.map((h) => h.days.find((x) => x.day === day)?.followers ?? null);
+        return vals.every((v) => v !== null) ? { day, v: vals.reduce((n, v) => n + v!, 0) } : null;
+      })
+      .filter((x): x is { day: string; v: number } => !!x);
+    return {
+      value: count(total),
+      sub: hs
+        .slice()
+        .sort((a, b) => b.profile.followers! - a.profile.followers!)
+        .map((h) => `@${h.handle} ${compact(h.profile.followers)}`)
+        .join(" · "),
+      ...(line.length >= 2
+        ? { series: line.map((x) => x.v), seriesAt: line.map((x) => `${x.day}T00:00:00Z`), unit: "count" as const }
+        : {}),
+    };
+  },
+
+  "tiktok.views": ({ tiktok: T, window: W }: LiveInputs) => {
+    if (!T?.handles.length) return null;
+    const vids = ttVideos(T).filter((v) => inWindowAt(v.createdAt, W) && v.views !== null);
+    const views = vids.reduce((n, v) => n + v.views!, 0);
+    const likes = vids.reduce((n, v) => n + (v.likes ?? 0), 0);
+    return {
+      value: compact(views),
+      sub: vids.length ? `on ${plural(vids.length, "video")} posted · ${compact(likes)} likes` : "no video posted in this window",
+    };
+  },
+
+  "tiktok.top": ({ tiktok: T, window: W }: LiveInputs) => {
+    if (!T?.handles.length) return null;
+    const all = ttVideos(T).filter((v) => v.views !== null);
+    const inWin = all.filter((v) => inWindowAt(v.createdAt, W));
+    const pick = (inWin.length ? inWin : all).slice().sort((a, b) => b.views! - a.views!).slice(0, 9);
+    if (!pick.length) return { gallery: [], caption: "No videos read yet." };
+    return {
+      gallery: pick.map((v) => ({
+        image: v.cover,
+        value: compact(v.views),
+        unit: "views",
+        title: shortText(v.caption, 36) || `@${v.handle}`,
+        sub: `@${v.handle} · ${whenWords(v.createdAt)}`,
+        href: v.url,
+        badge: v.isPhoto ? "photos" : undefined,
+      })),
+      galleryShape: "portrait" as const,
+      caption: inWin.length ? "By views, posted in this window" : "Nothing posted in this window — best of all time",
+    };
+  },
+
+  "tiktok.gained": ({ tiktok: T, window: W }: LiveInputs) => {
+    const hs = T?.handles ?? [];
+    if (!hs.length) return null;
+    const gains = hs.map((h) => ({ h, g: ttGained(h) }));
+    const any = gains.some((x) => x.g.size > 0);
+    if (!any) {
+      /* Until there are two complete daily reads there is no daily figure, so
+         the card says what it CAN draw: views by the day each video went out. */
+      const vids = ttVideos(T).filter((v) => inWindowAt(v.createdAt, W) && v.views !== null);
+      const grid = ttDayGrid(W, vids.map((v) => v.createdAt));
+      return {
+        name: "TikTok views by day posted",
+        daily: grid.map((day) => {
+          const parts = hs.map((h) => ({
+            label: `@${h.handle}`,
+            value: vids.filter((v) => v.handle === h.handle && v.createdAt?.slice(0, 10) === day).reduce((n, v) => n + v.views!, 0),
+          }));
+          return { day, total: parts.reduce((n, p) => n + p.value, 0), parts };
+        }),
+        dailySplit: "By account",
+        unit: "count" as const,
+        caption: "Each video's views so far, on the day it was posted · views gained per day start after two daily reads",
+      };
+    }
+    const grid = ttDayGrid(W, []);
+    const total = gains.reduce((n, x) => n + [...x.g.entries()].filter(([day]) => grid.includes(day)).reduce((m, [, v]) => m + v, 0), 0);
+    return {
+      daily: grid.map((day) => {
+        const parts = gains.map((x) => ({ label: `@${x.h.handle}`, value: x.g.get(day) ?? 0 }));
+        return { day, total: parts.reduce((n, p) => n + p.value, 0), parts };
+      }),
+      dailySplit: "By account",
+      unit: "count" as const,
+      caption: `${compact(total)} views gained across every video · a day without two complete reads is left empty`,
+    };
+  },
+
+  "tiktok.accounts": ({ tiktok: T }: LiveInputs) => {
+    const hs = T?.handles ?? [];
+    if (!hs.length) return null;
+    const rows = hs.map((h) => {
+      const line = h.days.map((x) => x.followers).filter((v): v is number => v !== null);
+      return {
+        label: `@${h.handle}`,
+        value: h.profile.followers ?? 0,
+        text: h.profile.followers === null ? DASH : compact(h.profile.followers),
+        sub: h.lastError && h.profile.followers === null
+          ? `not read: ${h.lastError}`
+          : `${compact(h.profile.likes)} likes · ${count(h.profile.videos)} videos`,
+        venture: h.ventureId ?? undefined,
+        ...(line.length >= 2 ? { spark: line } : {}),
+      };
+    });
+    return {
+      ranked: rows.sort((a, b) => b.value - a.value),
+      caption: "Followers now · likes are across every video the account has posted",
+    };
+  },
+
+  "tiktok.latest": ({ tiktok: T, window: W }: LiveInputs) => {
+    if (!T?.handles.length) return null;
+    const all = ttVideos(T).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    const rows = all.filter((v) => inWindowAt(v.createdAt, W)).slice(0, 5);
+    if (!rows.length)
+      return { feed: [], caption: all.length ? `Nothing posted in this window · the newest video is from ${whenWords(all[0]!.createdAt)}` : "No videos read yet." };
+    return {
+      feed: rows.map((v) => ({
+        title: `@${v.handle}`,
+        at: whenWords(v.createdAt),
+        text: v.caption,
+        image: v.cover,
+        href: v.url,
+        meta: [
+          [v.views === 1 ? "view" : "views", compact(v.views)],
+          [v.likes === 1 ? "like" : "likes", count(v.likes)],
+          [v.comments === 1 ? "comment" : "comments", count(v.comments)],
+          [v.shares === 1 ? "share" : "shares", count(v.shares)],
+        ] as [string, string][],
+      })),
+    };
+  },
+
+  "tiktok.actions": ({ tiktok: T, window: W }: LiveInputs) => {
+    if (!T?.handles.length) return null;
+    const vids = ttVideos(T).filter((v) => inWindowAt(v.createdAt, W) && v.views !== null);
+    const sum = (k: "likes" | "comments" | "shares" | "saves") => vids.reduce((n, v) => n + (v[k] ?? 0), 0);
+    const views = vids.reduce((n, v) => n + v.views!, 0);
+    const parts = [
+      { label: "Likes", value: sum("likes") },
+      { label: "Saves", value: sum("saves") },
+      { label: "Comments", value: sum("comments") },
+      { label: "Shares", value: sum("shares") },
+    ];
+    const actions = parts.reduce((n, p) => n + p.value, 0);
+    if (!views) return { value: DASH, sub: "no views on videos posted in this window" };
+    return {
+      value: pct(actions / views),
+      sub: `${count(actions)} likes, saves, comments and shares on ${compact(views)} views`,
+      parts: parts.filter((p) => p.value > 0).map((p) => ({ ...p, text: count(p.value) })),
+      partsLabel: "What viewers did",
+    };
+  },
+
+  /* ------------------------------------------------------------ trends */
+
+  "tiktok.searches": ({ tiktok: T }: LiveInputs) => {
+    const seeds = (T?.searches ?? []).filter((s) => s.terms.length);
+    if (!seeds.length) return null;
+    const many = seeds.length > 1;
+    const soon = Date.now() - 3 * 86_400_000;
+    const rows: RankedRow[] = seeds.flatMap((s) =>
+      s.terms
+        .filter((t) => t.term !== s.seed)
+        .slice(0, many ? 6 : 12)
+        .map((t) => {
+          const fresh = s.reads > 1 && Date.parse(`${t.firstSeen}T00:00:00Z`) >= soon;
+          return {
+            label: t.term,
+            value: t.score,
+            text: fresh ? "new" : "",
+            sub: many ? s.seed : undefined,
+          };
+        }),
+    );
+    return {
+      ranked: rows,
+      caption: "What TikTok's search box suggests · longer bar = suggested more often and higher. TikTok publishes no search counts.",
+    };
+  },
+
+  "tiktok.hashtags": ({ tiktok: T }: LiveInputs) => {
+    const tags = T?.discover.hashtags ?? [];
+    if (!tags.length) return null;
+    const region = T!.discover.region ? countryName(T!.discover.region) : "this box's region";
+    /* "New" needs an earlier page to be new against: on the first read every
+       tag's first sighting is today, and calling them all new says nothing. */
+    const history = tags.some((t) => t.firstSeen < (T!.discover.day ?? ""));
+    return {
+      ranked: tags
+        .filter((t) => t.views !== null)
+        .sort((a, b) => b.views! - a.views!)
+        .slice(0, 10)
+        .map((t) => ({
+          label: t.title ?? t.id,
+          value: t.views!,
+          text: compact(t.views),
+          sub: history && t.firstSeen === T!.discover.day ? "new today" : undefined,
+        })),
+      caption: `Featured on TikTok Discover in ${region} · views all time · many are TikTok Shop campaigns`,
+    };
+  },
+
+  "tiktok.creators": ({ tiktok: T }: LiveInputs) => {
+    const cs = T?.discover.creators ?? [];
+    if (!cs.length) return null;
+    const region = T!.discover.region ? countryName(T!.discover.region) : "this box's region";
+    return {
+      gallery: cs.slice(0, 9).map((c) => ({
+        image: c.cover,
+        value: compact(c.followers),
+        unit: "followers",
+        title: c.title ?? c.subtitle ?? c.id,
+        sub: c.subtitle ?? undefined,
+        href: c.link,
+      })),
+      galleryShape: "square" as const,
+      caption: `Suggested on TikTok Discover in ${region}`,
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
 /* ================================================================== ads
    THE ADS BOARD'S VISUAL HALF — the last campaign and the advertisements
    themselves, from `ads.history` (the creatives over 90 days). Every figure
@@ -15364,6 +16158,417 @@ Object.assign(LIVE_BUILDERS, {
         { label: "paused", value: by.paused, text: count(by.paused) },
       ],
       partsLabel: "The ads in the account",
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ================================================================== seo
+   THE SEO BOARD, REWORKED 2026-09-29 — "more visuals, less text, favicons
+   where you can". Every site as a small card (audit grade, clicks and their
+   line, pages in Bing's index, inbound links, AI mentions), then what moved,
+   what to fix first, and the lists as bars with the site's favicon.
+
+   THE GRADE IS A RULE, NOT A SCORE: A no errors or warnings, B warnings
+   only, C one or two errors, D three or more. Nothing is weighted, and a site
+   never audited has no letter rather than an A.
+
+   "WHAT MOVED" IS THE WINDOW'S SECOND HALF AGAINST ITS FIRST, from each
+   property's own daily rows — Search Console's previous-window figures are
+   not always collected, and the halves are always there.
+   ======================================================================== */
+
+/** "sc-domain:x.com", "https://www.x.com/", "x.com" → "x.com". */
+function seoHost(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const v = value.replace(/^sc-domain:/i, "");
+  try {
+    return new URL(v.includes("://") ? v : `https://${v}`).hostname.toLowerCase().replace(/^www\./, "") || null;
+  } catch {
+    return null;
+  }
+}
+
+type SeoGrade = "A" | "B" | "C" | "D";
+const seoGrade = (i: { error: number; warning: number } | null): SeoGrade | null =>
+  !i ? null : i.error >= 3 ? "D" : i.error >= 1 ? "C" : i.warning > 0 ? "B" : "A";
+const seoPlural = (n: number, word: string) => `${count(n)} ${word}${n === 1 ? "" : "s"}`;
+
+/** A property's clicks (or impressions) in the window's two halves, on the
+ *  portfolio's own day grid. Null when the property's rows do not cover the
+ *  grid — a property added mid-window has no first half to compare. */
+function seoHalves(G: GscReport, p: GscProperty | null, pick: "clicks" | "impressions" = "clicks") {
+  const grid = G.series.map((d) => d.day);
+  if (grid.length < 4) return null;
+  const half = Math.floor(grid.length / 2);
+  let rows: number[];
+  if (p) {
+    const by = new Map(p.series.map((d) => [d.day, d[pick]]));
+    if (!grid.every((d) => by.has(d))) return null;
+    rows = grid.map((d) => by.get(d)!);
+  } else rows = G.series.map((d) => d[pick]);
+  const prev = rows.slice(0, half).reduce((n, v) => n + v, 0);
+  const last = rows.slice(-half).reduce((n, v) => n + v, 0);
+  return { prev, last, days: half, change: prev >= 10 ? (last - prev) / prev : null };
+}
+
+const seoChangeText = (h: ReturnType<typeof seoHalves>) =>
+  !h || h.change === null
+    ? ""
+    : `${h.change >= 0 ? "▲" : "▼"} ${pct(Math.abs(h.change), { digits: 0 })} in the last ${h.days} days`;
+
+/** Every site the SEO sources know, joined on the hostname. */
+function seoSites(I: LiveInputs) {
+  type Site = {
+    host: string;
+    name: string;
+    venture: string | null;
+    audit: NonNullable<LiveInputs["audit"]>["ventures"][number] | null;
+    gsc: GscProperty | null;
+    bing: NonNullable<LiveInputs["bing"]>["sites"][number] | null;
+    ai: { asked: number; mentioned: number } | null;
+  };
+  const by = new Map<string, Site>();
+  const get = (host: string, name?: string) => {
+    let s = by.get(host);
+    if (!s) {
+      s = { host, name: name ?? host, venture: null, audit: null, gsc: null, bing: null, ai: null };
+      by.set(host, s);
+    }
+    return s;
+  };
+  for (const v of I.audit?.ventures ?? []) {
+    const h = seoHost(v.host);
+    if (!h) continue;
+    const s = get(h, v.name);
+    s.name = v.name;
+    s.venture = v.id;
+    s.audit = v;
+  }
+  if (I.gsc?.connected) for (const p of I.gsc.properties) {
+    const h = seoHost(p.property) ?? seoHost(p.label);
+    if (h) get(h).gsc = p;
+  }
+  for (const b of I.bing?.sites ?? []) {
+    const h = seoHost(b.site) ?? seoHost(b.label);
+    if (h) get(h).bing = b;
+  }
+  const byVenture = new Map([...by.values()].filter((s) => s.venture).map((s) => [s.venture!, s]));
+  for (const a of I.seo?.geo?.answers ?? []) {
+    if (a.kind !== "generic") continue;
+    const s = byVenture.get(a.ventureId);
+    if (!s) continue;
+    s.ai ??= { asked: 0, mentioned: 0 };
+    s.ai.asked += 1;
+    if (a.mentioned) s.ai.mentioned += 1;
+  }
+  return [...by.values()];
+}
+
+Object.assign(LIVE_BUILDERS, {
+  "seo.clicks": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.window.end) return null;
+    const h = seoHalves(G, null);
+    return {
+      value: count(G.totals.clicks),
+      sub: seoChangeText(h) || `${G.window.days} days to ${dayShort(G.window.end)}`,
+      series: G.series.length > 1 ? G.series.map((d) => d.clicks) : undefined,
+      seriesAt: G.series.length > 1 ? G.series.map((d) => at(d.day)) : undefined,
+      unit: "count" as const,
+    };
+  },
+
+  "seo.impressions": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.window.end) return null;
+    const h = seoHalves(G, null, "impressions");
+    return {
+      value: compact(G.totals.impressions),
+      sub: also(seoChangeText(h), G.totals.ctr === null ? "" : `${percent(G.totals.ctr)} clicked`),
+      series: G.series.length > 1 ? G.series.map((d) => d.impressions) : undefined,
+      seriesAt: G.series.length > 1 ? G.series.map((d) => at(d.day)) : undefined,
+      unit: "count" as const,
+    };
+  },
+
+  "seo.needsFix": ({ audit: A }: LiveInputs) => {
+    const rows = audited(A);
+    if (!rows.length) return null;
+    const bad = rows.filter((v) => v.issues.error > 0);
+    const errors = bad.reduce((n, v) => n + v.issues.error, 0);
+    return {
+      value: `${count(bad.length)} of ${count(rows.length)}`,
+      tone: bad.length ? ("warn" as StatusTone) : undefined,
+      sub: bad.length ? `${seoPlural(errors, "error")} to fix` : "no audit errors anywhere",
+    };
+  },
+
+  "seo.aiFound": ({ seo }: LiveInputs) => {
+    const asked = (seo?.geo?.answers ?? []).filter((a) => a.kind === "generic");
+    if (!asked.length) return null;
+    const named = asked.filter((a) => a.mentioned);
+    const sites = new Set(named.map((a) => a.ventureId));
+    return {
+      value: pct(named.length / asked.length, { digits: 0 }),
+      sub: `${count(named.length)} of ${count(asked.length)} questions named one of ours · ${seoPlural(sites.size, "site")}`,
+    };
+  },
+
+  "seo.sites": (I: LiveInputs) => {
+    const G = I.gsc?.connected ? I.gsc : null;
+    const all = seoSites(I);
+    if (!all.length || (!I.audit && !G)) return null;
+    const clicks = (s: (typeof all)[number]) => s.gsc?.clicks ?? -1;
+    const sorted = all.sort(
+      (a, b) => clicks(b) - clicks(a) || (b.gsc?.impressions ?? 0) - (a.gsc?.impressions ?? 0) || a.name.localeCompare(b.name),
+    );
+    const isQuiet = (s: (typeof all)[number]) => (s.gsc?.clicks ?? 0) === 0 && (s.gsc?.impressions ?? 0) < 50 && (s.bing?.clicks ?? 0) === 0;
+    const cards = sorted.filter((s) => !isQuiet(s));
+    const quiet = sorted.filter(isQuiet);
+    return {
+      siteCards: cards.map((s) => {
+        const i = s.audit?.ts ? s.audit.issues : null;
+        const grade = seoGrade(i);
+        const h = G && s.gsc ? seoHalves(G, s.gsc) : null;
+        return {
+          host: s.host,
+          name: s.name,
+          venture: s.venture,
+          grade,
+          gradeNote: !i
+            ? "not audited"
+            : i.error
+              ? also(seoPlural(i.error, "error"), i.warning ? seoPlural(i.warning, "warning") : "")
+              : i.warning
+                ? seoPlural(i.warning, "warning")
+                : "clean audit",
+          clicks: s.gsc ? compact(s.gsc.clicks) : DASH,
+          change: h?.change ?? null,
+          spark: s.gsc && s.gsc.series.length > 1 ? s.gsc.series.map((d) => d.clicks) : null,
+          stats: [
+            ["in Bing", s.bing?.index.inIndex == null ? DASH : compact(s.bing.index.inIndex)],
+            ["links in", s.bing?.inLinks == null ? DASH : compact(s.bing.inLinks)],
+            ["AI found", s.ai ? `${s.ai.mentioned}/${s.ai.asked}` : DASH],
+          ] as [string, string][],
+        };
+      }),
+      quietSites: quiet.map((s) => ({ name: s.name, host: s.host, venture: s.venture })),
+      caption: also(
+        G ? `Google clicks over ${G.window.days} days, busiest first` : "",
+        "grade: A clean · B warnings only · C 1–2 errors · D 3+ errors",
+      ),
+    };
+  },
+
+  "seo.clicksDaily": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || G.series.length < 2) return null;
+    const top = [...G.properties].filter((p) => p.clicks > 0).sort((a, b) => b.clicks - a.clicks).slice(0, 6);
+    const days = G.series.map((d) => {
+      const parts = top.map((p) => ({ label: p.label, value: p.series.find((x) => x.day === d.day)?.clicks ?? 0 }));
+      const rest = d.clicks - parts.reduce((n, x) => n + x.value, 0);
+      if (rest > 0) parts.push({ label: "Other sites", value: rest });
+      return { day: d.day, total: d.clicks, parts };
+    });
+    const peak = days.reduce((b, d) => (d.total > b.total ? d : b), days[0]!);
+    return {
+      daily: days,
+      dailySplit: "By site",
+      unit: "count" as const,
+      caption: `Best day ${dayShort(peak.day)} with ${count(peak.total)} · Google`,
+    };
+  },
+
+  "seo.movers": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected) return null;
+    const rows = G.properties
+      .map((p) => ({ p, h: seoHalves(G, p) }))
+      .filter((r): r is { p: GscProperty; h: NonNullable<ReturnType<typeof seoHalves>> } => !!r.h && Math.abs(r.h.last - r.h.prev) >= 3)
+      .sort((a, b) => Math.abs(b.h.last - b.h.prev) - Math.abs(a.h.last - a.h.prev))
+      .slice(0, 8);
+    if (!rows.length) return null;
+    return {
+      ranked: rows.map(({ p, h }) => {
+        const d = h.last - h.prev;
+        return {
+          label: p.label,
+          host: p.property,
+          value: Math.abs(d),
+          text: `${d > 0 ? "▲" : "▼"} ${count(Math.abs(d))} clicks`,
+          sub: `${count(h.prev)} → ${count(h.last)}`,
+        };
+      }),
+      caption: `Clicks in the last ${rows[0]!.h.days} days against the ${rows[0]!.h.days} before`,
+    };
+  },
+
+  "seo.fixFirst": (I: LiveInputs) => {
+    const sites = seoSites(I);
+    if (!sites.length || !I.audit) return null;
+    const G = I.gsc?.connected ? I.gsc : null;
+    /* [what, figure, host] — worst first: errors on sites people visit,
+       then traffic falling, then what stops a crawler, then the gaps. */
+    const out: [string, string, string | null][] = [];
+    const busy = (s: (typeof sites)[number]) => s.gsc?.clicks ?? 0;
+    const withErrors = sites.filter((s) => s.audit?.ts && s.audit.issues && s.audit.issues.error > 0).sort((a, b) => busy(b) - busy(a));
+    for (const s of withErrors.slice(0, 3)) out.push([`${s.host} · audit errors`, count(s.audit!.issues!.error), s.host]);
+    if (withErrors.length > 3) out.push([`${withErrors.length - 3} more sites · audit errors`, count(withErrors.slice(3).reduce((n, s) => n + s.audit!.issues!.error, 0)), null]);
+    if (G)
+      for (const s of sites) {
+        const h = s.gsc ? seoHalves(G, s.gsc) : null;
+        if (h && h.change !== null && h.change <= -0.3 && h.prev >= 20) out.push([`${s.host} · clicks falling`, `▼ ${pct(-h.change, { digits: 0 })}`, s.host]);
+      }
+    for (const s of sites) {
+      const e = s.bing?.index.crawlErrors ?? 0;
+      if (e >= 100) out.push([`${s.host} · Bing crawl errors`, compact(e), s.host]);
+    }
+    for (const x of I.seo?.indexing?.hosts ?? [])
+      if (x.dryRun > 0 && x.received === 0) out.push([`${x.host} · IndexNow key missing`, `${count(x.dryRun)} unsent`, x.host]);
+      else if (x.refused > 0) out.push([`${x.host} · IndexNow refused`, count(x.refused), x.host]);
+    for (const s of sites)
+      if ((s.gsc?.sitemaps.errors ?? 0) > 0) out.push([`${s.host} · sitemap errors`, count(s.gsc!.sitemaps.errors!), s.host]);
+    for (const s of sites) {
+      const ts = s.audit?.ts;
+      if (ts && busy(s) >= 50 && Date.now() - Date.parse(ts) > 21 * 86_400_000)
+        out.push([`${s.host} · audit is old`, dayShort(ts.slice(0, 10)), s.host]);
+    }
+    const never = sites.filter((s) => s.audit && !s.audit.ts);
+    if (never.length) out.push([`${seoPlural(never.length, "site")} · never audited`, count(never.length), null]);
+    const unindexed = sites.filter((s) => s.bing && s.bing.index.inIndex === 0);
+    if (unindexed.length) out.push([`${seoPlural(unindexed.length, "site")} · nothing in Bing's index`, count(unindexed.length), null]);
+    if (!out.length) return { rows: [["Nothing urgent", "✓"]] as [string, string][] };
+    const shown = out.slice(0, 10);
+    return {
+      rows: shown.map(([k, v]) => [k, v] as [string, string]),
+      rowHosts: shown.map(([, , h]) => h),
+    };
+  },
+
+  "seo.queries": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.queries.length) return null;
+    return {
+      ranked: G.queries.slice(0, 8).map((q) => ({
+        label: q.query,
+        host: q.property,
+        value: q.clicks,
+        text: clicksWord(q.clicks),
+        sub: q.position === null ? undefined : `#${place(q.position)}`,
+      })),
+      caption: `Google · ${G.window.days} days · #average position`,
+    };
+  },
+
+  "seo.striking": ({ gsc: G }: LiveInputs) => {
+    if (!G?.connected || !G.striking.length) return null;
+    return {
+      ranked: G.striking.slice(0, 8).map((q) => ({
+        label: q.query,
+        host: q.property,
+        value: q.impressions,
+        text: `${count(q.impressions)} impr`,
+        sub: q.position === null ? undefined : `#${place(q.position)}`,
+      })),
+      caption: "Ranking 5th–20th: a push from the top of page one",
+    };
+  },
+
+  "seo.grades": ({ audit: A }: LiveInputs) => {
+    if (!A?.ventures.length) return null;
+    const n = { A: 0, B: 0, C: 0, D: 0, none: 0 };
+    for (const v of A.ventures) {
+      const g = seoGrade(v.ts ? v.issues : null);
+      if (g) n[g]++;
+      else n.none++;
+    }
+    const audited = A.ventures.length - n.none;
+    if (!audited) return null;
+    return {
+      value: `${count(n.A)} of ${count(audited)}`,
+      sub: "audited sites with a clean bill",
+      parts: [
+        { label: "A · clean", value: n.A, text: count(n.A), tone: "ok" as StatusTone },
+        { label: "B · warnings", value: n.B, text: count(n.B) },
+        { label: "C · 1–2 errors", value: n.C, text: count(n.C), tone: "warn" as StatusTone },
+        { label: "D · 3+ errors", value: n.D, text: count(n.D), tone: "bad" as StatusTone },
+        ...(n.none ? [{ label: "not audited", value: n.none, text: count(n.none) }] : []),
+      ].filter((p) => p.value > 0),
+    };
+  },
+
+  "seo.ai": ({ seo }: LiveInputs) => {
+    const answers = seo?.geo?.answers ?? [];
+    if (!answers.length) return null;
+    const by = new Map<string, { name: string; asked: number; named: number; direct: number; right: number }>();
+    for (const a of answers) {
+      const e = by.get(a.ventureId) ?? { name: a.ventureName ?? a.ventureId, asked: 0, named: 0, direct: 0, right: 0 };
+      if (a.kind === "generic") {
+        e.asked += 1;
+        if (a.mentioned) e.named += 1;
+      } else if (a.kind === "direct" && a.accurate !== null) {
+        e.direct += 1;
+        if (a.accurate) e.right += 1;
+      }
+      by.set(a.ventureId, e);
+    }
+    const rows = [...by.entries()]
+      .filter(([, e]) => e.asked > 0)
+      .sort(([, a], [, b]) => b.named / b.asked - a.named / a.asked || (b.direct ? b.right / b.direct : 0) - (a.direct ? a.right / a.direct : 0))
+      .slice(0, 10);
+    if (!rows.length) return null;
+    return {
+      ranked: rows.map(([id, e]) => ({
+        label: e.name,
+        venture: id,
+        value: Math.round((e.named / e.asked) * 100),
+        text: `found ${e.named}/${e.asked}`,
+        sub: e.direct ? `knows it ${e.right}/${e.direct}` : undefined,
+      })),
+      rankedMax: 100,
+      caption: "Found: named when a stranger asks for a tool like it · knows it: described right when asked by name",
+    };
+  },
+
+  "seo.indexed": ({ bing: B }: LiveInputs) => {
+    if (!B?.sites.length) return null;
+    const rows = B.sites.filter((s) => (s.index.inIndex ?? 0) > 0).sort((a, b) => b.index.inIndex! - a.index.inIndex!);
+    if (!rows.length) return null;
+    const none = B.sites.filter((s) => s.index.inIndex === 0).length;
+    return {
+      ranked: rows.slice(0, 10).map((s) => ({
+        label: s.label,
+        host: s.site,
+        value: s.index.inIndex!,
+        text: `${count(s.index.inIndex!)} pages`,
+        sub: s.index.crawlErrors ? seoPlural(s.index.crawlErrors, "crawl error") : undefined,
+      })),
+      caption: none ? `${seoPlural(none, "site")} with none yet` : undefined,
+    };
+  },
+
+  "seo.links": ({ bing: B }: LiveInputs) => {
+    if (!B?.sites.length) return null;
+    const rows = B.sites.filter((s) => (s.inLinks ?? 0) > 0).sort((a, b) => b.inLinks! - a.inLinks!);
+    if (!rows.length) return null;
+    return {
+      ranked: rows.slice(0, 10).map((s) => ({ label: s.label, host: s.site, value: s.inLinks!, text: count(s.inLinks!) })),
+      caption: "Links Bing has seen pointing in — pages, not distinct sites",
+    };
+  },
+
+  "seo.listed": ({ presence: P }: LiveInputs) => {
+    if (!P?.products.length) return null;
+    const rows = P.products
+      .map((p) => ({ p, on: p.sources.filter((s) => s.status === "present").map((s) => s.label), of: p.summary.of - p.summary.blocked - p.summary.unchecked }))
+      .filter((r) => r.of > 0)
+      .sort((a, b) => b.on.length - a.on.length || a.p.product.localeCompare(b.p.product));
+    if (!rows.length) return null;
+    return {
+      ranked: rows.slice(0, 10).map((r) => ({
+        label: r.p.product,
+        host: r.p.host,
+        value: r.on.length,
+        text: `${r.on.length} of ${r.of}`,
+        sub: r.on.length ? r.on.join(", ") : undefined,
+      })),
+      rankedMax: Math.max(...rows.map((r) => r.of)),
+      caption: "Wikipedia, GitHub, Product Hunt, app stores and the like",
     };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);

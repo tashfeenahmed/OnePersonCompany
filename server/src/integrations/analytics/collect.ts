@@ -40,6 +40,17 @@ import * as umami from "./umami.ts";
 import * as calendar from "./calendar.ts";
 import * as pypi from "./pypi.ts";
 import * as bluesky from "./bluesky.ts";
+import * as tiktok from "./tiktok.ts";
+import {
+  forgetTiktokHandles,
+  pruneTiktokTrends,
+  writeTiktokDay,
+  writeTiktokDiscover,
+  writeTiktokError,
+  writeTiktokProfile,
+  writeTiktokSearches,
+  writeTiktokVideos,
+} from "./tiktok-store.ts";
 import {
   due,
   forgetBlueskyHandles,
@@ -64,6 +75,10 @@ import {
 export const UMAMI_EVERY_HOURS = 6;
 export const CALENDAR_EVERY_HOURS = 2;
 export const BLUESKY_EVERY_HOURS = 6;
+/** Public TikTok: profiles and videos four times a day, the two trend reads
+ *  twice — a suggestion list and a Discover page move by the day, not the hour. */
+export const TIKTOK_EVERY_HOURS = 6;
+export const TIKTOK_TRENDS_EVERY_HOURS = 12;
 /** pypistats rebuilds its dataset once a day, so the 180-day line and the
  *  package metadata are read four times a day rather than forty-eight. The
  *  `recent` counters are one cheap request and are read every tick, which is
@@ -89,6 +104,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  */
 const BLUESKY_GAP_MS = 300;
 const PYPI_GAP_MS = 1_200;
+/** TikTok's unofficial endpoints get the slower of the two courtesies. */
+const TIKTOK_GAP_MS = 400;
 
 /* ------------------------------------------------------------------ umami */
 
@@ -526,6 +543,125 @@ export async function collectBluesky(): Promise<CollectResult & { handles: numbe
         (warnings.length ? ` · ${warnings.length} warning(s)` : "");
   finishRun(runId, true, note, warnings.join("; ") || undefined);
   upsertPlugin("bluesky", true, warnings.join("; ") || null);
+  return { ok: true, note, error: warnings.join("; ") || null, handles: ok };
+}
+
+/* ----------------------------------------------------------------- tiktok */
+
+/**
+ * Public TikTok, collected — per handle (profile, then every video), per
+ * search seed, and the Discover page once. See tiktok.ts for the endpoints.
+ *
+ * FAILURE IS PER UNIT, as everywhere in this file. A handle whose video list
+ * is refused still has its profile figures; a seed whose probes all fail is a
+ * warning; Discover failing costs only the Discover cards.
+ *
+ * A READING PER HANDLE PER COLLECTION goes into `readings` for followers, like
+ * Bluesky's, and the day table keeps the last read of each day.
+ */
+export async function collectTiktok(): Promise<CollectResult & { handles: number }> {
+  const runId = startRun(tiktok.PLUGIN);
+  const handles = tiktok.parseHandles(configValue(tiktok.PLUGIN, "handles"));
+  const seeds = tiktok.parseSeeds(configValue(tiktok.PLUGIN, "searches"));
+
+  if (!handles.length && !seeds.length) {
+    const error =
+      "No handles and no search phrases configured. TikTok's public pages need " +
+      "no key — set the handles to watch on the plugin page.";
+    finishRun(runId, false, undefined, error);
+    upsertPlugin(tiktok.PLUGIN, false, error);
+    return { ok: false, error, handles: 0 };
+  }
+
+  forgetTiktokHandles(handles);
+  pruneClocks(tiktok.PLUGIN, [...handles, ...seeds.map((s) => `search:${s}`), "discover"]);
+
+  const warnings: string[] = [];
+  let ok = 0;
+  let skipped = 0;
+  let trends = 0;
+
+  for (const handle of handles) {
+    if (!due(tiktok.PLUGIN, handle, TIKTOK_EVERY_HOURS)) {
+      skipped++;
+      continue;
+    }
+    try {
+      const { profile: p, cookies } = await tiktok.profile(handle);
+      writeTiktokProfile({ ...p, handle });
+      if (p.followers !== null) record(`tiktok.${handle}.followers`, p.followers, { userId: p.userId });
+      await sleep(TIKTOK_GAP_MS);
+      let read: { views: number | null; complete: boolean; count: number } | null = null;
+      try {
+        const v = await tiktok.videos(handle, p.secUid!, cookies, TIKTOK_GAP_MS);
+        writeTiktokVideos(handle, v.videos, v.complete);
+        const counted = v.videos.filter((x) => x.views !== null);
+        read = {
+          views: counted.length ? counted.reduce((n, x) => n + x.views!, 0) : null,
+          complete: v.complete && counted.length === v.videos.length,
+          count: v.videos.length,
+        };
+        if (!v.complete) warnings.push(`${handle}: read the newest ${v.videos.length} videos, not all`);
+      } catch (err) {
+        warnings.push(`${handle}: videos — ${message(err)}`);
+        writeTiktokError(handle, `videos: ${message(err)}`);
+      }
+      writeTiktokDay(handle, p, read);
+      markClock(tiktok.PLUGIN, handle);
+      ok++;
+    } catch (err) {
+      writeTiktokError(handle, message(err));
+      warnings.push(`${handle}: ${message(err)}`);
+    }
+    await sleep(TIKTOK_GAP_MS);
+  }
+
+  for (const seed of seeds) {
+    const key = `search:${seed}`;
+    if (!due(tiktok.PLUGIN, key, TIKTOK_TRENDS_EVERY_HOURS)) continue;
+    try {
+      writeTiktokSearches(seed, await tiktok.searchTerms(seed, TIKTOK_GAP_MS));
+      markClock(tiktok.PLUGIN, key);
+      trends++;
+    } catch (err) {
+      warnings.push(`search "${seed}": ${message(err)}`);
+    }
+  }
+
+  if (due(tiktok.PLUGIN, "discover", TIKTOK_TRENDS_EVERY_HOURS)) {
+    try {
+      const d = await tiktok.discover();
+      if (d.items.length) {
+        writeTiktokDiscover(d.region, d.items);
+        trends++;
+      } else warnings.push("discover: the page came back with nothing on it");
+      markClock(tiktok.PLUGIN, "discover");
+    } catch (err) {
+      warnings.push(`discover: ${message(err)}`);
+    }
+  }
+  pruneTiktokTrends();
+
+  if (!ok && !skipped && !trends) {
+    const error = warnings.join("; ") || "nothing answered";
+    finishRun(runId, false, undefined, error);
+    upsertPlugin(tiktok.PLUGIN, true, error);
+    return { ok: false, error, handles: 0 };
+  }
+
+  const note =
+    ok === 0 && trends === 0
+      ? "fresh"
+      : [
+          handles.length ? `${ok}/${handles.length} handle${handles.length === 1 ? "" : "s"}` : "",
+          skipped ? `${skipped} fresh` : "",
+          trends ? `${trends} trend read${trends === 1 ? "" : "s"}` : "",
+          warnings.length ? `${warnings.length} warning(s)` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+  finishRun(runId, true, note, warnings.join("; ") || undefined);
+  upsertPlugin(tiktok.PLUGIN, true, warnings.join("; ") || null);
   return { ok: true, note, error: warnings.join("; ") || null, handles: ok };
 }
 

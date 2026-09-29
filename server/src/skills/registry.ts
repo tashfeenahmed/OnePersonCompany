@@ -932,7 +932,8 @@ const BUILTIN_ENTRIES: Skill[] = [
     about:
       "Every zone: its DNS records, proxy count, mail posture (SPF, DMARC, DKIM, " +
       "MX) and the nameservers Cloudflare assigned it; unsampled daily traffic " +
-      "rollups — requests, cache, bytes, threats, page views; and the join this " +
+      "rollups — requests, cache, bytes, threats, page views, status classes and " +
+      "requests by country (`countries`, null until collected); and the join this " +
       "box is uniquely able to make between the nameservers Cloudflare assigned " +
       "and the ones the registrar actually delegates to. Window in days, " +
       "default 7.",
