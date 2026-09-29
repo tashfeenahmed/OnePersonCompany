@@ -12,6 +12,7 @@ import { narrowApps } from "@/lib/api/apps";
 import { AppFilter, AppGrid, ReviewList } from "@/components/apps/AppsWidgets";
 import { ThreadCards } from "@/components/demand/ThreadCards";
 import { AdGallery } from "@/components/ads/AdGallery";
+import { HostMark } from "@/components/HostMark";
 import {
   Bars,
   Chart,
@@ -649,6 +650,7 @@ export function WidgetCard({
             {def.rows.map(([k, v], i) => (
               <div key={k} className="flex items-baseline gap-2 text-[13px]">
                 {def.marks?.[i] && <ModelMark name={def.marks[i]!} size={14} className="self-center" />}
+                {def.rowHosts?.[i] && <HostMark host={def.rowHosts[i]} size={14} className="self-center" />}
                 <span className="truncate">{k}</span>
                 <span className="text-muted-foreground ml-auto text-[12.5px] whitespace-nowrap tabular-nums">
                   {v}
@@ -856,7 +858,7 @@ export function WidgetCard({
         {!empty && def.kind === "table" &&
           (def.table?.length ? (
             <>
-              <Figures headers={def.headers ?? []} rows={def.table} marks={def.marks} tones={def.rowTones} />
+              <Figures headers={def.headers ?? []} rows={def.table} marks={def.marks} tones={def.rowTones} hosts={def.rowHosts} />
               {def.caption && (
                 <p className="text-muted-foreground mt-2 text-[12px] leading-snug">{def.caption}</p>
               )}
