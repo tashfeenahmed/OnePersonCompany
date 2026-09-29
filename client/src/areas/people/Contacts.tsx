@@ -1,12 +1,14 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { Settings2 } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Check, Loader2, Search, Settings2, Users } from "lucide-react";
 import { PageShell } from "@/components/PageShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PluginSettingsForm } from "@/components/settings/PluginSettingsForm";
 import { useApi } from "@/hooks/useApi";
-import { ago } from "@/lib/format";
+import { ago, day } from "@/lib/format";
+import { EmptyState, FilterChips, Problem, SmallPrint } from "@/areas/mailflow/parts";
+import { humanizeStamps } from "@/lib/mailText";
 import { peopleApi } from "@/lib/api/people";
 import { ContactPanel, ContactRow } from "./parts";
 
@@ -42,10 +44,9 @@ export function Contacts({ stale }: { stale: boolean }) {
   const [q, setQ] = useState("");
   const [all, setAll] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  /* WHICH ROW IS OPEN IS IN THE ADDRESS, not in a useState — the rule the
-     boards and the venture tabs follow. "Look at this correspondence" is a
-     thing somebody sends a link to, and a person opened out of a search is
-     reachable with the back button because of it. */
+  const navigate = useNavigate();
+  /* WHICH ROW IS OPEN IS IN THE ADDRESS, so a person opened out of a search
+     is reachable with the back button and can be linked to. */
   const [params, setParams] = useSearchParams();
   const open = params.get("open");
   const toggle = (address: string) => {
@@ -59,9 +60,7 @@ export function Contacts({ stale }: { stale: boolean }) {
     () => peopleApi.list({ stale: stale ? "1" : undefined, all: all ? "1" : undefined, limit: 400 }),
     [stale, all],
   );
-  /* The day series is asked for one contact at a time, when a row is opened.
-     Every contact's days in the list document would be tens of thousands of
-     rows to draw one chart nobody has clicked. */
+  /* The day series is asked for one contact at a time, when a row is opened. */
   const person = useApi(
     () => (open ? peopleApi.person(open) : Promise.resolve(null)),
     [open],
@@ -78,21 +77,6 @@ export function Contacts({ stale }: { stale: boolean }) {
     );
   });
 
-  const sub = doc.error
-    ? "The API is not running, so nothing here can be read."
-    : doc.loading
-      ? "Reading the contacts…"
-      : d
-        ? [
-            `${d.counts.mutual} correspondences of ${d.counts.scanned} addresses`,
-            `${d.windowDays}-day window`,
-            d.mailboxes.length ? d.mailboxes.join(", ") : null,
-            d.scannedAt ? `read ${ago(d.scannedAt)}` : null,
-          ]
-            .filter(Boolean)
-            .join(" · ")
-        : "";
-
   return (
     <PageShell
       title={stale ? "Gone quiet" : "People"}
@@ -106,64 +90,52 @@ export function Contacts({ stale }: { stale: boolean }) {
     >
       {showSettings && (
         <div className="border-line-soft mb-5 rounded-xl border p-4">
-          <p className="text-muted-foreground mb-3 text-[13.5px]">
-            Five decisions, saved on the server and checked before they are stored. The window
-            is what every count on this page is over; “minimum each way” is what separates a
-            correspondence from a transaction; “stale after” is the calendar question the
-            Stale tab asks.
+          <p className="text-muted-foreground mb-3 text-[13px]">
+            How far back to look, how many emails each way make someone a regular contact, and how
+            many silent days count as “gone quiet”.
           </p>
           <PluginSettingsForm plugin="people" onSaved={() => doc.reload()} />
         </div>
       )}
 
-      {/* WHAT THE SCAN REACHED, IN THE PAGE AND NOT IN THE HEADER. This was
-          PageShell's `sub` line, and PageShell drops its words when a page is
-          embedded — which this one always is now. The Email shell's header
-          says which tab you are reading; it cannot say how much of which
-          mailbox was read, or when, so that sentence moved down here. */}
-      {sub && <p className="text-muted-foreground mb-2 text-[12.5px]">{sub}</p>}
-
-      {/* The promise the page is under, in the page rather than in a tooltip. */}
-      <p className="text-muted-foreground mb-4 text-[12.5px]">
-        Mail headers only — addresses, counts and dates. Nothing here knows what anybody said,
-        so a cooling correspondence is arithmetic about dates and not a story.
-        {d?.floors && (
-          <span className="text-warn">
-            {" "}
-            The message cap bit: this scan reached back only to {d.scanFrom?.slice(0, 10)}, so
-            every count is a floor.
-          </span>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <FilterChips
+          label="Show"
+          value={stale ? "stale" : "everyone"}
+          onChange={(k) => navigate(k === "stale" ? "/mail/stale" : "/mail/contacts")}
+          chips={[
+            { key: "everyone", label: "Everyone", count: stale ? undefined : d?.contacts.length },
+            {
+              key: "stale",
+              label: "Gone quiet",
+              count: stale ? d?.contacts.length : undefined,
+              title: d ? `No email either way for ${d.staleDays} days` : undefined,
+            },
+          ]}
+        />
+        {d && d.counts.scanned > 0 && (
+          <div className="relative ml-auto w-full sm:w-[260px]">
+            <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search people"
+              aria-label="Search people"
+              className="h-8 pl-8 text-[13.5px]"
+            />
+          </div>
         )}
-      </p>
+      </div>
 
-      {d && d.counts.scanned > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <Input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search name, address or domain"
-            className="max-w-[320px]"
-          />
-          <Button
-            variant={all ? "secondary" : "ghost"}
-            size="sm"
-            onClick={() => setAll((a) => !a)}
-            title={`Show every address scanned, including those under the minimum of ${d.minEachWay} messages each way.`}
-          >
-            {all ? "Every address" : `Correspondences only (≥${d.minEachWay} each way)`}
-          </Button>
-          <span className="text-muted-foreground ml-auto text-[12.5px]">
-            {d.counts.warm} warm · {d.counts.cooling} cooling · {d.counts.cold} cold ·{" "}
-            {d.counts.noRhythm} no rhythm yet
-          </span>
-        </div>
+      {doc.error && <Problem>{doc.error}</Problem>}
+      {doc.loading && !d && (
+        <p className="text-muted-foreground text-[14px]">
+          <Loader2 className="mr-1.5 inline size-3.5 animate-spin" /> Loading…
+        </p>
       )}
 
-      {doc.error && <p className="text-destructive text-[14.5px]">{doc.error}</p>}
-      {d?.note && <p className="text-muted-foreground text-[14.5px]">{d.note}</p>}
-
       {rows.length > 0 && (
-        <div className="border-line-soft divide-line-soft divide-y overflow-hidden rounded-xl border">
+        <div className="border-line-soft divide-line-soft bg-card divide-y overflow-hidden rounded-xl border">
           {rows.map((p) => (
             <div key={`${p.mailbox} ${p.address}`}>
               <ContactRow
@@ -185,12 +157,61 @@ export function Contacts({ stale }: { stale: boolean }) {
         </div>
       )}
 
-      {!doc.loading && !doc.error && !rows.length && d && d.counts.scanned > 0 && (
-        <p className="text-muted-foreground text-[14.5px]">
-          {stale
-            ? `Nobody has been silent for ${d.staleDays} days. That is a statement about this ${d.windowDays}-day window, not about your whole mailbox.`
-            : "Nothing matches that search."}
-        </p>
+      {!doc.loading && !doc.error && !rows.length && d && (
+        <EmptyState
+          icon={stale ? Check : Users}
+          title={
+            q.trim()
+              ? "Nobody matches that search"
+              : stale
+                ? "Nobody has gone quiet"
+                : "No regular contacts yet"
+          }
+          body={
+            q.trim()
+              ? "Try a name, an email address or a company domain."
+              : stale
+                ? `Everyone you email regularly has been in touch in the last ${d.staleDays} days.`
+                : "People show up here once you've emailed back and forth a few times."
+          }
+        />
+      )}
+
+      {d && d.counts.scanned > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px]">
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground underline"
+            onClick={() => setAll((a) => !a)}
+          >
+            {all ? "Only show regular contacts" : `Show everyone you've emailed (${d.counts.scanned})`}
+          </button>
+        </div>
+      )}
+
+      {d && (
+        <SmallPrint summary="How this works" className="mt-6">
+          <p>
+            Built from email headers only — names, addresses, counts and dates over the last {d.windowDays} days
+            {d.mailboxes.length ? ` of ${d.mailboxes.join(", ")}` : ""}. Nothing here knows what anybody said.
+          </p>
+          <p>
+            A regular contact is someone with at least {d.minEachWay} emails each way. {d.counts.warm} in touch ·{" "}
+            {d.counts.cooling} cooling off · {d.counts.cold} gone cold · {d.counts.noRhythm} too new to tell.
+          </p>
+          <p>
+            “Cooling off” and “gone cold” compare the silence with how often you usually write to that person. “Gone
+            quiet” is simpler: no email either way for {d.staleDays} days.
+          </p>
+          {d.floors && (
+            <p className="text-warn">
+              Only emails back to {d.scanFrom ? day(d.scanFrom, { year: true }) : "the scan limit"} were read, so every
+              count is a minimum.
+            </p>
+          )}
+          {d.scannedAt && <p>Last updated {ago(d.scannedAt)}.</p>}
+          {d.note && <p>{humanizeStamps(d.note)}</p>}
+        </SmallPrint>
       )}
     </PageShell>
   );

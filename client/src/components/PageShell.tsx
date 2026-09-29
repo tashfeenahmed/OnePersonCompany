@@ -35,7 +35,7 @@ export function PageShell({
 }) {
   const embedded = useContext(Embedded);
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-8 pt-3 pb-20">
+    <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-20 sm:px-8">
       <div
         className={cn(
           "mx-auto w-full",
