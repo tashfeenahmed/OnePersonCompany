@@ -53,6 +53,7 @@ import * as store from "./store.ts";
 import { appStoreIdentities, createAnalyticsRequest } from "./appstore.ts";
 import { collectNow, nextPassDue, passRunning } from "./collect.ts";
 import { HEALTH_DAYS, VITALS_DAYS } from "./play.ts";
+import { appsDoc, refreshListings } from "./apps.ts";
 
 export const mobileHealthRoutes = new Hono();
 
@@ -1352,3 +1353,16 @@ mobileHealthRoutes.get("/", (c) => {
     generatedAt: new Date().toISOString(),
   });
 });
+
+/* ------------------------------------------------------------------ apps */
+
+/** Every app, both stores joined on the bundle id — the Apps board's document.
+ *  See apps.ts. */
+mobileHealthRoutes.get("/apps", (c) => {
+  const raw = Number(c.req.query("days") ?? 30);
+  const days = Number.isFinite(raw) ? Math.min(400, Math.max(1, Math.round(raw))) : 30;
+  return c.json(appsDoc(days));
+});
+
+/** Re-read every store listing now (icons and public ratings). */
+mobileHealthRoutes.post("/apps/refresh", async (c) => c.json({ refreshed: await refreshListings(true) }));

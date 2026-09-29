@@ -362,4 +362,24 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       DELETE FROM mobile_analytics_instances;
     `,
   },
+  {
+    name: "493_mobile_listings",
+    sql: `
+      -- EACH STORE'S PUBLIC LISTING, CACHED: the icon (a small data URL, so the
+      -- board never hotlinks a store CDN), the public rating and its count
+      -- (Apple's summed over a handful of storefronts), and the store URL.
+      -- Refreshed at most every twelve hours by apps.ts.
+      CREATE TABLE IF NOT EXISTS mobile_listings (
+        store        TEXT NOT NULL,
+        app          TEXT NOT NULL,
+        name         TEXT,
+        icon         TEXT,
+        rating       REAL,
+        rating_count INTEGER,
+        url          TEXT,
+        fetched_at   TEXT NOT NULL,
+        PRIMARY KEY (store, app)
+      ) WITHOUT ROWID;
+    `,
+  },
 ];

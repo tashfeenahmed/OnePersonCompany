@@ -11,6 +11,8 @@ import { widgetExample } from "./widgetExamples.ts";
 import type { WidgetWindow } from "../lib/window.ts";
 import type { ServerFleetData } from "../lib/serverWidgets.ts";
 
+import type { AppEntry, AppsDoc } from "../lib/api/apps.ts";
+
 export type WidgetKind =
   | "metric"
   | "bars"
@@ -32,7 +34,13 @@ export type WidgetKind =
    *  tells one half of a board from the other. Name and `sub` only. */
   | "heading"
   /** Bars per day, with a Total tab and a split tab (by model, by source). */
-  | "daily";
+  | "daily"
+  /** The Apps board's app picker — chips with icons; writes `?app=`. */
+  | "appfilter"
+  /** One card per app: icon, stores, installs, rating, reviews. */
+  | "appgrid"
+  /** The reviews themselves, with stars and the app's icon. */
+  | "reviews";
 
 export type StatusTone = "ok" | "warn" | "bad";
 
@@ -167,6 +175,8 @@ export type RankedRow = {
   spark?: number[];
   /** A VENTURE ID, for the venture's own favicon beside the label. */
   venture?: string;
+  /** An app, for its store icon beside the label (Apps board). */
+  app?: Pick<AppEntry, "icon" | "name" | "ventureId">;
   /** A SUB-AGENT ROLE (`researcher`, `seo`, …), for its artwork beside the
    *  label — see components/org/RoleIcon. */
   role?: string;
@@ -542,6 +552,8 @@ export type Widget = {
      * words. The Users board draws both and says which is which.
      */
     users?: boolean;
+    /** /api/mobilehealth/apps — every app, both stores joined. */
+    apps?: boolean;
     /**
      * WHAT THE APPS DO, beside `mobile`'s account of what they earn: crash and
      * ANR rates and counts, which report each store answered, the reviews and
@@ -593,6 +605,8 @@ export type Widget = {
   /** Where this card's figures are set — drawn as a small link at the right
    *  of the header, e.g. "Set rate & machines" → /finance/power. */
   configLink?: { label: string; to: string };
+  /** appfilter / appgrid / reviews — the Apps document (see lib/api/apps). */
+  appsDoc?: AppsDoc;
   /** daily — one entry per day: the total and, for the split tab, its parts. */
   daily?: DailyBar[];
   /** daily — the split tab's name: "By model", "By source". */
@@ -742,6 +756,8 @@ export const SOURCES: Record<string, WidgetSource> = {
     for what they are — the same move the merged domain portfolio makes under
     "Registrars" and the whole bill makes under "Costs".
   */
+  /* BOTH STORES JOINED PER APP — the Apps board (/api/mobilehealth/apps). */
+  apps: { name: "Apps", icon: null, mono: "Ap", tint: "#0d96f6", connected: true },
   mobile: {
     name: "App stores",
     icon: null,
@@ -2553,6 +2569,25 @@ export const WIDGETS: Record<string, Widget> = {
     kind: "rows",
     live: { costs: true },
   },
+
+  /* --------------------------------------------------------------- apps
+     THE APPS BOARD since 2026-09-29: every card reads one joined document and
+     narrows to the app picked in `apps.filter`. */
+  "apps.filter": { src: "apps", name: "Apps", kind: "appfilter", live: { apps: true } },
+  "apps.installs": { src: "apps", name: "Installs", window: "selected", kind: "metric", live: { apps: true } },
+  "apps.rating": { src: "apps", name: "Rating", kind: "metric", live: { apps: true } },
+  "apps.reviews": { src: "apps", name: "Reviews", window: "selected", kind: "metric", live: { apps: true } },
+  "apps.active": { src: "apps", name: "Android devices", kind: "metric", live: { apps: true } },
+  "apps.daily": { src: "apps", name: "Installs per day", window: "selected", kind: "daily", live: { apps: true }, unit: "count" },
+  "apps.grid": { src: "apps", name: "Every app", window: "selected", kind: "appgrid", live: { apps: true } },
+  "apps.byApp": { src: "apps", name: "Installs by app", window: "selected", kind: "ranked", live: { apps: true } },
+  "apps.ratings": { src: "apps", name: "Ratings by app", kind: "ranked", live: { apps: true } },
+  "apps.stars": { src: "apps", name: "Review stars", kind: "ranked", live: { apps: true } },
+  "apps.reviewList": { src: "apps", name: "Latest reviews", kind: "reviews", live: { apps: true } },
+  "apps.countries": { src: "apps", name: "Where installs come from", window: "selected", kind: "ranked", live: { apps: true } },
+  "apps.sources": { src: "apps", name: "How people find the apps", window: "selected", kind: "ranked", live: { apps: true } },
+  "apps.conversion": { src: "apps", name: "Play listing conversion", window: "selected", kind: "proportion", live: { apps: true } },
+  "apps.stability": { src: "apps", name: "Crashes and ANRs", window: "selected", kind: "ranked", live: { apps: true } },
 
   /* --------------------------------------------------------------- costs
      THE CARDS THAT BELONG TO NO ONE PROVIDER. "What is this whole operation

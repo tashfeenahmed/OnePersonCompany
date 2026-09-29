@@ -17,6 +17,7 @@ import { bytes, count, money, pct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ModelMark } from "@/components/ModelMark";
 import { RoleIcon } from "@/components/org/RoleIcon";
+import { AppIcon } from "@/components/apps/AppsWidgets";
 import { VentureMark } from "@/components/VentureChrome";
 import { useStore } from "@/lib/store";
 import type {
@@ -1495,6 +1496,7 @@ export function Ranked({
               {r.mark && <ModelMark name={r.mark} size={13} className="self-center" />}
               {venture && <VentureMark venture={venture} size={16} className="self-center" />}
               {r.role && <RoleIcon role={r.role} className="size-5 self-center" />}
+              {r.app && <AppIcon app={r.app} size={16} className="self-center" />}
               <span className="truncate">{r.label}</span>
               {r.spark && r.spark.length > 1 && <MiniLine values={r.spark} />}
               {r.sub && (
