@@ -58,6 +58,8 @@ const sub = (over: Partial<StripeSubscriptionRecord> = {}): StripeSubscriptionRe
   trial_start: null,
   trial_end: null,
   reason: null,
+  feedback: null,
+  comment: null,
   paid_cents: 29_00,
   seen_at: "2026-09-06T11:00:00.000Z",
   ...over,

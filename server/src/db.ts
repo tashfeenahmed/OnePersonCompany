@@ -2838,6 +2838,24 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       CREATE INDEX gate_verdicts_gate_at ON gate_verdicts(gate, at DESC);
     `,
   },
+  {
+    name: "496_stripe_subscription_feedback",
+    sql: `
+      -- WHAT THE CUSTOMER SAID WHEN THEY LEFT. \`reason\` is Stripe's own
+      -- account of the ending (a request, a failed card, a dispute) and says
+      -- nothing about why a customer asked. Stripe's cancellation survey does:
+      -- cancellation_details.feedback is one of eight fixed codes
+      -- (too_expensive, missing_features, switched_service, unused,
+      -- customer_service, too_complex, low_quality, other) and .comment is
+      -- their free text.
+      --
+      -- NULLABLE AND FILLED BY THE NEXT COLLECTION: every subscription is
+      -- rewritten on every run, so rows this leaves empty fill themselves in.
+      -- Null means no survey answer, which is most cancellations.
+      ALTER TABLE stripe_subscriptions ADD COLUMN feedback TEXT;
+      ALTER TABLE stripe_subscriptions ADD COLUMN comment TEXT;
+    `,
+  },
 /* SORTED BY NAME, NOT BY POSITION IN THIS FILE. The prefix is the order, and
    it was not: this array ran 017 before 015, and the integration blocks
    concatenated after it ran one area's 3xx steps ahead of another's 1xx. The
@@ -4065,6 +4083,8 @@ export type StripeSubscriptionRecord = {
   trial_start: string | null;
   trial_end: string | null;
   reason: string | null;
+  feedback: string | null;
+  comment: string | null;
   paid_cents: number | null;
   seen_at: string;
 };
@@ -4335,6 +4355,9 @@ export function writeStripeSubscriptions(
     trialStart: string | null;
     trialEnd: string | null;
     reason: string | null;
+    /** Optional so callers written before the survey columns still type. */
+    feedback?: string | null;
+    comment?: string | null;
     paidCents: number | null;
   }[],
 ) {
@@ -4345,8 +4368,8 @@ export function writeStripeSubscriptions(
        (id, account_id, account_label, status, currency, monthly_usd,
         listed_monthly_usd, bill_interval, interval_count, product, plan,
         created_at, ended_at, cancel_at_period_end, cancel_at, trial_start,
-        trial_end, reason, paid_cents, seen_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        trial_end, reason, feedback, comment, paid_cents, seen_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   db.exec("BEGIN");
   try {
@@ -4355,7 +4378,8 @@ export function writeStripeSubscriptions(
         s.id, s.accountId, s.accountLabel, s.status, s.currency, s.monthlyUsd,
         s.listedMonthlyUsd, s.interval, s.intervalCount, s.product, s.plan,
         s.createdAt, s.endedAt, s.cancelAtPeriodEnd ? 1 : 0, s.cancelAt,
-        s.trialStart, s.trialEnd, s.reason, s.paidCents, seen,
+        s.trialStart, s.trialEnd, s.reason, s.feedback ?? null, s.comment ?? null,
+        s.paidCents, seen,
       );
     db.exec("COMMIT");
   } catch (err) {

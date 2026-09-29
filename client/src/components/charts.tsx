@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { ModelMark } from "@/components/ModelMark";
 import { RoleIcon } from "@/components/org/RoleIcon";
 import { AppIcon } from "@/components/apps/AppsWidgets";
+import { HostMark } from "@/components/HostMark";
 import { VentureMark } from "@/components/VentureChrome";
 import { useStore } from "@/lib/store";
 import type {
@@ -1498,6 +1499,7 @@ export function Ranked({
               {venture && <VentureMark venture={venture} size={16} className="self-center" />}
               {r.role && <RoleIcon role={r.role} className="size-5 self-center" />}
               {r.app && <AppIcon app={r.app} size={16} className="self-center" />}
+              {r.host && <HostMark host={r.host} size={14} className="self-center" />}
               <span className="truncate">{r.label}</span>
               {r.spark && r.spark.length > 1 && <MiniLine values={r.spark} />}
               {r.sub && (
@@ -2032,6 +2034,7 @@ export function Figures({
   rows,
   marks,
   tones,
+  hosts,
 }: {
   headers: string[];
   rows: string[][];
@@ -2040,6 +2043,8 @@ export function Figures({
   /** A judgement per row, as a dot before the first cell; null is a row
    *  that is not judged and gets the muted dot, so the column lines up. */
   tones?: (StatusTone | null)[];
+  /** A hostname per row, for its venture's favicon before the first cell. */
+  hosts?: (string | null)[];
 }) {
   /* TEN ROWS, THEN A CONTROL. A sixty-model table is a page of its own; the
      first ten are the ones read, and the rest are one press away. */
@@ -2084,7 +2089,12 @@ export function Figures({
                     i === 0 ? "pr-3 text-left" : "pl-3 text-right tabular-nums",
                   )}
                 >
-                  {i === 0 && marks?.[ri] ? (
+                  {i === 0 && hosts?.[ri] ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <HostMark host={hosts[ri]} size={13} />
+                      {cell}
+                    </span>
+                  ) : i === 0 && marks?.[ri] ? (
                     <span className="inline-flex items-center gap-1.5">
                       <ModelMark name={marks[ri]!} size={13} />
                       {cell}

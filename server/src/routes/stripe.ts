@@ -239,6 +239,9 @@ function trialConversionSection(subs: StripeSubscriptionRecord[], nowMs: number)
   };
 }
 
+/** Stripe's cancellation reasons that mean the customer never chose to go. */
+const INVOLUNTARY = new Set(["payment_failed", "payment_disputed"]);
+
 /**
  * CHURN, WITH ITS DENOMINATOR NAMED — because there are four defensible ones
  * and a rate quoted without saying which is not a measurement.
@@ -311,6 +314,33 @@ function churnSection(subs: StripeSubscriptionRecord[], nowMs: number) {
 
       const trials = neverBilled.filter((s) => s.trial_start);
       const expired = neverBilled.filter((s) => !s.trial_start);
+      /*
+        CHURN BY WHAT THE CUSTOMER SAID. Stripe's cancellation survey stamps
+        cancellation_details.feedback with one of eight fixed codes
+        (too_expensive, missing_features, switched_service, unused,
+        customer_service, too_complex, low_quality, other) and a free-text
+        comment; this is the only place this box hears WHY money left, not
+        just how much. A subscription that ended on a failed card or a dispute
+        was never asked, so those land in one `involuntary` bucket rather than
+        in `no_feedback`. Everything else without an answer is `no_feedback`,
+        named, because the survey is optional and often off: a silent drop
+        would make the rows stop summing to churnedMrr without saying so.
+      */
+      const byFeedback = new Map<string, { subs: number; mrr: number }>();
+      for (const s of real) {
+        const key = INVOLUNTARY.has(s.reason ?? "")
+          ? "involuntary"
+          : (s.feedback ?? "no_feedback");
+        const r = byFeedback.get(key) ?? { subs: 0, mrr: 0 };
+        r.subs += 1;
+        r.mrr += s.monthly_usd;
+        byFeedback.set(key, r);
+      }
+      const comments = real
+        .filter((s) => s.comment)
+        .sort((a, b) => (b.ended_at ?? "").localeCompare(a.ended_at ?? ""))
+        .slice(0, 2)
+        .map((s) => ({ comment: s.comment!, feedback: s.feedback, endedAt: s.ended_at! }));
       const byProduct = new Map<string, { mrr: number; subs: number }>();
       for (const s of real) {
         const p = byProduct.get(s.product ?? "Other") ?? { mrr: 0, subs: 0 };
@@ -386,12 +416,20 @@ function churnSection(subs: StripeSubscriptionRecord[], nowMs: number) {
             wouldHaveBeen: money(expired.reduce((n, s) => n + s.monthly_usd, 0)),
           },
         },
-        involuntary: real.filter(
-          (s) => s.reason === "payment_failed" || s.reason === "payment_disputed",
-        ).length,
+        involuntary: real.filter((s) => INVOLUNTARY.has(s.reason ?? "")).length,
         byProduct: [...byProduct.entries()]
           .map(([product, v]) => ({ product, mrr: money(v.mrr), subscriptions: v.subs }))
           .sort((a, b) => b.mrr - a.mrr),
+        /** What the churned customers said when they left, biggest first:
+         *  Stripe's survey feedback codes, plus `involuntary` (a failed card or
+         *  a dispute) and `no_feedback`. The subs and MRR across these rows sum
+         *  to `churnedSubs`/`churnedMrr` by construction. */
+        byFeedback: [...byFeedback.entries()]
+          .map(([feedback, v]) => ({ feedback, mrr: money(v.mrr), subscriptions: v.subs }))
+          .sort((a, b) => b.mrr - a.mrr),
+        /** The newest free-text survey comments from the same population,
+         *  at most two, verbatim (capped at collection). */
+        comments,
         basis:
           "MRR the window opened with that has since churned, over that starting book — " +
           "reconstructed as today's MRR minus what has been added plus those losses. " +

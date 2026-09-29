@@ -3162,6 +3162,52 @@ Object.assign(LIVE_BUILDERS, {
     };
   },
 
+  "stripe.churnReasons": ({ stripe: S, window: W }: LiveInputs) => {
+    /*
+      WHY THE MONEY LEFT, in the customer's words where there are any. The
+      buckets are Stripe's cancellation-survey feedback codes, off the churn
+      rows the route computes, so the denominators and the never-billed
+      exclusions are already decided; this card only reads them. Most
+      cancellations carry no survey answer (the survey is optional, and a
+      cancellation made from the dashboard or by the API never shows one), so
+      `no_feedback` is often the biggest row, and it stays visible: dropping
+      it would make the rows stop summing to churned MRR without saying so.
+      A failed card or a dispute is its own row: nobody chose that.
+    */
+    const days = churnDays(W);
+    const c = churnRow(S, days);
+    if (!c || !c.byFeedback?.length) return null;
+    const human = (feedback: string) =>
+      ({
+        too_expensive: "Too expensive",
+        missing_features: "Missing features",
+        switched_service: "Switched to another service",
+        unused: "Not using it",
+        customer_service: "Customer service",
+        too_complex: "Too complicated",
+        low_quality: "Quality issues",
+        other: "Other reason",
+        involuntary: "Card failed or disputed",
+        no_feedback: "No feedback given",
+      })[feedback] ?? feedback.replace(/_/g, " ");
+    const rows = c.byFeedback.map((r): [string, string] => [
+      human(r.feedback),
+      `${inCurrency(r.mrr, c.currency, 0)}/mo · ${count(r.subscriptions)} sub${r.subscriptions === 1 ? "" : "s"}`,
+    ]);
+    const latest = c.comments?.[0];
+    if (latest) {
+      const text = latest.comment.replace(/\s+/g, " ");
+      rows.push([
+        "Latest comment",
+        `“${text.length > 90 ? `${text.slice(0, 89).trimEnd()}…` : text}”`,
+      ]);
+    }
+    return {
+      rows,
+      caption: `${count(c.churnedSubs)} churned sub${c.churnedSubs === 1 ? "" : "s"} · ${inCurrency(c.churnedMrr, c.currency, 0)}/mo · ${isAll(W) ? "90d" : `${days}d`} · from Stripe's cancellation survey`,
+    };
+  },
+
   "stripe.atRisk": ({ stripe: S }: LiveInputs) => {
     const a = S?.atRisk;
     if (!a) return null;
@@ -15112,6 +15158,203 @@ Object.assign(LIVE_BUILDERS, {
       })),
       galleryShape: "square" as const,
       caption: `Suggested on TikTok Discover in ${region}`,
+    };
+  },
+} satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
+
+/* ================================================================== ads
+   THE ADS BOARD'S VISUAL HALF — the last campaign and the advertisements
+   themselves, from `ads.history` (the creatives over 90 days). Every figure
+   is summed from the ads' own daily rows, in the account's currency.
+   ======================================================================== */
+
+type AdHistory = NonNullable<NonNullable<LiveInputs["ads"]>["history"]>;
+
+function adTotals(H: AdHistory) {
+  const cur = H.adSets.find((s) => s.currency)?.currency ?? "EUR";
+  const days = new Map<string, { spend: number; clicks: number; impressions: number; byAd: Map<string, { spend: number; clicks: number }> }>();
+  for (const a of H.ads)
+    for (const d of a.daily) {
+      const e = days.get(d.day) ?? { spend: 0, clicks: 0, impressions: 0, byAd: new Map() };
+      e.spend += d.spend ?? 0;
+      e.clicks += d.clicks ?? 0;
+      e.impressions += d.impressions ?? 0;
+      const b = e.byAd.get(a.adId) ?? { spend: 0, clicks: 0 };
+      b.spend += d.spend ?? 0;
+      b.clicks += d.clicks ?? 0;
+      e.byAd.set(a.adId, b);
+      days.set(d.day, e);
+    }
+  const active = [...days.entries()].filter(([, v]) => v.spend > 0 || v.clicks > 0).sort((a, b) => a[0].localeCompare(b[0]));
+  const spend = active.reduce((n, [, v]) => n + v.spend, 0);
+  const clicks = active.reduce((n, [, v]) => n + v.clicks, 0);
+  const impressions = active.reduce((n, [, v]) => n + v.impressions, 0);
+  return { cur, days, active, spend, clicks, impressions, first: active[0]?.[0] ?? null, last: active.at(-1)?.[0] ?? null };
+}
+
+const adName = (a: AdHistory["ads"][number]) => a.title ?? a.name ?? a.creativeName ?? "Untitled ad";
+const adSpan = (t: ReturnType<typeof adTotals>) =>
+  t.first && t.last ? (t.first === t.last ? dayShort(t.first) : `${dayShort(t.first)} – ${dayShort(t.last)}`) : "";
+
+/** Daily bars over the campaign's own span, split by ad. */
+function adDaily(H: AdHistory, pick: (v: { spend: number; clicks: number }) => number) {
+  const t = adTotals(H);
+  if (!t.first || !t.last) return null;
+  const grid: string[] = [];
+  for (let d = Date.parse(`${t.first}T00:00:00Z`) - 2 * 86_400_000; d <= Date.parse(`${t.last}T00:00:00Z`) + 2 * 86_400_000; d += 86_400_000)
+    grid.push(new Date(d).toISOString().slice(0, 10));
+  const names = new Map(H.ads.map((a) => [a.adId, adName(a)]));
+  return {
+    t,
+    daily: grid.map((day) => {
+      const v = t.days.get(day);
+      const parts = [...(v?.byAd ?? new Map()).entries()].map(([id, b]) => ({ label: names.get(id) ?? id, value: pick(b) }));
+      return { day, total: parts.reduce((n, p) => n + p.value, 0), parts };
+    }),
+  };
+}
+
+Object.assign(LIVE_BUILDERS, {
+  "ads.lastRun": ({ ads: A }: LiveInputs) => {
+    const H = A?.history;
+    if (!H?.ads.length) return null;
+    const t = adTotals(H);
+    if (!t.active.length) return { value: "—", sub: "nothing delivered in the last 90 days" };
+    const running = H.ads.some((a) => (a.status ?? "").toUpperCase() === "ACTIVE");
+    return {
+      value: money(t.spend, t.cur),
+      sub: `${adSpan(t)} · ${running ? "still running" : "all ads paused since"}${running ? "" : ` ${dayShort(t.last!)}`}`,
+    };
+  },
+
+  "ads.allClicks": ({ ads: A }: LiveInputs) => {
+    const H = A?.history;
+    if (!H?.ads.length) return null;
+    const t = adTotals(H);
+    if (!t.active.length) return null;
+    return {
+      value: count(t.clicks),
+      sub: `${compact(t.impressions)} impressions · ${adSpan(t)}`,
+      series: t.active.map(([, v]) => v.clicks),
+      seriesAt: t.active.map(([d]) => `${d}T00:00:00Z`),
+      unit: "count" as const,
+    };
+  },
+
+  "ads.allCtr": ({ ads: A }: LiveInputs) => {
+    const H = A?.history;
+    if (!H?.ads.length) return null;
+    const t = adTotals(H);
+    if (!t.impressions) return null;
+    const ctr = t.clicks / t.impressions;
+    return { value: pct(ctr), tone: ctr < 0.01 ? ("warn" as StatusTone) : undefined, sub: ctr >= 0.02 ? "above the ~1–2% most ads get" : ctr >= 0.01 ? "about typical for Facebook ads" : "below the ~1% most ads get" };
+  },
+
+  "ads.allCpc": ({ ads: A }: LiveInputs) => {
+    const H = A?.history;
+    if (!H?.ads.length) return null;
+    const t = adTotals(H);
+    if (!t.clicks) return null;
+    return { value: money(t.spend / t.clicks, t.cur), sub: `${money(t.spend, t.cur)} for ${count(t.clicks)} clicks`, invert: true };
+  },
+
+  "ads.spendDaily": ({ ads: A }: LiveInputs) => {
+    const H = A?.history;
+    if (!H) return null;
+    const r = adDaily(H, (v) => v.spend);
+    if (!r) return null;
+    return { daily: r.daily, dailySplit: "By ad", unit: "usd" as const, caption: `${money(r.t.spend, r.t.cur)} over ${adSpan(r.t)} · amounts in ${r.t.cur}` };
+  },
+
+  "ads.clicksDaily": ({ ads: A }: LiveInputs) => {
+    const H = A?.history;
+    if (!H) return null;
+    const r = adDaily(H, (v) => v.clicks);
+    if (!r) return null;
+    return { daily: r.daily, dailySplit: "By ad", unit: "count" as const, caption: `${count(r.t.clicks)} clicks over ${adSpan(r.t)}` };
+  },
+
+  "ads.gallery": ({ ads: A }: LiveInputs) => {
+    const H = A?.history;
+    if (!H?.ads.length) return null;
+    const t = adTotals(H);
+    const per = (a: AdHistory["ads"][number]) => {
+      const spend = a.daily.reduce((n, d) => n + (d.spend ?? 0), 0);
+      const clicks = a.daily.reduce((n, d) => n + (d.clicks ?? 0), 0);
+      const imp = a.daily.reduce((n, d) => n + (d.impressions ?? 0), 0);
+      return { spend, clicks, imp };
+    };
+    const cards = H.ads
+      .map((a) => ({ a, p: per(a) }))
+      .sort((x, y) => y.p.clicks - x.p.clicks || y.p.imp - x.p.imp);
+    return {
+      adCards: cards.map(({ a, p }) => ({
+        id: a.adId,
+        name: a.name ?? a.adId,
+        title: a.title ?? a.name,
+        body: a.body,
+        image: a.imageUrl ?? a.thumbUrl,
+        cta: a.callToAction ? a.callToAction.replace(/_/g, " ").toLowerCase() : null,
+        status: (a.status ?? "").toUpperCase() === "ACTIVE" ? "active" : (a.configuredStatus ?? "").toUpperCase() === "ACTIVE" ? "not running" : "paused",
+        stats: p.imp
+          ? ([
+              ["spent", money(p.spend, t.cur)],
+              ["clicks", count(p.clicks)],
+              ["CTR", p.imp ? pct(p.clicks / p.imp, { digits: 1 }) : "—"],
+              ["per click", p.clicks ? money(p.spend / p.clicks, t.cur) : "—"],
+            ] as [string, string][])
+          : [],
+      })),
+      caption: `${count(H.ads.length)} ads · best performers first · figures over the last 90 days`,
+    };
+  },
+
+  "ads.bestAds": ({ ads: A }: LiveInputs) => {
+    const H = A?.history;
+    if (!H?.ads.length) return null;
+    const t = adTotals(H);
+    const rows = H.ads
+      .map((a) => {
+        const spend = a.daily.reduce((n, d) => n + (d.spend ?? 0), 0);
+        const clicks = a.daily.reduce((n, d) => n + (d.clicks ?? 0), 0);
+        return { a, spend, clicks };
+      })
+      .filter((r) => r.clicks >= 10)
+      .sort((x, y) => x.spend / x.clicks - y.spend / y.clicks);
+    if (!rows.length) return null;
+    const worst = Math.max(...rows.map((r) => r.spend / r.clicks));
+    return {
+      ranked: rows.slice(0, 8).map((r) => ({
+        label: adName(r.a),
+        value: r.spend / r.clicks,
+        text: `${money(r.spend / r.clicks, t.cur)} a click`,
+        sub: `${count(r.clicks)} clicks`,
+        app: { icon: r.a.thumbUrl ?? r.a.imageUrl, name: adName(r.a), ventureId: null },
+      })),
+      rankedMax: worst,
+      caption: "Cheapest first · ads with at least 10 clicks",
+    };
+  },
+
+  "ads.statusMix": ({ ads: A }: LiveInputs) => {
+    const H = A?.history;
+    if (!H?.ads.length) return null;
+    const by = { active: 0, paused: 0, notRunning: 0 };
+    for (const a of H.ads) {
+      if ((a.status ?? "").toUpperCase() === "ACTIVE") by.active++;
+      else if ((a.configuredStatus ?? "").toUpperCase() === "ACTIVE") by.notRunning++;
+      else by.paused++;
+    }
+    return {
+      value: `${count(by.active)} of ${count(H.ads.length)}`,
+      sub: by.active ? "ads delivering now" : "no ad is delivering right now",
+      tone: by.active ? undefined : ("warn" as StatusTone),
+      parts: [
+        { label: "delivering", value: by.active, text: count(by.active), tone: "ok" as StatusTone },
+        { label: "set active but not running", value: by.notRunning, text: count(by.notRunning), tone: "warn" as StatusTone },
+        { label: "paused", value: by.paused, text: count(by.paused) },
+      ],
+      partsLabel: "The ads in the account",
     };
   },
 } satisfies Record<string, (d: LiveInputs) => Partial<Widget> | null>);
