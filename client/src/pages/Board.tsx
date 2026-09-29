@@ -129,6 +129,12 @@ export function Board() {
   const [drop, setDrop] = useState<{ columnId: number; before: number | null } | null>(
     null,
   );
+  /* A COLUMN BEING CARRIED by its header, and where it would land: before
+     this column id, at the end when null, nowhere yet when undefined — the
+     same `before` the move-column endpoint takes. Kept apart from `drag` so a
+     lane's card handlers never mistake a column for a card. */
+  const [colDrag, setColDrag] = useState<number | null>(null);
+  const [colDrop, setColDrop] = useState<number | null | undefined>(undefined);
 
   /** The last refused write, in the server's own words. Cleared by the next
    *  successful one, and dismissible — it describes a moment, not a state. */
@@ -141,7 +147,7 @@ export function Board() {
   const [newColumn, setNewColumn] = useState("");
   const [addingColumn, setAddingColumn] = useState(false);
   const [removingColumn, setRemovingColumn] = useState<BoardColumn | null>(null);
-  const { data, error, loading, reload, mutate: writeBoard } = useBoard(drag !== null || opened !== null);
+  const { data, error, loading, reload, mutate: writeBoard } = useBoard(drag !== null || colDrag !== null || opened !== null);
 
   useEffect(() => {
     if (!selected.size) return;
@@ -267,6 +273,22 @@ export function Board() {
       applyMove(data, id, columnId, before),
     );
     if (saved && completedBoardMove(data, saved, id)) burstConfetti(at.x, at.y);
+  }
+
+  async function onColumnDrop() {
+    const id = colDrag;
+    const before = colDrop;
+    setColDrag(null);
+    setColDrop(undefined);
+    if (id === null || before === undefined || !data) return;
+    const from = data.columns.findIndex((c) => c.id === id);
+    /* Dropped where it already is — beside itself on either side. */
+    if (before === id || before === (data.columns[from + 1]?.id ?? null)) return;
+    const moving = data.columns[from]!;
+    const rest = data.columns.filter((c) => c.id !== id);
+    const at = before === null ? rest.length : rest.findIndex((c) => c.id === before);
+    rest.splice(at, 0, moving);
+    await mutate(() => api.boardMoveColumn(id, before), { ...data, columns: rest });
   }
 
   /* ---- the three states this page actually has, before any board is drawn */
@@ -395,6 +417,17 @@ export function Board() {
             onRemove={() => setRemovingColumn(column)}
             onMoveLeft={index > 0 ? () => mutate(() => api.boardMoveColumn(column.id, data.columns[index - 1]!.id)) : undefined}
             onMoveRight={index < data.columns.length - 1 ? () => mutate(() => api.boardMoveColumn(column.id, data.columns[index + 2]?.id ?? null)) : undefined}
+            columnDrag={colDrag === null ? null : { carried: colDrag === column.id, before: colDrop === column.id, after: index === data.columns.length - 1 && colDrop === null }}
+            onColumnDragStart={() => setColDrag(column.id)}
+            onColumnDragEnd={() => {
+              setColDrag(null);
+              setColDrop(undefined);
+            }}
+            onColumnDragOver={(right) => {
+              const before = right ? (data.columns[index + 1]?.id ?? null) : column.id;
+              setColDrop((prev) => (prev === before ? prev : before));
+            }}
+            onColumnDrop={() => void onColumnDrop()}
             ventures={ventures}
             filter={venture}
             /* The whole board is empty, as against this column being empty —
@@ -577,6 +610,11 @@ function Column({
   onRemove,
   onMoveLeft,
   onMoveRight,
+  columnDrag,
+  onColumnDragStart,
+  onColumnDragEnd,
+  onColumnDragOver,
+  onColumnDrop,
 }: {
   column: BoardColumn;
   ventures: Map<string, VentureChip>;
@@ -600,6 +638,14 @@ function Column({
   onRemove: () => void;
   onMoveLeft?: () => void;
   onMoveRight?: () => void;
+  /** Null unless a column is being carried: whether it is this one, and
+   *  whether the insertion line sits on this lane's left or right edge. */
+  columnDrag: { carried: boolean; before: boolean; after: boolean } | null;
+  onColumnDragStart: () => void;
+  onColumnDragEnd: () => void;
+  /** `right` is the pointer being over this lane's right half. */
+  onColumnDragOver: (right: boolean) => void;
+  onColumnDrop: () => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState("");
@@ -654,7 +700,25 @@ function Column({
 
   return (
     <section
-      className="bg-secondary/50 dark:bg-card/40 flex h-full min-h-0 w-[276px] shrink-0 flex-col rounded-[14px]"
+      className={cn(
+        "bg-secondary/50 dark:bg-card/40 relative flex h-full min-h-0 w-[276px] shrink-0 flex-col rounded-[14px]",
+        columnDrag?.carried && "opacity-40",
+      )}
+      /* A COLUMN DRAG IS ANSWERED ON CAPTURE and stopped there, so the cards'
+         own handlers (which assume a card is in hand) never see it. */
+      onDragOverCapture={(e) => {
+        if (!columnDrag) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const r = e.currentTarget.getBoundingClientRect();
+        onColumnDragOver(e.clientX > r.left + r.width / 2);
+      }}
+      onDropCapture={(e) => {
+        if (!columnDrag) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onColumnDrop();
+      }}
       /* THE LANE IS THE DROP TARGET OF LAST RESORT. Without a
          `preventDefault` somewhere the browser refuses the drop outright, and
          this is also what makes the empty space under the last card mean "the
@@ -671,7 +735,20 @@ function Column({
         dropAt(endBefore, { x: e.clientX, y: e.clientY });
       }}
     >
-      <header className="flex shrink-0 items-center gap-1.5 px-2.5 py-2">
+      {columnDrag?.before && <span aria-hidden className="bg-primary absolute inset-y-1 -left-[7px] w-0.5 rounded-full" />}
+      {columnDrag?.after && <span aria-hidden className="bg-primary absolute inset-y-1 -right-[7px] w-0.5 rounded-full" />}
+      <header
+        /* THE HEADER IS THE HANDLE: grab a column by its name to move it. */
+        draggable={!renaming}
+        onDragStart={(e) => {
+          e.dataTransfer.setData("text/plain", `column:${column.id}`);
+          e.dataTransfer.effectAllowed = "move";
+          onColumnDragStart();
+        }}
+        onDragEnd={onColumnDragEnd}
+        title="Drag to reorder columns"
+        className="flex shrink-0 cursor-grab items-center gap-1.5 px-2.5 py-2 active:cursor-grabbing"
+      >
         {renaming ? (
           <Input
             value={name}

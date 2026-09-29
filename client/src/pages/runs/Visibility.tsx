@@ -18,6 +18,7 @@ import { GeoAnswers } from "@/components/runs/GeoAnswers";
 export function Visibility() {
   return (
     <RunApp
+      compact
       kind="geo"
       slug="visibility"
       name="AI visibility"

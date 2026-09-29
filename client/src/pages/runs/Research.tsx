@@ -10,5 +10,5 @@ import { RunApp } from "@/components/runs/RunApp";
  * the server; this page is the shared run app pointed at a kind string.
  */
 export function Research() {
-  return <RunApp kind="research" slug="research" name="Research" />;
+  return <RunApp compact kind="research" slug="research" name="Research" />;
 }

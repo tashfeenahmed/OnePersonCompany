@@ -16,6 +16,7 @@ import { CompetitorTable } from "@/components/runs/CompetitorTable";
 export function Competitors() {
   return (
     <RunApp
+      compact
       kind="competitors"
       slug="competitors"
       name="Competitors"
