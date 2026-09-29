@@ -1150,50 +1150,24 @@ const SEED: StoreState = {
       slug: "ads",
       name: "Ads",
       widgets: [
-        /* The account, over the window Meta measured. */
-        { id: "ad1", type: "meta.spend", w: 1 },
-        { id: "ad9", type: "meta.clicks", w: 1 },
-        { id: "ad10", type: "meta.cpc", w: 1 },
-        { id: "ad11", type: "meta.reach", w: 1 },
-        { id: "ad2", type: "meta.leads", w: 1 },
-        { id: "ad12", type: "ads.delivering", w: 1 },
-        /* Is the spend working. The verdict before the evidence, because it is
-           the only thing on this board that says whether any of the money
-           below it is doing anything. */
-        { id: "ad13", type: "ads.health", w: 2 },
-        { id: "ad14", type: "ads.categories", w: 2 },
-        { id: "ad15", type: "ads.quickWins", w: 4 },
-        { id: "ad16", type: "ads.failing", w: 4 },
-        { id: "ad17", type: "ads.categoryTable", w: 4 },
-        /* What it bought, and for which business. */
-        { id: "ad18", type: "ads.ventures", w: 2 },
-        { id: "ad3", type: "meta.roas", w: 2 },
-        { id: "ad19", type: "ads.mapping", w: 4 },
-        /* What ran. The reason this board exists. */
-        { id: "ad20", type: "ads.creatives", w: 4 },
-        { id: "ad21", type: "ads.cpc", w: 4 },
-        { id: "ad22", type: "ads.table", w: 4 },
-        { id: "ad23", type: "ads.fatigue", w: 2 },
-        { id: "ad24", type: "ads.issues", w: 2 },
-        { id: "ad25", type: "ads.sets", w: 4 },
-        /* The accounting view. An advertisement is what a person saw; a
-           campaign is a folder the money sat in, and a day is a row. */
-        { id: "ad6", type: "meta.campaigns", w: 4 },
-        { id: "ad26", type: "ads.campaignTrend", w: 4 },
-        { id: "ad5", type: "meta.daily", w: 2 },
-        { id: "ad27", type: "meta.results", w: 4 },
-        /* One venture at a time, with no venture chosen. */
-        { id: "ad28", type: "ads.venture", w: 2 },
-        /* AdSense: the other direction of trade, kept apart. The access card
-           stays last even now the earnings are live — if the consent screen is
-           still in Testing the token dies in a week, and this is the card that
-           says so rather than the earnings quietly going flat. */
+        /* Reworked 2026-09-29 at the owner's word — "more visuals and
+           graphs and less text": the last campaign in four figures, the ads
+           themselves as a gallery, spend and clicks per day, then AdSense.
+           The rubric tables stay in the palette. */
+        { id: "ad40", type: "ads.lastRun", w: 1 },
+        { id: "ad41", type: "ads.allClicks", w: 1 },
+        { id: "ad42", type: "ads.allCtr", w: 1 },
+        { id: "ad43", type: "ads.allCpc", w: 1 },
+        { id: "ad44", type: "ads.gallery", w: 4 },
+        { id: "ad45", type: "ads.spendDaily", w: 2 },
+        { id: "ad46", type: "ads.clicksDaily", w: 2 },
+        { id: "ad47", type: "ads.bestAds", w: 2 },
+        { id: "ad48", type: "ads.statusMix", w: 2 },
         { id: "ad4", type: "adsense.earnings", w: 1 },
+        { id: "ad13", type: "ads.health", w: 2 },
+        { id: "ad7", type: "adsense.rpm", w: 1 },
         { id: "ad29", type: "adsense.daily", w: 4 },
-        { id: "ad7", type: "adsense.rpm", w: 2 },
         { id: "ad30", type: "adsense.sites", w: 4 },
-        { id: "ad31", type: "adsense.months", w: 2 },
-        { id: "ad8", type: "adsense.access", w: 2 },
       ],
     },
     /*
@@ -1495,7 +1469,7 @@ export function defaultWidth(type: string): 1 | 2 | 4 {
   const kind = WIDGETS[type]?.kind;
   if (kind === "metric") return 1;
   /* A section heading runs across the whole board. */
-  if (kind === "heading" || kind === "daily" || kind === "appfilter" || kind === "appgrid" || kind === "threads") return 4;
+  if (kind === "heading" || kind === "daily" || kind === "appfilter" || kind === "appgrid" || kind === "threads" || kind === "adgallery") return 4;
   if (kind === "chart" || kind === "table" || kind === "runway") return 4;
   /* A feed carries a picture, three lines of copy and a strip of figures per
      row: at two columns the copy wraps to six lines and the figures stack. */
