@@ -101,17 +101,34 @@ export function deleteProfile(machineId: string): boolean {
 
 /* ------------------------------------------------------------ the tariff */
 
+/**
+ * THE IRISH STANDARD UNIT RATE, used when nobody has typed a tariff.
+ *
+ * Since 2026-09-29, at the owner's request: this box runs in Ireland, and an
+ * unpriced electricity line was hiding a real cost. 36c/kWh is the middle of
+ * the 35–38c standard tariffs (incl. VAT) the suppliers charged in 2026 —
+ * Electric Ireland's standard rate was 38.04c. Typing a rate on the Finance
+ * integration replaces it, and every surface says which one is in use.
+ */
+export const IRISH_KWH = { perKwh: 0.36, currency: "EUR" } as const;
+
 /** The plugin-wide electricity price, used by any profile that carries none of
- *  its own. Null when nobody has typed one — which makes every power line
- *  unpriced rather than free. */
-export function tariff(): { perKwh: number | null; currency: string } {
+ *  its own: the typed one, else the Irish standard rate. */
+export function tariff(): { perKwh: number | null; currency: string; source: "typed" | "irish-average" } {
   const raw = (configValue(PLUGIN, "kwh_rate") ?? "").trim();
   const n = raw ? Number(raw) : NaN;
-  return {
-    perKwh: Number.isFinite(n) && n > 0 ? n : null,
-    currency: currencyCode((configValue(PLUGIN, "kwh_currency") ?? "EUR").trim() || "EUR"),
-  };
+  if (Number.isFinite(n) && n > 0)
+    return {
+      perKwh: n,
+      currency: currencyCode((configValue(PLUGIN, "kwh_currency") ?? "EUR").trim() || "EUR"),
+      source: "typed",
+    };
+  return { perKwh: IRISH_KWH.perKwh, currency: IRISH_KWH.currency, source: "irish-average" };
 }
+
+/** A machine the owner typed in by hand — a home box with no workstation
+ *  account, priced as always on. Its id is `home:<slug>`. */
+export const isHomeMachine = (machineId: string) => machineId.startsWith("home:");
 
 export function busyPercent(): number {
   const raw = (configValue(PLUGIN, "busy_gpu_percent") ?? "").trim();
@@ -343,7 +360,9 @@ export function powerLine(p: ProfileRow, month: string, nowIso = now()): PowerLi
     note:
       perKwh === null
         ? `${note} No price per kWh has been set, so there is no money on this line. Set one on the Finance integration's page.`
-        : note,
+        : p.rate_per_kwh === null && t.source === "irish-average"
+          ? `${note} Priced at the Irish standard rate, ${t.perKwh} ${t.currency}/kWh incl. VAT — type your own tariff on the Finance integration to replace it.`
+          : note,
   };
 }
 
@@ -379,7 +398,7 @@ export function ledgerMonth(nowIso = now()): string {
  * whether or not it has one yet. The client draws the "add a profile" row off
  * this, so the owner never has to know an account id.
  */
-export type MachineChoice = { machineId: string; label: string; hasProfile: boolean; gone?: true };
+export type MachineChoice = { machineId: string; label: string; hasProfile: boolean; gone?: true; home?: true };
 
 export function machinesAvailable(): MachineChoice[] {
   const known = accounts.list(WORKSTATION_PLUGIN);
@@ -397,7 +416,11 @@ export function machinesAvailable(): MachineChoice[] {
      no control over. It is shown so it can be removed on purpose. */
   for (const p of profiles()) {
     if (ids.has(p.machine_id)) continue;
-    rows.push({ machineId: p.machine_id, label: p.label ?? `Machine ${p.machine_id}`, hasProfile: true, gone: true });
+    rows.push(
+      isHomeMachine(p.machine_id)
+        ? { machineId: p.machine_id, label: p.label ?? p.machine_id.slice(5), hasProfile: true, home: true }
+        : { machineId: p.machine_id, label: p.label ?? `Machine ${p.machine_id}`, hasProfile: true, gone: true },
+    );
   }
   return rows;
 }

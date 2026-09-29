@@ -352,14 +352,26 @@ test("observed hours are charged in two bands and the coverage is reported", () 
   assert.match(line.note, /PART-MONTH/);
 });
 
-test("an unpriced tariff leaves the electricity line with no money on it", () => {
+test("with no tariff typed, the electricity line is priced at the Irish standard rate and says so", () => {
   reset();
   saveProfile({ machineId: "9", label: "Desk", idleWatts: 100, busyWatts: 400, ratePerKwh: null, currency: "EUR" });
   samples(9, [["2026-08-01T00:00:00.000Z", true, 5], ["2026-08-01T01:00:00.000Z", false, null]]);
   const line = powerLine(profile("9")!, "2026-08", "2026-09-06T12:00:00.000Z");
-  assert.equal(line.amount, null);
-  assert.ok(line.kwh !== null, "the kilowatt-hours are still known; only the price is not");
-  assert.match(line.note, /No price per kWh/);
+  assert.ok(line.kwh !== null);
+  assert.equal(line.perKwh, 0.36);
+  assert.equal(line.currency, "EUR");
+  assert.ok(line.amount !== null && line.amount >= 0);
+  assert.match(line.note, /Irish standard rate/);
+});
+
+test("a home machine needs no workstation account and is priced always-on", () => {
+  reset();
+  saveProfile({ machineId: "home:pi", label: "Home Pi", idleWatts: 5, busyWatts: 8, ratePerKwh: null, currency: "EUR", alwaysOn: true });
+  const line = powerLine(profile("home:pi")!, "2026-08", "2026-09-06T12:00:00.000Z");
+  /* 5 W × 744 h = 3.72 kWh × 0.36 = €1.34 */
+  assert.equal(line.kwh, 3.72);
+  assert.ok(Math.abs(line.amount! - 1.3392) < 1e-6);
+  assert.equal(line.source, "always-on");
 });
 
 test("the electricity ledger row carries its confidence and is refreshed, not duplicated", () => {

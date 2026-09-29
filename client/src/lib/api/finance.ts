@@ -94,7 +94,7 @@ export type FinanceSummary = {
     currencies: { currency: string; available: number; pending: number }[];
     seenAt: string;
   } | null;
-  tariff: { perKwh: number | null; currency: string };
+  tariff: { perKwh: number | null; currency: string; source?: "typed" | "irish-average" };
   note: string;
 };
 
@@ -281,7 +281,8 @@ export type PowerLine = {
 
 export type PowerDoc = {
   month: string;
-  tariff: { perKwh: number | null; currency: string };
+  /** `irish-average` when nobody typed a rate: the Irish standard unit rate. */
+  tariff: { perKwh: number | null; currency: string; source?: "typed" | "irish-average" };
   profiles: {
     machineId: string; label: string | null; idleWatts: number; busyWatts: number;
     ratePerKwh: number | null; currency: string; timezone: string | null; alwaysOn: boolean; updatedAt: string;
@@ -290,7 +291,7 @@ export type PowerDoc = {
   /** `gone` marks a profile whose workstation account was deleted: it is
    *  still priced and still in the ledger, so it is listed to be removed on
    *  purpose rather than hidden. */
-  machines: { machineId: string; label: string; hasProfile: boolean; gone?: true }[];
+  machines: { machineId: string; label: string; hasProfile: boolean; gone?: true; home?: true }[];
   note: string;
 };
 
