@@ -15,7 +15,7 @@
  * honest error line — it did not finish, and the ledger must not say it did.
  *
  * Retries back off (1m, 5m, 15m) and stop at maxAttempts. The queue knows
- * nothing about GPUs, Dells or Telegram; a worker that needs the Dell asks
+ * nothing about GPUs, GPU machines or Telegram; a worker that needs the GPU machine asks
  * for it itself, exactly as the modules always have. What the queue owns is
  * ORDER and MEMORY, nothing else.
  */

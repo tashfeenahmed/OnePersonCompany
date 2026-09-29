@@ -1,7 +1,7 @@
 /**
  * HOW A SHARED COST REACHES A BUSINESS.
  *
- * Seven Hetzner boxes cost €63 a month and not one of them belongs to a
+ * A handful of cloud boxes cost tens of euros a month and not one of them belongs to a
  * venture: the control plane serves everything, the testing box serves
  * whatever is being tested this week. Until somebody says how they are split,
  * every venture's margin is overstated by its share of them — which is the

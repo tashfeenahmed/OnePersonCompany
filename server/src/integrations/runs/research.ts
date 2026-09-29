@@ -33,7 +33,7 @@ import { saveRunEvidence } from "./artifacts.ts";
 /**
  * The investigation turn's shape, WITH ITS BUDGET IN IT. "Finish within the
  * run's time budget" told a model nothing it could act on — it has no clock
- * and does not know the budget — and on the Dell the first budgeted research
+ * and does not know the budget — and on a local GPU workstation the first budgeted research
  * run made 41 tool calls in ninety-eight minutes and never reached the writer.
  * So the turn is told how many minutes it has and how many calls, in numbers,
  * and that the log is due when either is near. The minutes are a share of the

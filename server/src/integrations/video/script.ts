@@ -172,7 +172,7 @@ export async function writeScript(opts: {
 }
 
 /** The refusal above promises the reply "is in the run's report", and it never
- *  was: the throw happened before anybody held the text (run r-ly9ks1 failed
+ *  was: the throw happened before anybody held the text (one run failed
  *  with an empty report). The error carries it so the caller can keep its word. */
 export class UnreadableScript extends Error {
   raw: string;

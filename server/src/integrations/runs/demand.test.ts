@@ -15,13 +15,13 @@ import { runArtifactFiles } from "./artifacts.ts";
 
 const html =
   '<!doctype html><html><head><title>Nobody says the phrase we watch</title></head><body><h1>Nobody says the phrase we watch</h1>' +
-  '<p>Three strangers asked for the same thing in different words this month. The collected signals record 2 Reddit threads for "free llm api" and none for the phrase on the watch list.</p>' +
-  '<table><tr><th>Ask</th><th>Where</th></tr><tr><td>"is there a free llm api that does not rate limit"</td><td>reddit.com</td></tr></table></body></html>';
+  '<p>Three strangers asked for the same thing in different words this month. The collected signals record 2 Reddit threads for "invoice software" and none for the phrase on the watch list.</p>' +
+  '<table><tr><th>Ask</th><th>Where</th></tr><tr><td>"is there a invoice software that does not rate limit"</td><td>reddit.com</td></tr></table></body></html>';
 
 const base = {
   ventureName: "Example",
   focus: "Which phrases are dead",
-  blocks: [{ source: "Demand — Reddit, Hacker News, the search node", text: "- free llm api — Reddit 2; Hacker News 0" }],
+  blocks: [{ source: "Demand — Reddit, Hacker News, the search node", text: "- invoice software — Reddit 2; Hacker News 0" }],
   writerUsesProvider: true,
   runSeconds: 7200,
   step: async <T>(_label: string, work: () => Promise<T>) => work(),
@@ -42,7 +42,7 @@ test("demand investigates, then writes the page with a tool-free writer, and kee
         assert.match(turns[0]!.content, /EVIDENCE LOG/);
         assert.match(turns[0]!.content, /DO NOT EDIT THE WATCH LIST/);
         assert.match(turns[0]!.content, /VERBATIM/);
-        return { text: 'Observed: "is there a free llm api that does not rate limit" — reddit.com, 2026-09-10, 41 upvotes. Failed source: the forum refused.' };
+        return { text: 'Observed: "is there a invoice software that does not rate limit" — reddit.com, 2026-09-10, 41 upvotes. Failed source: the forum refused.' };
       }
       assert.equal(opts.forceProvider, true, "writing must use the tool-free provider when available");
       assert.equal(opts.document, true, "the writer needs the document ceiling, not a thinking budget");
@@ -89,41 +89,41 @@ test("a truncated demand page fails after one repair and publishes nothing", asy
 test("the demand block counts threads per phrase per source and never calls an unasked phrase a zero", async t => {
   const doc = {
     windowDays: 30,
-    terms: ["free llm api", "planning permission ireland"],
+    terms: ["invoice software", "planning permission rules"],
     reddit: {
       connected: true,
       threads: 2,
       signals: [
         /* The same thread found by one phrase twice — one conversation, and the
            tally must say 2 rather than 3 for this phrase. */
-        { id: "t3_a", term: "free llm api", title: "Free LLM API that does not rate limit?", points: 41, createdAt: "2026-09-10T08:00:00Z", url: "https://www.reddit.com/r/selfhosted/comments/a", context: "r/selfhosted" },
-        { id: "t3_a", term: "free llm api", title: "Free LLM API that does not rate limit?", points: 41, createdAt: "2026-09-10T08:00:00Z", url: "https://www.reddit.com/r/selfhosted/comments/a", context: "r/selfhosted" },
-        { id: "t3_b", term: "free llm api", title: "Cheapest way to call a model", points: null, createdAt: null, url: "https://www.reddit.com/r/LocalLLaMA/comments/b", context: "r/LocalLLaMA" },
+        { id: "t3_a", term: "invoice software", title: "Invoice software that does not charge per seat?", points: 41, createdAt: "2026-09-10T08:00:00Z", url: "https://www.reddit.com/r/selfhosted/comments/a", context: "r/selfhosted" },
+        { id: "t3_a", term: "invoice software", title: "Invoice software that does not charge per seat?", points: 41, createdAt: "2026-09-10T08:00:00Z", url: "https://www.reddit.com/r/selfhosted/comments/a", context: "r/selfhosted" },
+        { id: "t3_b", term: "invoice software", title: "Cheapest way to call a model", points: null, createdAt: null, url: "https://www.reddit.com/r/LocalLLaMA/comments/b", context: "r/LocalLLaMA" },
       ],
       queries: [
-        { term: "free llm api", status: "ok", items: 3 },
-        { term: "planning permission ireland", status: "throttled", items: null, error: "one query a minute without a feed token" },
+        { term: "invoice software", status: "ok", items: 3 },
+        { term: "planning permission rules", status: "throttled", items: null, error: "one query a minute without a feed token" },
       ],
     },
     hn: {
       connected: true,
       threads: 1,
-      signals: [{ id: "h1", term: "planning permission ireland", title: "Ask HN: planning rules", points: 3, createdAt: "2026-09-02T09:00:00Z", url: "https://news.ycombinator.com/item?id=1", context: "story" }],
+      signals: [{ id: "h1", term: "planning permission rules", title: "Ask HN: planning rules", points: 3, createdAt: "2026-09-02T09:00:00Z", url: "https://news.ycombinator.com/item?id=1", context: "story" }],
       queries: [
-        { term: "free llm api", status: "ok", items: 0 },
-        { term: "planning permission ireland", status: "ok", items: 1 },
+        { term: "invoice software", status: "ok", items: 0 },
+        { term: "planning permission rules", status: "ok", items: 1 },
       ],
     },
   };
   t.mock.method(globalThis, "fetch", async () => Response.json(doc));
   const block = await demandBlock();
 
-  assert.match(block.text, /- free llm api — Reddit 2; Hacker News 0$/m, "distinct thread ids, and a measured zero stays a zero");
-  assert.match(block.text, /- planning permission ireland — Reddit 0 NOT MEASURED \(throttled: one query a minute/, "a throttled phrase is never reported as no demand");
-  assert.match(block.text, /planning permission ireland — Reddit 0 NOT MEASURED \([^)]*\); Hacker News 1$/m);
+  assert.match(block.text, /- invoice software — Reddit 2; Hacker News 0$/m, "distinct thread ids, and a measured zero stays a zero");
+  assert.match(block.text, /- planning permission rules — Reddit 0 NOT MEASURED \(throttled: one query a minute/, "a throttled phrase is never reported as no demand");
+  assert.match(block.text, /planning permission rules — Reddit 0 NOT MEASURED \([^)]*\); Hacker News 1$/m);
   assert.match(block.text, /Totals for the window[^\n]*Reddit 2, Hacker News 1/);
   assert.match(block.text, /NOT evidence that nobody is talking about them/, "the sentence the report is told to quote is still in the block");
-  assert.match(block.text, /planning permission ireland via Reddit: throttled/);
+  assert.match(block.text, /planning permission rules via Reddit: throttled/);
   assert.match(block.text, /\(41 upvotes\)/, "Reddit scores are read from `points`, which is the field the route sends");
   assert.match(block.text, /\(3 points\)/);
   assert.match(block.text, /\(upvotes not recorded\) — r\/LocalLLaMA — undated/, "an unscored, undated row says so rather than reading as a zero");

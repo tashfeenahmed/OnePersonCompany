@@ -164,7 +164,7 @@ run fails only when *every* account failed.
 
 **A total says what it is a total of.** `GET /api/hetzner/summary` breaks the
 fleet down by account and `GET /api/domains` counts `byAccount`, so a card
-showing €63.47 across two projects can say "across 2 accounts" rather than
+showing €60 across two projects can say "across 2 accounts" rather than
 inviting the reader to go looking for that figure in one console.
 
 **A Hetzner id is global**, so the same server arriving under two accounts
@@ -733,7 +733,7 @@ falling segments of the series — when the allowance refills the counter jumps
 ### Pixabay is registered and not connected
 
 `pixabay-key` is declared in the previous system's own list of known secrets
-but **no value was ever stored** for it, on the Pi or here. The provider, the registry entry and the
+but **no value was ever stored** for it, on the old host or here. The provider, the registry entry and the
 widgets are all built and will work the moment a key is pasted; until then the
 plugin reads "not connected" and `pixabay.quota` falls back to its placeholder.
 Its quota reader has therefore never been run against a live response, which is
@@ -776,7 +776,7 @@ somebody's cash flow rather than a figure Stripe reported, so `basis` travels
 with it on the wire and the card says "359 annual, counted as a twelfth a
 month". `trialing` is out because a trial has never sent a cent; `past_due` is
 out because it is billing and failing; **one-off payments are out and can never
-be in** — this account sells $3,000 research studies beside a $19 subscription,
+be in** — an account can sell $3,000 one-off studies beside a $19 subscription,
 and they are in gross, in net, and in no product's MRR.
 
 **Churn's denominator is named because there are four defensible ones.** The
@@ -788,10 +788,10 @@ days than at seven. A subscriber-count rate sits beside it with its own
 denominator, because a churned $99 plan and a churned $1 plan are one row each
 in a headcount and nothing alike in money.
 
-**A cancellation that never collected a penny is not churn**, and on this
-account that is most of them: 182 of 336 dead subscriptions are checkouts that
-expired before their first payment. The system this replaces reported $415 of
-a $430 monthly churn from exactly this mistake — revenue that had never existed. Whether a
+**A cancellation that never collected a penny is not churn**, and on a
+typical account that is most of them: over half of the dead subscriptions can be
+checkouts that expired before their first payment. A dashboard that counts them
+can report nearly all of its monthly churn from exactly this mistake — revenue that had never existed. Whether a
 subscription ever billed is not on the subscription object, so it costs one
 invoice lookup each; the answer never changes, so it is stored per subscription
 and asked at most sixty times a run, newest cancellation first. Until a row is
@@ -801,8 +801,8 @@ quietly flatter the retention story. `unresolvedCancellations` says how many.
 **Fees split into what Stripe kept and what it merely held.** `fees` is Stripe's
 own cut ex-tax and is the only figure a blended rate may come from; `taxWithheld`
 is sales tax Stripe collects as merchant of record and remits onward — real
-money off the top and not a cost. Over thirty days here that is $868.84 against
-$747.64: fold them together and an 8.0% processing cost reads as 14.9%.
+money off the top and not a cost. For example, $870 of fees against
+$750 of tax: fold them together and an 8% processing cost reads as 15%.
 
 **Blocked and declined never share a denominator.** Stripe's `outcome.type`
 separates a Radar block — an attack stopped before a bank saw it — from a bank
@@ -828,7 +828,7 @@ actually reach so a wide window is read as a floor rather than as a total.
 ### AdSense is built and unauthorised
 
 **There is no credential and there never has been.** No `adsense-token` in the
-vault on the Pi, no equivalent file beside the collectors it replaced, no
+vault on the old host, no equivalent file beside the collectors it replaced, no
 consent ever granted. The catalog said "Connected"; that was a mock value
 presented as a measurement, and it now says what is true.
 
@@ -1096,7 +1096,7 @@ and **sealing one whole and sending it as a bearer token produces
 revoked credential and sends you to mint a replacement for a token that was
 never wrong. The comment lines come out at the registry on the way in *and* in
 the provider on the way out of the vault, because the ordinary way these
-arrive is copied verbatim from the Pi.
+arrive is copied verbatim from the previous system's host.
 
 **`meta-app` is not an app id**, despite the field once being labelled one. It
 is `app_id:app_secret` — a sixteen-digit id and a thirty-two-character hex
@@ -1118,13 +1118,13 @@ something this side never does, and it therefore never writes to the vault.
 ### What it read, and what it could not, probed 2026-09-04
 
 ```
-GET /me                                200, system user "pi-collector"
-GET /me/accounts                       200, 3 Pages: Free LLM API (1 follower),
+GET /me                                200, system user "opc-collector"
+GET /me/accounts                       200, 3 Pages: Example App (1 follower),
                                        Acme (9), Beacon (350)
 GET /me/adaccounts                     200, ONE account, EUR, active
 GET /act_…/insights last_30d           200, spend, impressions, clicks, reach,
                                        frequency, actions, cost per action
-GET /act_…/insights maximum            200, €189.03 lifetime since Aug 2023
+GET /act_…/insights maximum            200, lifetime spend since the account opened
 GET /act_…/campaigns                   200, 14 campaigns, every one PAUSED
 GET /act_…/insights time_increment=1   200, 12 days — 5 to 16 August
 
@@ -1163,7 +1163,7 @@ and stays null; it is not `0×` and it is not a verdict on the campaigns. The
 column exists and fills itself the day a purchase campaign runs.
 
 What the account *does* buy is counted instead: 12 leads over the window at
-€5.16 each, Meta's own cost-per-action rather than our division. Meta reports
+€5 each, Meta's own cost-per-action rather than our division. Meta reports
 the same lead under several names (`onsite_conversion.lead_grouped`, `lead`,
 `offsite_complete_registration_add_meta_leads` all read 12), so **one is counted
 and the rest ignored** — adding them would treble the only outcome there is.
@@ -1321,7 +1321,7 @@ counter is gone. A 200 that still carries the counter means the parameters were
 ignored, and *that* is refused — storing it would leave the owner believing a
 throttle had lifted that is still there.
 
-**The 62-second pacing is not ported, and that is deliberate.** Over on the Pi
+**The 62-second pacing is not ported, and that is deliberate.** In the previous system
 this is a systemd timer with eighty minutes to spend, so it paces at a minute a
 query and takes most of an hour. Here a collection runs inside the HTTP request
 that saved the setting, and a route that holds a browser open for forty minutes
@@ -1631,7 +1631,7 @@ Everything else here asks a service what happened. This one hands a stranger's
 message to an agent that can act, and that difference decides the whole design.
 
 **One bot token per account**, `telegram-token` — the name the system this
-replaces uses for its own notifier on the Pi. `getMe` is the entire verification available:
+replaces uses for its own notifier. `getMe` is the entire verification available:
 a bot token carries no scopes, and the chat it will serve does not exist until
 a human sends it a message. So "connected" is only half the answer here, and
 `GET /api/telegram` reports the other half — whether the loop is actually
@@ -2160,8 +2160,8 @@ to know the provider layer exists and neither can accidentally claim to be one.
 FreeLLMAPI is an OpenAI-compatible **gateway**: it holds keys for the ~34
 providers that publish a free tier, aggregates their catalogs into one
 `/v1/models`, and routes each completion to whichever of them can serve the
-model right now, failing over when one is throttled. It is the owner's own
-open-source project (`github.com/acme-org/freellmapi`).
+model right now, failing over when one is throttled. It is an
+open-source project (`github.com/tashfeenahmed/freellmapi`).
 
 **There is no hosted FreeLLMAPI, and establishing that shaped the whole
 integration.** Probed on 2026-09-05: `freellmapi.co` is a static site on
@@ -2339,7 +2339,7 @@ Both agent plugins already worked, and the shape of "working" was the problem.
 `providers/hermes.ts` and `providers/openclaw.ts` connect an agent that is
 **already running somewhere**: paste a base URL and a bearer, the adapter
 verifies it, chat works. That is the right answer when there is one — a Hermes
-on the Pi, a gateway on a work laptop — and it is unchanged. What it left was
+on a home server, a gateway on a work laptop — and it is unchanged. What it left was
 the ordinary case: a form asking for the address of a thing that does not
 exist. `src/agents/instance.ts` is the other door. Install it here, configure
 it here, run it here, connect it here.
@@ -2909,7 +2909,7 @@ typed one command.
 
 `linkedin-client-id`, `linkedin-client-secret`, `tiktok-client-key` and
 `tiktok-client-secret` are **declared names in the previous system's own list
-of known secrets, with no value ever stored** — checked on the Pi on
+of known secrets, with no value ever stored** — checked on the old host on
 2026-09-04. The catalog said
 "Credentials stored, flow not shipped"; the first half was false, and it now
 says what is true, the same correction the AdSense entry took before it.
@@ -3095,7 +3095,7 @@ derivation whose collector is not a plugin.
 
 Computed from the Stripe tables on every read and **stored nowhere**, for the
 reason the uptime route computes availability on read: a stored "money on the
-floor: $9,271" is wrong ten minutes later and badly wrong after a week of failed
+floor: $9,000" is wrong ten minutes later and badly wrong after a week of failed
 collections, which is the week somebody looks at it.
 
 Every bucket carries the sentence that produced it — which table, which columns,
@@ -4291,7 +4291,7 @@ MODEL — a rate card joined against what is actually running — and the whole
 area is shaped by that one difference. `/api/costs` answers "what did OpenAI
 bill me", `/api/stripe` answers "what settled". Neither of them answers "what
 does it cost to run Acme", because nothing on this box previously wrote
-down the €7.09 control-plane box, the domain that renews in ninety days, or
+down the €7 control-plane box, the domain that renews in ninety days, or
 the accountant. The ledger is where those live, and the P&L is what happens
 when you subtract them from the revenue routes.
 

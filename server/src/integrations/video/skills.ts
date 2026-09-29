@@ -87,9 +87,9 @@ export const SKILLS: Skill[] = [
         "them is the case it gets wrong.",
       "A `stewie` VIDEO WAS NOT RENDERED ON THIS BOX. It is OPC's Peter & " +
         "Stewie two-hander — cloned voices over mobile-game footage with " +
-        "word-timed subtitles — made by the reel worker on the Dell through " +
-        "the Pi, and copied here when done. Its `script.workdash` says which " +
-        "Pi job it was and whether that job woke the Dell. Starting one needs " +
+        "word-timed subtitles — made by the reel worker on the GPU workstation through " +
+        "the render relay, and copied here when done. Its `script.workdash` says which " +
+        "relay job it was and whether that job woke the GPU workstation. Starting one needs " +
         "a Render worker account under Integrations, takes minutes, and may boot a " +
         "machine that draws real power; say so before queueing it for " +
         "somebody. The lines use the selected workspace model.",

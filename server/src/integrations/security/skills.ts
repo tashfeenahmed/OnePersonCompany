@@ -159,7 +159,7 @@ export const SKILLS: Skill[] = [
       },
     ],
     asks: [
-      "What was running on the Pi when it went down last night?",
+      "What was running on the home server when it went down last night?",
       "What is listening on that box right now?",
     ],
   },

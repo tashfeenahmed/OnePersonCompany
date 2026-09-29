@@ -3,22 +3,22 @@
  * footage, with cloned voices and word-by-word subtitles.
  *
  * THIS BOX DOES NOT RENDER IT, AND THAT IS THE WHOLE DESIGN. The format was
- * built in the render relay: the Pi owns the job — the search, the page captures, the
- * render, the decision to spend a wake — and the Dell under the desk owns the
+ * built in the render relay, which owns the job — the search, the page captures, the
+ * render, the decision to spend a wake — and the GPU workstation under the desk owns the
  * voice model and the cores. Voice cloning wants a GPU; this machine has none
- * to spare and the Pi has none at all. So the pipeline here is a CLIENT of the
+ * to spare and the render relay has none at all. So the pipeline here is a CLIENT of the
  * render relay's own reel routes, over the LAN, with the agent's service
  * key. This workspace writes the script using its selected LLM; it starts the job, watches it, and fetches the file when it is done.
- * The rendering engine now runs as OPC’s dedicated relay. It wakes the Dell
+ * The rendering engine now runs as OPC’s dedicated relay. It wakes the GPU workstation
  * when needed and leaves it running when the job finishes.
  *
  * WHAT A RUN HERE ADDS is the ledger: the run row, the steps as the job moves
- * through the Pi's states, the mp4 copied into this box's own video store, and
+ * through the relay's states, the mp4 copied into this box's own video store, and
  * the job row beside every other video, so it shows on the Studio's rail and
- * plays on the run page like a faceless video does. The Pi keeps its own copy
+ * plays on the run page like a faceless video does. The render relay keeps its own copy
  * for as long as its keep-cap allows; ours is ours.
  *
- * TWO KINDS OF PICTURE, the same two the Pi offers. `images` drops a searched
+ * TWO KINDS OF PICTURE, the same two the render relay offers. `images` drops a searched
  * picture over the footage for every line, which explains a concept and sells
  * nothing. `pages` scrolls real screenshots of the pages the owner listed while
  * the two of them talk over the top — the mode for showing a product. In
@@ -30,10 +30,10 @@
  * read through `accounts.credentialed` with this module's own reader name, so
  * the vault's audit trail says the Stewie pipeline read it, not "video".
  *
- * WHAT THIS CANNOT PROMISE. The Dell may be off, in which case the Pi wakes
+ * WHAT THIS CANNOT PROMISE. The GPU workstation may be off, in which case the render relay wakes
  * it and the first ninety seconds of the run are a boot; the worker may be
- * busy with another reel, in which case the Pi refuses with a sentence and so
- * does this. Both are on the run's report in the Pi's own words.
+ * busy with another reel, in which case the render relay refuses with a sentence and so
+ * does this. Both are on the run's report in the relay's own words.
  */
 import { createWriteStream, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
@@ -53,7 +53,7 @@ export const WORKDASH_PLUGIN = "workdash";
 const READER = "videoplus.stewie";
 
 /** How long a job may take end to end before this run gives up on it. A cold
- *  Dell is ninety seconds of boot, the script is a model turn on that box, and
+ *  GPU workstation is ninety seconds of boot, the script is a model turn on that box, and
  *  a render is minutes — twenty-five is generous and still finite. */
 const JOB_TIMEOUT_MS = 25 * 60_000;
 const POLL_MS = 5_000;
@@ -132,9 +132,9 @@ async function ask<T>(a: Agent, path: string, init: RequestInit = {}, signal?: A
 }
 
 /**
- * What the Pi and, through it, the Dell can do right now — for the Studio's
- * tab. Answers honestly while the Dell is off rather than waking it to ask:
- * `worker.reachable: false` with the Pi's own reason.
+ * What the render relay and, through it, the GPU workstation can do right now — for the Studio's
+ * tab. Answers honestly while the GPU workstation is off rather than waking it to ask:
+ * `worker.reachable: false` with the relay's own reason.
  */
 export async function capabilities(): Promise<{
   configured: boolean;
@@ -153,7 +153,7 @@ export async function capabilities(): Promise<{
       configured: true,
       note: doc.worker.reachable
         ? `The render worker is up${doc.worker.gpu ? ` on ${doc.worker.gpu}` : ""}.`
-        : `The render worker is not answering (${doc.worker.error ?? "asleep"}). The Pi wakes it when a reel starts — expect about ninety seconds before rendering begins.`,
+        : `The render worker is not answering (${doc.worker.error ?? "asleep"}). The render relay wakes it when a reel starts — expect about ninety seconds before rendering begins.`,
       agent: a.url,
       running: doc.running,
       worker: doc.worker,
@@ -174,11 +174,11 @@ export async function capabilities(): Promise<{
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  queued: "waiting for the Pi's queue",
-  capturing: "the Pi is screenshotting the pages",
-  researching: "the Pi is searching for grounding",
-  waking: "waking the Dell — about ninety seconds",
-  "writing-script": "the Dell is writing the two-hander",
+  queued: "waiting for the relay's queue",
+  capturing: "the render relay is screenshotting the pages",
+  researching: "the render relay is searching for grounding",
+  waking: "waking the GPU workstation — about ninety seconds",
+  "writing-script": "the GPU workstation is writing the two-hander",
   rendering: "cloning the voices and compositing",
 };
 
@@ -210,9 +210,9 @@ export async function stewieVideo(opts: {
   }
   if (before.running) {
     s.endStep(agentStep, "busy");
-    throw new StepError("workdash", "The Pi is already rendering a reel. It does one at a time; try again when that one is done.");
+    throw new StepError("workdash", "The render relay is already rendering a reel. It does one at a time; try again when that one is done.");
   }
-  s.endStep(agentStep, before.worker.reachable ? `worker up${before.worker.gpu ? ` · ${before.worker.gpu}` : ""}` : "worker asleep — the Pi will wake it");
+  s.endStep(agentStep, before.worker.reachable ? `worker up${before.worker.gpu ? ` · ${before.worker.gpu}` : ""}` : "worker asleep — the render relay will wake it");
 
   /* ------------------------------------------------------------ 2. start */
   const urls = input.urls.split(/\r?\n|,/).map((u) => u.trim()).filter(Boolean);
@@ -260,12 +260,12 @@ export async function stewieVideo(opts: {
   lastStatus = item.status;
   while (item.status !== "done" && item.status !== "failed") {
     if (signal?.aborted) {
-      s.endStep(step, "cancelled here — the Pi's job keeps going");
-      throw new StepError("reel", "Cancelled. The Pi was not told; its reel finishes on its own and stays in the render relay.");
+      s.endStep(step, "cancelled here — the relay's job keeps going");
+      throw new StepError("reel", "Cancelled. The render relay was not told; its reel finishes on its own and stays in the render relay.");
     }
     if (Date.now() - began > JOB_TIMEOUT_MS) {
       s.endStep(step, "timed out");
-      throw new StepError("reel", `The Pi's job ${item.id} was still “${item.status}” after ${Math.round(JOB_TIMEOUT_MS / 60_000)} minutes. It may yet finish in the render relay; this run stopped watching.`);
+      throw new StepError("reel", `The relay's job ${item.id} was still “${item.status}” after ${Math.round(JOB_TIMEOUT_MS / 60_000)} minutes. It may yet finish in the render relay; this run stopped watching.`);
     }
     await new Promise((r) => setTimeout(r, POLL_MS));
     let doc: ReelDoc;
@@ -277,7 +277,7 @@ export async function stewieVideo(opts: {
     const found = doc.items.find((i) => i.id === item.id);
     if (!found) {
       s.endStep(step, "gone");
-      throw new StepError("reel", `The Pi no longer lists job ${item.id}. Its keep-cap may have dropped it, or it was deleted in the render relay.`);
+      throw new StepError("reel", `The render relay no longer lists job ${item.id}. Its keep-cap may have dropped it, or it was deleted in the render relay.`);
     }
     item = found;
     if (item.status !== lastStatus) {
@@ -288,13 +288,13 @@ export async function stewieVideo(opts: {
   }
   if (item.status === "failed") {
     if (lastStatus !== "failed") s.endStep(step, "failed");
-    throw new StepError("reel", item.error ?? "The Pi reported the reel failed and gave no reason.");
+    throw new StepError("reel", item.error ?? "The render relay reported the reel failed and gave no reason.");
   }
   if (lastStatus !== "done") s.endStep(step, "done");
-  if (!item.video) throw new StepError("reel", "The Pi says the reel is done but names no file.");
+  if (!item.video) throw new StepError("reel", "The render relay says the reel is done but names no file.");
 
   /* ------------------------------------------------------------ 4. fetch */
-  const fetchStep = s.startStep("fetch", "copying the file from the Pi");
+  const fetchStep = s.startStep("fetch", "copying the file from the render relay");
   const out = resolve(dir, "video.mp4");
   try {
     const res = await fetch(`${a.url}/agent/reel/video/${encodeURIComponent(item.video)}`, {
@@ -305,7 +305,7 @@ export async function stewieVideo(opts: {
     await pipeline(Readable.fromWeb(res.body as import("node:stream/web").ReadableStream), createWriteStream(out));
   } catch (err) {
     s.endStep(fetchStep, "failed");
-    throw new StepError("fetch", `The file could not be copied from the Pi: ${err instanceof Error ? err.message : String(err)}. It is still in the render relay as ${item.video}.`);
+    throw new StepError("fetch", `The file could not be copied from the relay: ${err instanceof Error ? err.message : String(err)}. It is still in the render relay as ${item.video}.`);
   }
   const ffprobe = findFfprobe();
   const duration = ffprobe.path ? await probeDuration(ffprobe.path, out, signal) : null;
@@ -340,7 +340,7 @@ export async function stewieVideo(opts: {
     bytes,
     path: out,
     captions: "worker",
-    narration: "tts — cloned voices on the Dell",
+    narration: "tts — cloned voices on the GPU workstation",
     transcript: lines.map((l) => `${l.character}: ${l.text}`).join("\n"),
     error: null,
   });
@@ -349,7 +349,7 @@ export async function stewieVideo(opts: {
     [
       `## ${title}`,
       ``,
-      `${lines.length} lines, ${duration ? `${duration.toFixed(1)} seconds` : "length unread"}, 1080×1920${item.background ? `, over ${item.background.replace(/_/g, " ")}` : ""}. Rendered by OPC's reel worker on the Dell and copied here. The file is on this page. Nothing has been published anywhere.`,
+      `${lines.length} lines, ${duration ? `${duration.toFixed(1)} seconds` : "length unread"}, 1080×1920${item.background ? `, over ${item.background.replace(/_/g, " ")}` : ""}. Rendered by OPC's reel worker on the GPU workstation and copied here. The file is on this page. Nothing has been published anywhere.`,
       ``,
       `## The dialogue`,
       ``,
@@ -368,11 +368,11 @@ export async function stewieVideo(opts: {
       ``,
       `## Where the work happened`,
       ``,
-      `The workspace wrote the script with ${script.provider}${script.model ? ` (${script.model})` : ""}. The Pi owned the render job (${item.id}); the Dell rendered it. ${
+      `The workspace wrote the script with ${script.provider}${script.model ? ` (${script.model})` : ""}. The render relay owned the render job (${item.id}); the GPU workstation rendered it. ${
         item.dell === "woken"
-          ? `This job woke the Dell${item.slept ? " and powered it off again" : item.slept === false ? " and left it on" : ""}.`
+          ? `This job woke the GPU workstation${item.slept ? " and powered it off again" : item.slept === false ? " and left it on" : ""}.`
           : item.dell === "already-awake"
-            ? "The Dell was already up for somebody else's reasons and was left on."
+            ? "The GPU workstation was already up for somebody else's reasons and was left on."
             : ""
       } The voices are Chatterbox clones from ten seconds of reference audio each; the subtitles are word-timed by the worker. Read the lines before you publish this — they were written by a model.`,
     ].join("\n"),

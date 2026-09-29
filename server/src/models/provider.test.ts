@@ -5,7 +5,7 @@
  * until a run fails: the parameters `jsonObject` adds per provider, and how much
  * output a caller is actually allowed to ask for.
  *
- * The failure being defended against is run r-c4k493 — a reasoning model that
+ * The failure being defended against is a real run — a reasoning model that
  * spent the whole 4096-token default thinking out loud and emitted no JSON, and
  * was charged for it. A regression here does not throw; it quietly produces the
  * same empty answer again.

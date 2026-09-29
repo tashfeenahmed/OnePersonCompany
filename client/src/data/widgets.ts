@@ -191,7 +191,7 @@ export type RankedRow = {
   /** An app, for its store icon beside the label (Apps board). */
   app?: Pick<AppEntry, "icon" | "name" | "ventureId">;
   /** A hostname or URL, for its venture's favicon beside the label (see
-   *  components/HostMark) — "freellmapi.co", "sc-domain:planintel.ie". */
+   *  components/HostMark) — "example.com", "sc-domain:example.net". */
   host?: string | null;
   /** A SUB-AGENT ROLE (`researcher`, `seo`, …), for its artwork beside the
    *  label — see components/org/RoleIcon. */

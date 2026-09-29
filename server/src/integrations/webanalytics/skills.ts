@@ -10,7 +10,7 @@
  * happen:
  *
  *   1. Reporting event OCCURRENCES as people. The connected instance has an
- *      event that fired 5,978 times in 4,434 sessions.
+ *      event that fired 6,000 times in 4,500 sessions.
  *   2. Presenting an adjusted figure as the traffic. The adjusted figure is a
  *      heuristic's opinion; the raw one is what Umami counted.
  *   3. Calling a blended ratio "ROAS". Nothing here attributes revenue to an
@@ -95,7 +95,7 @@ export const SKILLS: Skill[] = [
       "per-venture view of the conversion events the owner named, shaped as inputs to conversion " +
       "work rather than as a funnel.",
     rules: [
-      "OCCURRENCES AND PARTICIPANTS ARE TWO DIFFERENT COUNTS FROM TWO DIFFERENT ENDPOINTS. Never report an occurrence count as a number of people: on the connected instance one event fired 5,978 times in 4,434 sessions.",
+      "OCCURRENCES AND PARTICIPANTS ARE TWO DIFFERENT COUNTS FROM TWO DIFFERENT ENDPOINTS. Never report an occurrence count as a number of people: on the connected instance one event fired 6,000 times in 4,500 sessions.",
       "A PARTICIPANT IS A SESSION IDENTITY, NOT A PERSON. Umami hashes the site, the address and the user agent: one person on a phone and a laptop is two sessions, and one office behind one address may be one.",
       "`participants: null` WITH A `participantsError` MEANS NOT MEASURED. It is not nought and it is not the occurrence count. Events past the per-site detail limit deliberately carry one.",
       "A NUMERIC PROPERTY'S SUM AND MEAN ARE EXACT unless `truncated` is true, in which case the aggregate is refused rather than published short. Never reconstruct one from `topValues`.",

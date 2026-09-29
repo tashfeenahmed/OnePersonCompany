@@ -273,8 +273,8 @@ export function RunApp({
     !!info && !starting && (!needsVenture || !!venture) && !missing.length;
 
   /* Where a run this page starts, opens or closes lands: the same address,
-     with the same filter, so starting a run for ScallopBot leaves you on
-     ScallopBot's list with the new run open at the top of it. */
+     with the same filter, so starting a run for Cedar Studio leaves you on
+     Cedar Studio's list with the new run open at the top of it. */
   const here = (id?: string) => `${appPage(slug, id)}${search}`;
 
   async function start() {

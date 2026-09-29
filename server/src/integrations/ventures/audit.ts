@@ -272,7 +272,7 @@ const tagsOf = (html: string, name: string) =>
  * template, noscript and comments — removed before anything reads it.
  *
  * WHY THIS IS NOT FUSSINESS. A tag regex run over raw HTML cannot tell an
- * anchor from a JavaScript string that spells one. freellmapi.co's home page
+ * anchor from a JavaScript string that spells one. one venture's home page
  * builds its cards with `'<a class="model-card" href="' + href + '"'` inside
  * an inline script; the old link pass extracted that as a link to
  * `/'%20+%20href%20+%20'`, crawled it, got a 404 and reported the site as
@@ -372,7 +372,7 @@ export function failureCode(
  * A noindex on a page the sitemap asks Google to index is a site arguing with
  * itself, and one of the two is wrong. A noindex on a page that is in no
  * sitemap is what an admin screen, a thank-you page or a login looks like when
- * somebody did the right thing — freellmapi.co's `/manage` is exactly that —
+ * somebody did the right thing — a site's `/manage` page is exactly that —
  * and reporting it as an error is how a tool teaches its owner to ignore it.
  * The start URL is the exception either way: a venture's front door telling
  * Google to stay out is the whole problem whether or not a sitemap exists.

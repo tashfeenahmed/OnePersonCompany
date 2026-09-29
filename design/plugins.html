@@ -371,9 +371,9 @@ const PLUGINS = [
   },
   {
     id: 'freellmapi', name: 'FreeLLMAPI', icon: null, mono: 'F', tint: '#7C5CE6', cat: 'ai', connected: true,
-    secret: 'freellmapi-key', desc: 'The in-house catalog API — licence checks and free-tier routing.',
-    help: 'Issued by the catalog service itself. Rotating it here does not rotate it on the Oracle box; both sides have to be set in the same window.',
-    docs: 'https://freellmapi.co',
+    secret: 'freellmapi-key', desc: 'An OpenAI-compatible gateway that routes to providers with a free tier.',
+    help: 'Issued by the gateway itself. Rotating it here does not rotate it on the gateway; both sides have to be set in the same window.',
+    docs: 'https://github.com/tashfeenahmed/freellmapi',
     fields: [{ key: 'key', label: 'Service key', kind: 'secret', ph: 'issued by catalog/' }],
     usedBy: ['agent/models.js (routing)'],
   },

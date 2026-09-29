@@ -164,7 +164,7 @@ test("runs: finished, failed and filing runs; cancelled and autopilot video are 
   setConfig("briefing", RUNS_KEY, "on");
   armPushes(pushSettings(), LONG_AGO);
   const done = run({ status: "done", ms: 12 * 60_000 });
-  const failed = run({ status: "failed", error: "Local · Dell 5820 could not be reached" });
+  const failed = run({ status: "failed", error: "Local · GPU box could not be reached" });
   run({ status: "cancelled" });
   const video = run({ kind: "video", status: "done" });
   const videoFailed = run({ kind: "video", status: "failed", error: "render died" });
@@ -175,7 +175,7 @@ test("runs: finished, failed and filing runs; cancelled and autopilot video are 
   const first = await pushRuns({ send: ok, isRunning: (id) => filing.has(id), facts: facts.facts });
   assert.equal(first.held, 1, "a run still filing its cards waits");
   assert.equal(sent.length, 2);
-  assert.ok(sent.some((m) => m === `⚠️ Research failed: couldn't reach Dell 5820, it may be switched off\nTitle of ${failed}\n/team/research/runs/x`));
+  assert.ok(sent.some((m) => m === `⚠️ Research failed: couldn't reach GPU box, it may be switched off\nTitle of ${failed}\n/team/research/runs/x`));
   assert.ok(sent.some((m) => m.includes(`Title of ${videoFailed}`)), "a failed autopilot video is not announced elsewhere");
   assert.ok(!sent.some((m) => m.includes(`Title of ${video}`)));
   assert.ok(!sent.some((m) => /\br-t\d{4}\b/.test(m.replace(/Title of r-t\d{4}/g, ""))), "no run id outside the test's own titles");

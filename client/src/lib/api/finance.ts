@@ -94,7 +94,7 @@ export type FinanceSummary = {
     currencies: { currency: string; available: number; pending: number }[];
     seenAt: string;
   } | null;
-  tariff: { perKwh: number | null; currency: string; source?: "typed" | "irish-average" };
+  tariff: { perKwh: number | null; currency: string; source?: "typed" | "unset" };
   note: string;
 };
 
@@ -281,8 +281,8 @@ export type PowerLine = {
 
 export type PowerDoc = {
   month: string;
-  /** `irish-average` when nobody typed a rate: the Irish standard unit rate. */
-  tariff: { perKwh: number | null; currency: string; source?: "typed" | "irish-average" };
+  /** `unset` when nobody typed a rate: lines carry kWh and no money. */
+  tariff: { perKwh: number | null; currency: string; source?: "typed" | "unset" };
   profiles: {
     machineId: string; label: string | null; idleWatts: number; busyWatts: number;
     ratePerKwh: number | null; currency: string; timezone: string | null; alwaysOn: boolean; updatedAt: string;

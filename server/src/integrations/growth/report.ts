@@ -141,8 +141,8 @@ export function readAnalysis(text: string): Analysis {
  * `document` flag is the provider's "long structured answer" switch —
  * thinking off where the endpoint takes the knob, the output allowance
  * lifted — without which a local reasoning model spends its budget in the
- * scratchpad and the fence never arrives (every AI-visibility judge on the
- * Dell, 2026-09-18 to 21). A turn that throws is an analysis that failed,
+ * scratchpad and the fence never arrives (every AI-visibility judge on a
+ * local GPU workstation, 2026-09-18 to 21). A turn that throws is an analysis that failed,
  * not a run that failed: the measurement is already in hand.
  */
 export async function askAnalysis(tools: RunTools, turns: ChatTurn[]): Promise<Analysis> {

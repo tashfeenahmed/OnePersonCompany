@@ -2,8 +2,8 @@ import { VentureMark } from "@/components/VentureChrome";
 import { useStore } from "@/lib/store";
 
 /**
- * A HOSTNAME'S VENTURE FAVICON — "freellmapi.co", "https://www.livetutor.io/",
- * "sc-domain:planintel.ie" all find their venture. A subdomain finds its
+ * A HOSTNAME'S VENTURE FAVICON — "example.com", "https://www.example.org/",
+ * "sc-domain:example.net" all find their venture. A subdomain finds its
  * parent's venture ("blog.x.com" → x.com). A host that belongs to no venture
  * draws nothing rather than a guessed icon.
  */

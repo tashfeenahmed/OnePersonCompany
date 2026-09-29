@@ -43,6 +43,36 @@ Ports, intervals and retention are validated at startup. The setup checks report
 local readiness; they do not spend paid requests validating every external
 credential.
 
+## Regional and personal settings
+
+Nothing in the code assumes a country, currency, time zone or host. Where a
+figure depends on where you live, it is a setting, and an unset setting means
+"not known" rather than somebody else's value. Set these from each
+integration's page (Integrations → the integration → Settings) or, for the
+currency, Settings → Currency. They are stored in the database, so they survive
+upgrades and travel with a backup.
+
+| Integration (`plugin id`) | Key | Unset means | Example |
+|---|---|---|---|
+| Finance (`finance`) | `display_currency` | USD | `EUR` |
+| Finance (`finance`) | `kwh_rate` | Electricity is measured in kWh but not priced | `0.30` |
+| Finance (`finance`) | `kwh_currency` | The display currency | `GBP` |
+| Morning briefing (`briefing`) | `timezone`, `hour` | This machine's zone, the default hour | `America/New_York`, `7` |
+| Chief of Staff rounds (`rounds`) | `timezone`, `hour` | This machine's zone, the default hour | `Asia/Tokyo`, `7` |
+| Nightly pipeline (`pipeline`) | `timezone`, `hour` | This machine's zone, the default hour | `Europe/Berlin`, `2` |
+| Customers (`customers`) | `timezone` | The briefing's zone, then this machine's | `Australia/Sydney` |
+| Publishing (`publishing`) | `timezone` | This machine's time zone | `America/Chicago` |
+| Autopilot (`autopilot`) | `timezone` | This machine's time zone | `Europe/Madrid` |
+
+`kwh_rate` is the unit rate from your electricity bill, including tax. A
+machine's own power profile (Finance → Power) can carry a different rate that
+overrides it. The onboarding flow records the browser's time zone for the
+workspace; the settings above only override it where a feature needs its own.
+
+Per-installation inventory — server regions, SSH user probes and other host
+mappings — lives in files in the data directory, never in the repository; see
+[local inventory](local-inventory.md).
+
 ## Running unattended
 
 `npm run dev` is two processes in a terminal — closing the lid stops the

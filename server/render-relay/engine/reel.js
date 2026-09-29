@@ -13,15 +13,15 @@
  * stock photo of a laptop. So a reel can instead be given a LIST OF PAGES —
  * the app's own landing page, a pricing page, a competitor — and the video
  * scrolls slowly down real screenshots of them while the two of them talk over
- * the top. The screenshots are taken here on the Pi by a headless Chromium
+ * the top. The screenshots are taken here on the relay host by a headless Chromium
  * (pagecapture.js) and the grounding comes from the pages themselves rather
  * than from a search engine's summary of them, which is both fresher and the
  * only honest thing to do when the video is going to show the page anyway. A
  * prompt is optional in that mode: the page titles are usually a better topic
  * than anything typed in a hurry.
  *
- * WHERE THE WORK HAPPENS. Nothing here renders anything. The Pi owns the job,
- * the state and the decision to spend a wake; the Dell owns the model and the
+ * WHERE THE WORK HAPPENS. Nothing here renders anything. The relay host owns the job,
+ * the state and the decision to spend a wake; the GPU machine owns the model and the
  * cores. Two calls cross the LAN — llama-swap on :11434 for the script, the
  * reel worker on :8770 for the voices and the composite — and both are plain
  * HTTP, because that is the only way this box talks to that one.
@@ -31,9 +31,9 @@
  * and the render happen inside a SINGLE window rather than waking twice, and
  * the asset side of the pipeline — fetching gameplay clips, preparing
  * backgrounds, caching search images — is deliberately not here at all. That
- * work is network-bound and belongs on the Pi, where it costs nothing.
+ * work is network-bound and belongs on the relay host, where it costs nothing.
  *
- * WHO MAY POWER THE DELL OFF. The same hard rule nightly.js follows, for the
+ * WHO MAY POWER THE GPU MACHINE OFF. The same hard rule nightly.js follows, for the
  * same reason: this file may call sleep() in exactly one case — IT SENT THE
  * WAKE ITSELF. If the box was already up when the job started it is up for
  * somebody else's reasons (other jobs the owner runs there) and is LEFT ON,
@@ -103,7 +103,7 @@ function patch(id, fields) {
  * One function because there is one rule — the files go when the record goes
  * — and the two callers that enforce it (the keep-cap and the delete button)
  * had already drifted once by each remembering the mp4 separately. Captures
- * are working material, not output: they exist to be posted to the Dell and
+ * are working material, not output: they exist to be posted to the GPU machine and
  * shown as thumbnails, so nothing is lost by their leaving with the row.
  */
 function dropFiles(item) {
@@ -185,7 +185,7 @@ releaseOrphans()
 /**
  * The queue's worker for this kind — autopilot.js's contract, in this file's
  * vocabulary. One entry is one reel; a second attempt on the same entry is a
- * RESUME of it after a restart, and it happens only while the Dell is still
+ * RESUME of it after a restart, and it happens only while the GPU machine is still
  * awake or the interruption is minutes old. A resume hours later on a sleeping
  * box would boot it with nobody having asked.
  *
@@ -202,7 +202,7 @@ registerWorker("reel", async (entry, ctx) => {
   if (entry.attempts > 1) {
     const dell = await powerState().catch(() => "off")
     if (dell !== "ready" && Date.now() - (item.at ?? 0) * 1000 > RESUME_GRACE_MS) {
-      const error = "interrupted by a restart, and the Dell has gone to sleep since — make it again from the tab"
+      const error = "interrupted by a restart, and the GPU machine has gone to sleep since — make it again from the tab"
       patch(item.id, { status: "failed", error })
       jobLog("reel", error)
       return { status: "interrupted" }
@@ -223,7 +223,7 @@ export function reelRunning() {
 /* --------------------------------------------------------- the linger */
 
 /**
- * Whether the Dell currently owes its uptime to this file, and the timer that
+ * Whether the GPU machine currently owes its uptime to this file, and the timer that
  * will settle the debt.
  *
  * These are module-level rather than per-job because ownership OUTLIVES a job.
@@ -234,7 +234,7 @@ export function reelRunning() {
  * the flag is the source of truth for who pays, and the per-item `dell` field
  * stays a truthful record of what that particular job found.
  *
- * Lost on restart, deliberately unrecovered: a pm2 restart leaves a woken Dell
+ * Lost on restart, deliberately unrecovered: a pm2 restart leaves a woken GPU machine
  * running, which is the safe direction to fail. The alternative is persisting a
  * timer that could power off a box somebody else is by then using.
  */
@@ -242,7 +242,7 @@ export function reelRunning() {
   The three variables that used to live here — ownership, the timer and the
   deadline — moved to dellsession.js when the shorts tab became a second thing
   that wakes this box. Two independent linger timers would have powered the
-  Dell off underneath each other's jobs. The rules above are unchanged; they
+  GPU machine off underneath each other's jobs. The rules above are unchanged; they
   are just enforced in one place now, for every caller.
 */
 registerBusy("reel", () => reelRunning())
@@ -290,10 +290,10 @@ research where they fit — a named product finds a better picture than a concep
 /**
  * Read around the topic before writing about it.
  *
- * Runs on the PI and BEFORE the wake, which is the whole reason it sits here
- * rather than inside the Dell window: SearXNG is an HTTP call over the public
+ * Runs on the relay host and BEFORE the wake, which is the whole reason it sits here
+ * rather than inside the GPU machine window: SearXNG is an HTTP call over the public
  * internet, it needs no GPU, and a topic that turns out to be unsearchable
- * should not have cost a 90s boot to discover. By the time the Dell comes up
+ * should not have cost a 90s boot to discover. By the time the GPU machine comes up
  * the grounding is already in hand.
  *
  * Best-effort by design. No key, no results, a timeout — all of them return
@@ -478,7 +478,7 @@ async function fetchVideo(jobId, itemId, signal) {
 /**
  * Screenshot every URL, in order, one at a time.
  *
- * Sequential on purpose. This is a four-core Pi that is also serving the
+ * Sequential on purpose. This is a four-core relay host that is also serving the
  * dashboard, and a headless Chromium rasterising WebGL in software will take
  * every core it is offered; two at once is not two captures in the time of
  * one, it is two captures that both time out. `captures` is written back to
@@ -551,7 +551,7 @@ async function run(item, background) {
   try {
     /*
       Look first, boot second — the same rule as the search below, applied to
-      the browser. Screenshots are Pi-side work with no GPU in them, so a list
+      the browser. Screenshots are relay-side work with no GPU in them, so a list
       of URLs that turns out to be five parked domains costs a minute of
       headless Chromium here instead of a wake window there.
     */
@@ -587,7 +587,7 @@ async function run(item, background) {
     }
 
     /*
-      Read first, boot second. The search is a Pi-side HTTP call that needs no
+      Read first, boot second. The search is a relay-side HTTP call that needs no
       GPU, so doing it here rather than inside the wake window keeps a dead
       topic from costing 90s and 360W to discover.
     */
@@ -637,14 +637,14 @@ async function run(item, background) {
           break
         }
       }
-      if (dell !== "woken") throw new Error("the Dell did not come up")
+      if (dell !== "woken") throw new Error("the GPU machine did not come up")
       claimPower()
     }
     patch(id, { dell })
-    jobLog("reel", dell === "woken" ? "woke the Dell" : "the Dell was already awake — it will be left on")
+    jobLog("reel", dell === "woken" ? "woke the GPU machine" : "the GPU machine was already awake — it will be left on")
 
     // Claimed for the same reason the nightly claims it: the opportunistic
-    // starters fire on "the Dell is ready and something is stale", which is
+    // starters fire on "the GPU machine is ready and something is stale", which is
     // always true the moment this run boots the box.
     holdGpu("reel")
 
@@ -690,7 +690,7 @@ async function run(item, background) {
     releaseGpu("reel")
     busy = false
     /*
-      A finished reel does NOT put the Dell away, and this is shorts.js's rule
+      A finished reel does NOT put the GPU machine away, and this is shorts.js's rule
       adopted wholesale (see the long argument at the end of its runner).
 
       It used to schedule a shutdown REEL_LINGER_MS after the render on the
@@ -712,7 +712,7 @@ async function run(item, background) {
         ? "left on — reels come in handfuls, sleep it from the tab when you are done"
         : "was already awake",
     })
-    if (ownsPower()) jobLog("reel", "leaving the Dell on — sleep it from the tab when you are done")
+    if (ownsPower()) jobLog("reel", "leaving the GPU machine on — sleep it from the tab when you are done")
   }
 }
 
@@ -929,7 +929,7 @@ export function removeReel(id) {
 
 /**
  * What the worker can currently do — which voices and which footage it holds.
- * Answers honestly when the Dell is off rather than waking it to ask: an empty
+ * Answers honestly when the GPU machine is off rather than waking it to ask: an empty
  * roster with `reachable: false` is a different sentence from "no backgrounds".
  */
 export async function reelCapabilities() {

@@ -1,5 +1,5 @@
 /**
- * ONE ROUTE, FOR THE STUDIO'S STEWIE TAB: what the Pi and the Dell can do
+ * ONE ROUTE, FOR THE STUDIO'S STEWIE TAB: what the render relay and the GPU workstation can do
  * right now, without waking anything to find out. The render itself is not
  * a route — it is a `video` run with `format: stewie`, on the shared queue,
  * so it inherits cancellation, the ledger and the run page like every other

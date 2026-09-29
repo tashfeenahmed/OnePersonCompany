@@ -665,8 +665,8 @@ export async function eventNames(
  *
  * `/sessions?event=<name>` answers a page of session rows and a `count` of the
  * whole filtered set, so ONE request with `pageSize=1` buys the number and
- * none of the rows. Verified live: `payment-completed` 358 occurrences / 358
- * sessions, `checkout-started` 5,978 occurrences / 4,434 sessions. Those two
+ * none of the rows. Verified live: `payment-completed` 300 occurrences / 300
+ * sessions, `checkout-started` 6,000 occurrences / 4,500 sessions. Those two
  * being different by a third IS the gap — an events ranking alone would have
  * reported the larger figure as though it were people.
  *

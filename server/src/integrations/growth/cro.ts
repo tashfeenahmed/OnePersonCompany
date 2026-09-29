@@ -178,7 +178,7 @@ function productFunnel(v: VentureRow): { steps: Step[]; label: string } | null {
  *
  *   IT COUNTED OCCURRENCES. The top-events ranking counts how many times an
  *   event FIRED. A funnel step is how many people reached it. On the instance
- *   this was found on, one event fired 5,978 times in 4,434 sessions — so
+ *   this was found on, one event fired 6,000 times in 4,500 sessions — so
  *   every step read off that table ran a third high, and the leak below it was
  *   invented.
  *

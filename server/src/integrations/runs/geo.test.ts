@@ -17,10 +17,10 @@ function venture(slug: string, description: string) {
   ).run(
     id,
     slug,
-    "Scallopbot",
+    "Helpdock",
     description,
-    "https://scallopbot.com",
-    "scallopbot.com",
+    "https://helpdock.example",
+    "helpdock.example",
     "launched",
     "#123456",
     "owner",
@@ -80,7 +80,7 @@ const ADVICE =
   "\n```";
 
 test("the generic questions are generated, never name the product, and every judged field lands on the row", async () => {
-  const v = venture("geo-generated", "Scallopbot is a support chatbot widget for websites");
+  const v = venture("geo-generated", "Helpdock is a support chatbot widget for websites");
   const sink: string[] = [];
   const asked: string[] = [];
   let generatorPrompt = "";
@@ -103,7 +103,7 @@ test("the generic questions are generated, never name the product, and every jud
               "What's the best tool for a support chatbot widget?",
               "I need to answer customer questions on my site overnight — what should I use?",
               "Compare the top live chat widgets for a small site.",
-              "Is Scallopbot any good?",
+              "Is Helpdock any good?",
               "Is there a free way to add a support chatbot?",
             ]) +
             "\n```",
@@ -138,8 +138,8 @@ test("the generic questions are generated, never name the product, and every jud
   const generic = rows.filter((r) => r.kind === "generic");
   assert.equal(generic.length, 4, "the generated question naming the product was thrown away");
   for (const r of generic) {
-    assert.doesNotMatch(r.question.toLowerCase(), /scallopbot/, "a generic ask never names the product");
-    assert.doesNotMatch(r.question.toLowerCase(), /scallopbot\.com/, "nor its host");
+    assert.doesNotMatch(r.question.toLowerCase(), /helpdock/, "a generic ask never names the product");
+    assert.doesNotMatch(r.question.toLowerCase(), /helpdock\.example/, "nor its host");
   }
   assert.equal(rows[0]!.explanation, "It named Intercom and Drift and never mentioned the product.");
   assert.equal(rows[0]!.action, "Get listed on the two comparison pages that rank for this category.");
@@ -149,7 +149,7 @@ test("the generic questions are generated, never name the product, and every jud
 });
 
 test("a generator that fails falls back to category templates that still never name the product", async () => {
-  const v = venture("geo-fallback", "Scallopbot is a support chatbot widget for websites");
+  const v = venture("geo-fallback", "Helpdock is a support chatbot widget for websites");
   const sink: string[] = [];
   await geoRun({
     runId: "r-geo-fallback",
@@ -169,13 +169,13 @@ test("a generator that fails falls back to category templates that still never n
     .all("r-geo-fallback") as unknown as { question: string }[];
   assert.equal(generic.length, 5, "the deterministic templates are the whole fallback set");
   for (const r of generic) {
-    assert.doesNotMatch(r.question.toLowerCase(), /scallopbot/, "the venture's own name is stripped out of the category first");
+    assert.doesNotMatch(r.question.toLowerCase(), /helpdock/, "the venture's own name is stripped out of the category first");
     assert.match(r.question.toLowerCase(), /support chatbot widget for websites/);
   }
 });
 
 test("the report is one HTML document with the four parts per question and the cards fence after it", async () => {
-  const v = venture("geo-document", "Scallopbot is a support chatbot widget for websites");
+  const v = venture("geo-document", "Helpdock is a support chatbot widget for websites");
   const sink: string[] = [];
   const nasty = "Never heard of it. <script>alert(1)</script> Try Intercom.";
   await geoRun({
@@ -216,7 +216,7 @@ test("the report is one HTML document with the four parts per question and the c
 });
 
 test("a judge that fails leaves nulls, does not fail the run, and the page says not judged", async () => {
-  const v = venture("geo-nojudge", "Scallopbot is a support chatbot widget for websites");
+  const v = venture("geo-nojudge", "Helpdock is a support chatbot widget for websites");
   const sink: string[] = [];
   await geoRun({
     runId: "r-geo-nojudge",
@@ -247,7 +247,7 @@ test("a judge that fails leaves nulls, does not fail the run, and the page says 
 });
 
 test("with a search node the model searches before it answers, every query and result lands on the row and the page, and the no-tools ask is never made", async () => {
-  const v = venture("geo-searched", "Scallopbot is a support chatbot widget for websites");
+  const v = venture("geo-searched", "Helpdock is a support chatbot widget for websites");
   const sink: string[] = [];
   const plainAsks: string[] = [];
   const searched: string[] = [];
@@ -335,7 +335,7 @@ test("with a search node the model searches before it answers, every query and r
 });
 
 test("with no search node the run asks without tools and the page says why", async () => {
-  const v = venture("geo-unsearched", "Scallopbot is a support chatbot widget for websites");
+  const v = venture("geo-unsearched", "Helpdock is a support chatbot widget for websites");
   const sink: string[] = [];
   await geoRun({
     runId: "r-geo-unsearched",
@@ -359,7 +359,7 @@ test("with no search node the run asks without tools and the page says why", asy
 });
 
 test("the owner can switch the search off, and a model that will not call tools drops the whole run to no tools and says which model", async () => {
-  const v = venture("geo-off", "Scallopbot is a support chatbot widget for websites");
+  const v = venture("geo-off", "Helpdock is a support chatbot widget for websites");
   const sink: string[] = [];
   const search: NonNullable<GeoTools["search"]> = { label: "SearXNG", run: async () => [] };
   const turn: GeoTools["turn"] = async (turns) => {
@@ -380,7 +380,7 @@ test("the owner can switch the search off, and a model that will not call tools 
   assert.match(splitTrailingFence(sink.join("")).doc, /the owner chose to ask without tools/);
 
   /* A provider that refuses the `tools` field on the first round. */
-  const v2 = venture("geo-refused", "Scallopbot is a support chatbot widget for websites");
+  const v2 = venture("geo-refused", "Helpdock is a support chatbot widget for websites");
   const sink2: string[] = [];
   await geoRun({
     runId: "r-geo-refused",

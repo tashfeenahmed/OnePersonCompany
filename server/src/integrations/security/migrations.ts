@@ -95,7 +95,7 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       --
       -- \`host\` IS THE FLEET ACCOUNT'S LABEL, and \`account_id\` beside it is the
       -- key that survives a rename. Both, because the label is what a person
-      -- asks for ("snapshot the Pi") and the id is what is true.
+      -- asks for ("snapshot the home server") and the id is what is true.
       --
       -- \`reason\` IS FREE TEXT AND ALWAYS SAYS WHO ASKED. "asked for from the
       -- page" and "uptime: acme.ie answered 502 at 03:11" are the two that

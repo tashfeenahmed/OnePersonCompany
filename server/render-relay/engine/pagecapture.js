@@ -14,14 +14,14 @@
  *
  * OVER A PIPE, NOT A PORT. `--remote-debugging-pipe` hands the protocol to us
  * on fds 3 and 4 of the child. The alternative, `--remote-debugging-port`,
- * opens a socket that anything on the Pi can drive — a debugger with full
+ * opens a socket that anything on the relay host can drive — a debugger with full
  * control of a browser, listening, on a box that also runs the dashboard. The
  * pipe cannot be connected to by anyone; it dies with the child.
  *
- * WHY THE PI. Same argument the rest of the reel pipeline makes: this is
+ * WHY THE RELAY HOST. Same argument the rest of the reel pipeline makes: this is
  * network-bound work with no GPU in it, and a URL that turns out to be a
  * parked domain must cost a few seconds of headless Chromium rather than the
- * ninety-second boot and 360W of waking the Dell to discover it. Captures
+ * ninety-second boot and 360W of waking the GPU machine to discover it. Captures
  * happen before the wake, always.
  *
  * WHY THE HEIGHT CAP. Six screens. Past that the scroll on the finished video
@@ -76,7 +76,7 @@ function chromiumArgs(profileDir) {
     "--use-gl=angle",
     "--use-angle=swiftshader",
     "--ignore-gpu-blocklist",
-    // No first-run junk and no profile written into the pi user's home on a
+    // No first-run junk and no profile written into the service user's home on a
     // box where this runs unattended.
     "--no-first-run",
     "--disable-extensions",
@@ -86,7 +86,7 @@ function chromiumArgs(profileDir) {
     // when a capture actually fails.
     "--disable-background-networking",
     "--disable-sync",
-    // /dev/shm on the Pi is small; Chromium falls over in it rather than
+    // /dev/shm on the relay host is small; Chromium falls over in it rather than
     // reporting anything useful.
     "--disable-dev-shm-usage",
     `--window-size=${REEL_CAPTURE_WIDTH},${REEL_CAPTURE_HEIGHT}`,
@@ -313,7 +313,7 @@ export async function withPage(url, fn, { timeoutMs, bin, settleMs = 1500 } = {}
     clearTimeout(killer)
     settled = true
     // Ask nicely, then insist. A Chromium left behind on this box holds a
-    // profile directory and a hundred megabytes of the Pi's eight.
+    // profile directory and a hundred megabytes of the host's eight.
     await link.send("Browser.close").catch(() => null)
     await new Promise((r) => setTimeout(r, 300))
     if (child.exitCode === null && child.signalCode === null) {
@@ -417,7 +417,7 @@ async function opened(link, u, fn, settleMs) {
  * deciding whether to retry, so "could not resolve example.com" beats a stack.
  *
  * `bin` exists so the module can be exercised against whatever browser the
- * developing machine has, without the Pi's paths.
+ * developing machine has, without the relay host's paths.
  */
 export async function capturePage({ url, outFile, timeoutMs, bin, maxHeight } = {}) {
   if (!outFile) throw new Error("an output file is required")

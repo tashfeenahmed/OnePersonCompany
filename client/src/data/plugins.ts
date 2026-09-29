@@ -834,7 +834,7 @@ export const PLUGINS: Plugin[] = [
     connected: false,
     secret: "workdash",
     desc: "OPC's render relay for Peter & Stewie videos: it wakes the render machine, prepares the footage and brings the finished video back.",
-    help: "Connect the OPC render relay by its address and service key. The Pi deployment uses http://127.0.0.1:3014; the key is stored in OPC's encrypted vault. Scripts use your selected workspace model. Connecting checks readiness without waking the render machine.",
+    help: "Connect the OPC render relay by its address and service key. A relay on the same machine as OPC usually answers at http://127.0.0.1:3014; the key is stored in OPC's encrypted vault. Scripts use your selected workspace model. Connecting checks readiness without waking the render machine.",
     docs: null,
     fields: [
       {
@@ -1464,7 +1464,7 @@ export const PLUGINS: Plugin[] = [
         key: "box",
         label: "Or: the Fleet box it runs on",
         kind: "text",
-        ph: "Apps box \u2014 the name of the account on the Fleet plugin",
+        ph: "Server 1 \u2014 the name of the account on the Fleet plugin",
         optional: true,
       },
       {

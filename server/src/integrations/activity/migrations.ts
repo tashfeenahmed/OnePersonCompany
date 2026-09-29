@@ -262,7 +262,7 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       -- \`source\` IS NOT DERIVABLE FROM \`url\` AND MUST NOT BE GUESSED FROM IT.
       -- Both new doors write a locator into \`url\` too, because "where did this
       -- come from" is a question the panel has to answer for every product; but
-      -- \`ssh://Apps box#example-app-8\` parsing as a URL scheme nobody serves is not
+      -- \`ssh://Example host 8#example-app-8\` parsing as a URL scheme nobody serves is not
       -- the same fact as an account being box-backed, and a reader that
       -- inferred one from the other would be one string format change from
       -- mislabelling every product. NULL means 'endpoint': it is the only door

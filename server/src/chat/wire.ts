@@ -23,7 +23,7 @@
  * the response: `content` is a string on most and an array of typed parts on
  * some, reasoning models put their working in `reasoning` or
  * `reasoning_content` beside it, and one of the two endpoints this was built
- * against (the Pi's router, probed 2026-09-04) returns BOTH with the same text
+ * against (a self-hosted model router) returns BOTH with the same text
  * in each when it is cut off at max_tokens. So the request sends the four
  * fields everybody implements and nothing clever, and the reader tries the
  * shapes in the order of how likely they are to be the real answer.
@@ -226,7 +226,7 @@ export function readUsage(
 }
 
 /** The model the server says it used — which is frequently NOT the model that
- *  was asked for. The Pi's router answers `-m auto` with the id of whatever it
+ *  was asked for. A model router answers `-m auto` with the id of whatever it
  *  routed to, and the owner is entitled to know which one wrote the words. */
 export function readModel(doc: Completion): string | null {
   return typeof doc.model === "string" && doc.model.trim() ? doc.model : null;

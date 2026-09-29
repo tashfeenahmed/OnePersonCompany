@@ -16,7 +16,7 @@ Reviewed 16 September 2026 against the local Workdash checkout (`4eca140`), part
 
 ## Deliberate differences
 
-- OPC uses the selected workspace model and the shared sub-agent queue. Workdash's Dell wake/sleep ownership, GPU gate and per-stage local model rota are specific to its runtime; they were not copied into the OPC scheduler.
+- OPC uses the selected workspace model and the shared sub-agent queue. Workdash's GPU-workstation wake/sleep ownership, GPU gate and per-stage local model rota are specific to its runtime; they were not copied into the OPC scheduler.
 - Workdash offers a start/end window and opt-in catch-up. OPC currently has a local start hour, a night time budget, blackout windows and automatic coalesced catch-up. This audit fixes OPC's existing semantics; it does not change the owner's saved schedule or enable additional work.
 - Workdash's process-level cron/source-monitor screens are not an exact visual match for OPC's workflow builder. Collector and integration status remain in their OPC areas. The builder manages the saved workflow, rather than claiming to control every service on the Pi.
 

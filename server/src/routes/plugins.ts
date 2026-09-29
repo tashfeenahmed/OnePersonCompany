@@ -758,7 +758,7 @@ const BUILTIN: Record<
     Hetzner's is.
 
     The entry name is `telegram-token` — the name the previous system's own
-    vault uses for the notifier on the Pi, which makes moving the credential a
+    vault uses for its notifier, which makes moving the credential a
     copy rather than a translation. Note that it is a DIFFERENT bot from the
     one that notifier polls: Telegram allows one getUpdates per token, so two processes
     sharing one would each take half the messages. If that ever happens the
@@ -784,7 +784,7 @@ const BUILTIN: Record<
 
     The previous system keeps this as two vault documents,
     `gmail-client.json` and `gmail-token.json`. The second one already
-    contains the first: read off the Pi, gmail-token.json carries
+    contains the first: read off the old host, gmail-token.json carries
     `client_id`, `client_secret`, `refresh_token`,
     `scopes`, `address` and `obtained` — so the client file is the same pair
     written down twice. One document is enough to connect, and it is split into

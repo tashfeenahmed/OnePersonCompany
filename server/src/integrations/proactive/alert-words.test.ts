@@ -12,12 +12,12 @@ const say = (w: { emoji: string; head: string; lines: string[] }) => [`${w.emoji
 
 test("disk: the box by name, from the snapshot the rule read", () => {
   const t = base({ rule: "A box is filling up", skill: "fleet", path: "totals.fullestDisk.percent", threshold: 85, observed: 86.6 });
-  const doc = { totals: { fullestDisk: { box: "Demo box", mount: "/", percent: 86.6 } } };
-  assert.equal(say(tripWords(t, doc, Z, NOW)), "💾 Disk is 87% full on Demo box");
-  const later = { totals: { fullestDisk: { box: "Sosho box", mount: "/", percent: 79.5 } } };
+  const doc = { totals: { fullestDisk: { box: "Web box", mount: "/", percent: 86.6 } } };
+  assert.equal(say(tripWords(t, doc, Z, NOW)), "💾 Disk is 87% full on Web box");
+  const later = { totals: { fullestDisk: { box: "Build box", mount: "/", percent: 79.5 } } };
   assert.equal(
     say(clearWords({ ...t, cleared_at: "2026-09-24T19:02:48Z" }, later, Z, NOW, doc)),
-    "✅ Disk on Demo box is back under 85%\nIt lasted 8 h 30 min.",
+    "✅ Disk on Web box is back under 85%\nIt lasted 8 h 30 min.",
     "the box that filled up, not whichever is fullest now",
   );
   assert.equal(say(tripWords(t, null, Z, NOW)), "💾 Disk is 87% full on one of your boxes", "a pruned snapshot still says what happened");
@@ -26,35 +26,35 @@ test("disk: the box by name, from the snapshot the rule read", () => {
 test("sites: the names, and a DNS-wide failure blamed on this box's internet", () => {
   const t = base({ rule: "A site is not answering", skill: "uptime", path: "summary.down", observed: 24 });
   const dns = (host: string) => ({ host, current: { ok: false, status: null, error: `EAI_AGAIN — getaddrinfo EAI_AGAIN ${host}` } });
-  const doc = { hosts: [dns("scallopbot.com"), dns("planintel.ie"), dns("neu.ie"), ...Array.from({ length: 21 }, (_, i) => dns(`s${i}.com`)), { host: "up.com", current: { ok: true } }] };
+  const doc = { hosts: [dns("helpdock.example"), dns("planfinder.example"), dns("acme.example"), ...Array.from({ length: 21 }, (_, i) => dns(`s${i}.com`)), { host: "up.com", current: { ok: true } }] };
   assert.equal(
     say(tripWords(t, doc, Z, NOW)),
-    "🔴 24 sites aren't responding: scallopbot.com, planintel.ie, neu.ie, +21 more\n" +
+    "🔴 24 sites aren't responding: helpdock.example, planfinder.example, acme.example, +21 more\n" +
       "Every check failed at the address lookup, so it's probably this box's internet rather than the sites.",
   );
-  const one = { hosts: [{ host: "tellswell.com", current: { ok: false, status: 502, error: null } }] };
-  assert.equal(say(tripWords({ ...t, observed: 1 }, one, Z, NOW)), "🔴 tellswell.com isn't responding\nIt answered with error 502.");
+  const one = { hosts: [{ host: "maple.example", current: { ok: false, status: 502, error: null } }] };
+  assert.equal(say(tripWords({ ...t, observed: 1 }, one, Z, NOW)), "🔴 maple.example isn't responding\nIt answered with error 502.");
 });
 
 test("MRR: which way, by how much, and what it is now — never the JSON path", () => {
-  const t = base({ rule: "MRR moved for CircleChat", skill: "stripe", path: "byVenture.v-3s7ufr.mrrAbsDelta", threshold: 20, observed: 29, venture: "CircleChat" });
-  const doc = { byVenture: { "v-3s7ufr": { name: "CircleChat", currency: "USD", mrr: 15, previousMrr: 44, mrrDelta: -29 } } };
+  const t = base({ rule: "MRR moved for Cedar", skill: "stripe", path: "byVenture.v-cedar.mrrAbsDelta", threshold: 20, observed: 29, venture: "Cedar" });
+  const doc = { byVenture: { "v-cedar": { name: "Cedar", currency: "USD", mrr: 15, previousMrr: 44, mrrDelta: -29 } } };
   const text = say(tripWords(t, doc, Z, NOW));
-  assert.equal(text, "📉 CircleChat MRR is down $29/mo\nNow $15/mo, was $44/mo.");
-  assert.ok(!text.includes("v-3s7ufr"));
-  assert.equal(say(tripWords(t, null, Z, NOW)), "📊 CircleChat MRR moved by $29/mo");
+  assert.equal(text, "📉 Cedar MRR is down $29/mo\nNow $15/mo, was $44/mo.");
+  assert.ok(!text.includes("v-cedar"));
+  assert.equal(say(tripWords(t, null, Z, NOW)), "📊 Cedar MRR moved by $29/mo");
 });
 
 test("signups and page views out of their usual range, from the anomaly pass's sentence", () => {
   const t = base({
-    rule: "Tellswell · signups changed unusually", skill: "insights", path: "daily.value", op: "changed", observed: 8,
-    message: "Tellswell · signups: 8 signups on 2026-09-23; expected 0.0–5.0 from 28 prior days (2026-08-25–2026-09-21).",
-    recovery_message: "Tellswell · signups returned to its baseline range: 0 signups on 2026-09-24.",
+    rule: "Maple · signups changed unusually", skill: "insights", path: "daily.value", op: "changed", observed: 8,
+    message: "Maple · signups: 8 signups on 2026-09-23; expected 0.0–5.0 from 28 prior days (2026-08-25–2026-09-21).",
+    recovery_message: "Maple · signups returned to its baseline range: 0 signups on 2026-09-24.",
   });
-  assert.equal(say(tripWords(t, null, Z, NOW)), "📈 Tellswell had 8 signups yesterday\nMore than usual: normally 0–5 a day.");
-  assert.equal(clearWords(t, null, Z, NOW).head, "Tellswell signups are back to normal (0 signups today)");
-  const views = base({ message: "FreeLLMAPI · pageviews: 17517 views on 2026-09-23; expected 5073.7–13800.3 from 28 prior days (x)." });
-  assert.equal(tripWords(views, null, Z, NOW).head, "FreeLLMAPI had 17,517 page views yesterday");
+  assert.equal(say(tripWords(t, null, Z, NOW)), "📈 Maple had 8 signups yesterday\nMore than usual: normally 0–5 a day.");
+  assert.equal(clearWords(t, null, Z, NOW).head, "Maple signups are back to normal (0 signups today)");
+  const views = base({ message: "Example App · pageviews: 17000 views on 2026-09-23; expected 5000.0–13000.0 from 28 prior days (x)." });
+  assert.equal(tripWords(views, null, Z, NOW).head, "Example App had 17,000 page views yesterday");
 });
 
 test("failed payments and expiring domains", () => {
@@ -65,14 +65,14 @@ test("failed payments and expiring domains", () => {
   );
   const dom = base({ rule: "A domain expires within 30 days", skill: "domains", path: "summary.expiring30", observed: 1 });
   assert.equal(
-    say(tripWords(dom, { domains: [{ name: "mynextgaff.com", expiresInDays: 12, autoRenew: false }, { name: "x.co", expiresInDays: 200 }] }, Z, NOW)),
-    "📅 mynextgaff.com expires in 12 days\nAuto-renew is off.",
+    say(tripWords(dom, { domains: [{ name: "example.net", expiresInDays: 12, autoRenew: false }, { name: "x.co", expiresInDays: 200 }] }, Z, NOW)),
+    "📅 example.net expires in 12 days\nAuto-renew is off.",
   );
 });
 
 test("a rule with no reading of its own says its name and the figure against its line", () => {
   const t = base({ rule: "Pageviews dropped by half against last week", skill: "umami", path: "portfolio.window.pageviews", op: "dropped_by_pct", threshold: 50, window_minutes: 10_080, observed: 1200, previous: 3000 });
   assert.equal(say(tripWords(t, null, Z, NOW)), "⚠️ Pageviews dropped by half against last week\nDown 60% on last week: 3,000 → 1,200.");
-  const custom = base({ rule: "Queue too long", skill: "ops", path: "queue.length", op: ">", threshold: 10, observed: 14, venture: "Sosho" });
-  assert.equal(say(tripWords(custom, null, Z, NOW)), "⚠️ Queue too long (Sosho)\nIt's at 14, above your limit of 10.");
+  const custom = base({ rule: "Queue too long", skill: "ops", path: "queue.length", op: ">", threshold: 10, observed: 14, venture: "Maple" });
+  assert.equal(say(tripWords(custom, null, Z, NOW)), "⚠️ Queue too long (Maple)\nIt's at 14, above your limit of 10.");
 });

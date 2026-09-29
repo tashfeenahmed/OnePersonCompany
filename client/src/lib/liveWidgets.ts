@@ -2383,7 +2383,7 @@ function whereItIs(state: string | null, onStore: boolean | null): string {
 }
 
 /** A package id with its reverse-domain prefix dropped, which is the half that
- *  identifies the app: `com.acme.BetIndex` becomes `acme.BetIndex` and
+ *  identifies the app: `com.acme.ExampleApp` becomes `acme.ExampleApp` and
  *  `co.acme.app` becomes `acme.app`. Only the FIRST segment goes — taking the
  *  last one instead collapses `co.acme.app` and `com.acme.android` to "app"
  *  and "android", which name nothing. */
@@ -8294,7 +8294,7 @@ Object.assign(LIVE_BUILDERS, {
     const rateWord =
       t.perKwh === null
         ? "no price per kWh"
-        : `${money(t.perKwh, t.currency)}/kWh${t.source === "irish-average" ? " · Irish standard rate" : " · your rate"}`;
+        : `${money(t.perKwh, t.currency)}/kWh · your rate`;
     const lines = finance.power.lines;
     if (!lines.length)
       return {
@@ -11430,7 +11430,7 @@ Object.assign(LIVE_BUILDERS, {
     AD SPEND PER VENTURE, THROUGH A JOIN THAT IS NAMED ON THE CARD.
 
     Meta ties nothing to a business. What it gives us is a campaign called
-    "[8/4/2026] Promoting https://freellmapi.co/…", and the map behind this
+    "[8/4/2026] Promoting https://example.com/…", and the map behind this
     card reads the host out of that name. So a row here is as good as the
     campaign naming was, and a rename at Meta empties a venture rather than
     quietly moving its money — which is the right way for it to fail.
@@ -13239,8 +13239,8 @@ function revenueStreams(
  *  (USD when unset), and null only when no stream has any money at all.
  *
  *  IT USED TO BE "THE CURRENCY WITH THE LARGEST SUM", which compared raw
- *  numbers across currencies — 2,054 RUB beat 126 USD, so the ARR tile went
- *  rubles the day Apple's sales estimate arrived. */
+ *  numbers across currencies — a few thousand RUB beat a hundred USD, so the
+ *  ARR tile could go rubles the day a store's sales estimate arrived. */
 function revenueRing(streams: RevenueStream[], F: FinanceReport | null | undefined): string | null {
   if (!streams.some((s) => s.amounts.length)) return null;
   return displayCurrency(F);
@@ -15207,7 +15207,7 @@ Object.assign(LIVE_BUILDERS, {
 /* ========================================================== development
    THE DEVELOPMENT BOARD — stars by day and release downloads from
    /api/github/insights, beside the collector's own repo figures. Repo names
-   drop the owner ("tashfeenahmed/freellmapi" → "freellmapi") because every
+   drop the owner ("acme/example-app" → "example-app") because every
    repo here is the owner's and the prefix is the same word forty times.
    ======================================================================== */
 

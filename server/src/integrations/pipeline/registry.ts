@@ -343,8 +343,8 @@ export function blackoutFor(
  * start hour crosses the offset: a night at 22:00 in America/New_York is
  * stamped with the NEXT UTC date, so the following night read `lastDay ===
  * today` and reported every daily stage "not due" — the pipeline would have run
- * the estate every second night, silently, for ever. This box runs at 02:00 in
- * Europe/Dublin, which is why nothing showed it.
+ * the estate every second night, silently, for ever. A box running at 02:00 in
+ * Europe/London would never show it.
  *
  * A stage that has NEVER completed is always due. That is what makes a newly
  * registered stage run on its first night rather than on its second.

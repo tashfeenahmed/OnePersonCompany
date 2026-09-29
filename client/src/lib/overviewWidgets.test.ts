@@ -47,12 +47,12 @@ test("unlike Play payout currencies never share a ranked bar scale",()=>{
 
 /* THE OVERVIEW SPEAKS THE CURRENCY CHOSEN ON SETTINGS → GENERAL. */
 const fx={summary:{fx:{displayCurrency:"USD",rates:[],errors:[],reference:{base:"EUR",asOf:"2026-09-25",fetchedAt:"",rates:{USD:1.1,RUB:100,INR:95}}}}};
-const appleInRubles={connected:true,payout:{months:[]},estimated:{months:[{month:"2026-08",currencies:[{currency:"RUB",amount:2054.1},{currency:"USD",amount:126}]}]}};
+const appleInRubles={connected:true,payout:{months:[]},estimated:{months:[{month:"2026-08",currencies:[{currency:"RUB",amount:3000},{currency:"USD",amount:150}]}]}};
 test("combined ARR is in the display currency, not whichever currency has the biggest number",()=>{
   const p=build("brief.arr",{mobile:{appstore:appleInRubles,play:{connected:false}},finance:fx})!;
   assert.match(p.value!,/^≈(US)?\$/);
   assert.doesNotMatch(p.value!,/RUB/);
-  const monthly=2054.1*1.1/100+126;
+  const monthly=3000*1.1/100+150;
   assert.ok(Math.abs(p.parts![0]!.value-monthly)<1e-9);
 });
 test("combined ARR defaults to USD before finance has loaded",()=>{

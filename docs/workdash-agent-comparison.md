@@ -1,9 +1,9 @@
 # Workdash / OPC specialist audit — 2026-09-16
 
 Compared the retained Workdash agent modules with OPC's run executor, specialist
-prompts, persistent stores, artifact routes and the Pi's existing run metadata.
+prompts, persistent stores, artifact routes and the retained Workdash host's existing run metadata.
 The local Workdash copies of `seo.js`, `competitors.js`, `research.js` and
-`academic.js` match the retained Pi copies by SHA-256. Workdash stayed stopped.
+`academic.js` match the retained host copies by SHA-256. Workdash stayed stopped.
 
 | Specialist | Workdash | OPC after this change |
 | --- | --- | --- |
@@ -54,5 +54,5 @@ No Workdash schedules, background services or automatic publications are enabled
   HTML sanitisation, missing files, traversal/symlink rejection, research phase
   separation, no-tools limits, incomplete report repair, and preservation of
   competitor verification dates without tools; existing merge/HTML/Typst tests.
-- Deployment checks read already-saved Pi reports and paper artifacts; no paid
+- Deployment checks read already-saved host reports and paper artifacts; no paid
   investigation, paper generation or external message is started.

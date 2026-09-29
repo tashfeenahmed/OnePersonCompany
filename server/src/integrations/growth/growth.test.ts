@@ -27,17 +27,17 @@ test("tokens drop stop words and short words", () => {
 
 test("a search that answered the question is not degraded", () => {
   const results = [
-    { title: "Planning permission search Ireland", content: "search planning applications" },
+    { title: "Planning permission search online", content: "search planning applications" },
     { title: "Find a planning application", content: "permission" },
   ];
-  const r = relevance("planning permission search ireland", results);
+  const r = relevance("planning permission search online", results);
   assert.equal(r.degraded, false);
   assert.equal(r.of, 4);
 });
 
 test("a search that answered something else is degraded", () => {
   const results = [{ title: "Free browser games", content: "play now" }];
-  const r = relevance("planning permission search ireland", results);
+  const r = relevance("planning permission search online", results);
   assert.equal(r.degraded, true);
   assert.equal(r.matched, 0);
 });
@@ -50,7 +50,7 @@ test("a query of nothing but stop words is unmeasurable rather than degraded", (
 test("one countable word cannot be checked, and an identifier says so", () => {
   assert.match(unmeasurable("acmeproduct") ?? "", /single word/);
   assert.match(unmeasurable("d14a5r2") ?? "", /identifier/);
-  assert.equal(unmeasurable("planning permission ireland"), null);
+  assert.equal(unmeasurable("planning permission rules"), null);
 });
 
 test("the HTML reader counts what a search engine sees", () => {

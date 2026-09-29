@@ -210,7 +210,7 @@ export async function fetchPage({ url }) {
         redirect: "manual",
         headers: {
           // Identify honestly; some sites 403 an absent UA outright.
-          "User-Agent": "workdash-agent/1.0 (+private dashboard)",
+          "User-Agent": "onepersoncompany-render-relay/1.0",
           Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5",
           "Accept-Language": "en-GB,en;q=0.9",
         },

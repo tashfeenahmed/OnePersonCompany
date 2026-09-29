@@ -115,14 +115,14 @@ export const manifest: IntegrationManifest = {
         timezone: {
           label: "Time zone",
           hint:
-            `An IANA zone — Europe/Dublin, America/New_York. Empty means this machine's own, which ` +
+            `An IANA zone — America/New_York, Europe/Berlin. Empty means this machine's own, which ` +
             `is right until the machine travels. It also decides what "today" means for the ` +
             `once-a-day check, for the cadences, and for "skip tonight".`,
           ph: Intl.DateTimeFormat().resolvedOptions().timeZone,
           check(value) {
             const v = value.trim();
             if (!v) return null;
-            return validZone(v) ? null : `"${v}" is not a time zone this machine knows. Use an IANA name like Europe/Dublin.`;
+            return validZone(v) ? null : `"${v}" is not a time zone this machine knows. Use an IANA name like America/New_York.`;
           },
         },
         blackouts: {

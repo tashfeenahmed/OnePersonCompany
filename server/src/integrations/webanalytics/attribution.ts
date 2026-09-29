@@ -255,8 +255,8 @@ export type ConversionStep = {
   participantsError: string | null;
   /**
    * HOW MANY TIMES IT FIRED, repeats included. NEVER a number of people, and
-   * never a numerator: one connected instance had an event that fired 5,978
-   * times in 4,434 sessions, so publishing this as the step overstates it by a
+   * never a numerator: one connected instance had an event that fired 6,000
+   * times in 4,500 sessions, so publishing this as the step overstates it by a
    * third.
    */
   occurrences: number | null;

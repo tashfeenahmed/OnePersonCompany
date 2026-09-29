@@ -63,7 +63,7 @@ async function verifyWorkdash(values: Record<string, string>): Promise<string | 
     if (!res.ok) return `The agent answered ${res.status} rather than its reel document — is that the render relay's address?`;
     return null;
   } catch (err) {
-    return `Nothing answered at ${url}: ${err instanceof Error ? err.message : String(err)}. The Pi has to be on the same network as this machine.`;
+    return `Nothing answered at ${url}: ${err instanceof Error ? err.message : String(err)}. The render relay has to be on the same network as this machine.`;
   }
 }
 
@@ -73,8 +73,8 @@ export const manifest: IntegrationManifest = {
   /*
     THE ONE CREDENTIAL THIS AREA HOLDS, and it is not a model's or a voice's:
     it is the render relay's service key, so the Stewie format can hand a
-    reel to the Pi and fetch the file back. One account is one agent; the
-    label is the Pi's name.
+    reel to the relay and fetch the file back. One account is one agent; the
+    label is the relay's name.
   */
   plugins: {
     [WORKDASH_PLUGIN]: {

@@ -187,8 +187,8 @@ export type Proposal = {
  * call them different findings.
  *
  * So it is the section plus the line NORMALISED the way titles are — figures
- * out, punctuation out, stopwords out — which makes "MRR now $589.83 … change
- * $341.25" and "MRR now $589.83 across 372 active subscription(s)" the same
+ * out, punctuation out, stopwords out — which makes "MRR now $500.00 … change
+ * $300.00" and "MRR now $500.00 across 300 active subscription(s)" the same
  * finding they plainly are, and a traffic line about a different site a
  * different one.
  *

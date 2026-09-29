@@ -2,12 +2,12 @@
  * HERMES — Nous Research's agent, reached over an OpenAI-compatible endpoint.
  *
  * WHAT HERMES ACTUALLY IS, BECAUSE THE CATALOG'S DESCRIPTION IS HALF RIGHT.
- * Probed against the real container on the owner's Pi
+ * Probed against the real container on a home server
  * (`nousresearch/hermes-agent:latest`, 2026-09-04): Hermes is a COMMAND-LINE
  * agent. The container runs `hold.sh` and listens on nothing. There is no HTTP
  * API sitting there waiting to be pointed at, and the address the catalog
  * shipped as its placeholder — `http://127.0.0.1:3011/v1` — is not Hermes at
- * all: on that Pi, 3011 is the previous system's own read-only proxy handing
+ * all: on that server, 3011 is the previous system's own read-only proxy handing
  * the container a GET-only window onto the dashboard. It answers `/v1/models` with
  * 200 and an `index.html`, which is exactly the failure `getJson` in
  * chat/wire.ts now names in one sentence.
@@ -33,11 +33,11 @@
  * OpenAI-compatible server the owner already has — and those do check it.
  *
  * WHAT IS UNVERIFIED, SAID PLAINLY. `hermes proxy start` refuses to run on
- * that Pi: `Not logged into Nous Portal. Run 'hermes auth add nous' first.`
+ * that server: `Not logged into Nous Portal. Run 'hermes auth add nous' first.`
  * There is no Nous credential on this estate and inventing one is not on the
  * table, so no completion has ever been read back from `hermes proxy` itself.
  * What HAS been verified end to end, through this adapter and `POST
- * /api/chat`, is a real OpenAI-compatible endpoint on the same Pi — the model
+ * /api/chat`, is a real OpenAI-compatible endpoint on the same server — the model
  * door on the LAN address that the Hermes container is itself pointed at. Same
  * wire, same request, same parser, a real answer. The gap is one process, and
  * it is named here rather than papered over.

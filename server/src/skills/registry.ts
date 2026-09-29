@@ -479,7 +479,7 @@ const BUILTIN_ENTRIES: Skill[] = [
     asks: [
       "What did I spend on models last month, and which project spent it?",
       "How much OpenRouter credit is left?",
-      "What has Betaware's model work cost this month, and what can't be split out?",
+      "What has one venture's model work cost this month, and what can't be split out?",
     ],
   },
 

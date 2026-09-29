@@ -11,8 +11,8 @@ import { api } from "@/lib/api";
  * It is the finance integration's `display_currency`, the same key its own
  * page edits — one setting with two doors, not two settings. Unset means USD
  * (the server says so), so the Overview no longer picks "whichever currency
- * has the biggest number", which is how 2,054 rubles out-shouted 126 dollars
- * and the ARR tile went RUB.
+ * has the biggest number", which is how a few thousand rubles could out-shout
+ * a hundred dollars and turn the ARR tile RUB.
  *
  * Figures earned in another currency are converted at the rate typed on the
  * Finance page, or the day's reference rate, and wear "≈".

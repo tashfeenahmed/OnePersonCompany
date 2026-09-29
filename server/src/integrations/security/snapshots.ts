@@ -355,7 +355,7 @@ export function boxByAccount(id: number): Box | null {
 }
 
 /** By account id, or by label, case-insensitively — because a person asks for
- *  "the Pi" and a route asks for 3. */
+ *  "the home server" and a route asks for 3. */
 export function findBox(key: string): Box | null {
   const { ready } = boxes();
   const asId = Number(key);

@@ -29,7 +29,7 @@
 
 const API = "https://api.telegram.org";
 
-/** Long-poll seconds asked of Telegram. 50 is what the notifier on the Pi has
+/** Long-poll seconds asked of Telegram. 50 is what a long-running notifier bot has
  *  used for a year: long enough that an idle bot costs about one request a
  *  minute, short enough to sit inside every proxy's idle timeout. */
 export const POLL_SECONDS = 50;

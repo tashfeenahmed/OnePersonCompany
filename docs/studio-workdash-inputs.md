@@ -1,6 +1,6 @@
 # Studio input comparison
 
-Compared on 2026-09-16 with Workdash's `src/pages/Studio.tsx` and `agent/{studio,shorts,faceless,motion,reel}.js`. The local generation modules matched the retained files under `/opt/workdash/agent` on the Pi byte for byte. Workdash remains retired; OPC owns the UI, model selection and jobs.
+Compared on 2026-09-16 with Workdash's `src/pages/Studio.tsx` and `agent/{studio,shorts,faceless,motion,reel}.js`. The local generation modules matched the retained files of the Workdash installation byte for byte. Workdash remains retired; OPC owns the UI, model selection and jobs.
 
 | OPC format | Workdash's input model | OPC changes |
 | --- | --- | --- |
