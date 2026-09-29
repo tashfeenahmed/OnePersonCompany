@@ -14341,8 +14341,11 @@ function insightDays(D: DevInsights): string[] {
 }
 
 /** Rows per day, split by repo, as `daily` bars. */
-function byRepoDaily(D: DevInsights, rows: { repo: string; day: string; value: number }[]) {
-  const grid = insightDays(D);
+function byRepoDaily(D: DevInsights, rows: { repo: string; day: string; value: number }[], trim = false) {
+  /* `trim` stops the grid at the newest day the source has reported, so
+     days GitHub has not published yet are absent rather than drawn as zero. */
+  const newest = rows.reduce((m, r) => (r.day > m ? r.day : m), "");
+  const grid = insightDays(D).filter((d) => !trim || d <= newest);
   const repos = [...new Set(rows.map((r) => r.repo))];
   const at = new Map(rows.map((r) => [`${r.repo}|${r.day}`, r.value]));
   return grid.map((day) => {
@@ -14410,7 +14413,7 @@ Object.assign(LIVE_BUILDERS, {
 
   "dev.traffic": ({ devInsights: D }: LiveInputs) => {
     if (!D?.repoTraffic.length) return null;
-    const daily = byRepoDaily(D, D.repoTraffic.map((r) => ({ repo: r.repo, day: r.day, value: r.views })));
+    const daily = byRepoDaily(D, D.repoTraffic.map((r) => ({ repo: r.repo, day: r.day, value: r.views })), true);
     const total = daily.reduce((n, d) => n + d.total, 0);
     return {
       daily,
@@ -14422,7 +14425,7 @@ Object.assign(LIVE_BUILDERS, {
 
   "dev.clones": ({ devInsights: D }: LiveInputs) => {
     if (!D?.repoTraffic.length) return null;
-    const daily = byRepoDaily(D, D.repoTraffic.map((r) => ({ repo: r.repo, day: r.day, value: r.clones })));
+    const daily = byRepoDaily(D, D.repoTraffic.map((r) => ({ repo: r.repo, day: r.day, value: r.clones })), true);
     const total = daily.reduce((n, d) => n + d.total, 0);
     if (!total) return null;
     return { daily, dailySplit: "By repo", unit: "count" as const, caption: `${count(total)} clones — CI and bots clone too` };
@@ -14498,8 +14501,10 @@ Object.assign(LIVE_BUILDERS, {
   "dev.worth": ({ devInsights: D, github: G }: LiveInputs) => {
     if (!D || !G?.repos.length) return null;
     const out: [string, StatusTone][] = [];
+    /* A profile repo (owner/owner) is a README, not a project to push to. */
+    const profile = (full: string) => full.split("/")[0]!.toLowerCase() === repoShort(full).toLowerCase();
     const views = new Map<string, number>();
-    for (const r of D.repoTraffic) views.set(r.repo, (views.get(r.repo) ?? 0) + r.views);
+    for (const r of D.repoTraffic) if (!profile(r.repo)) views.set(r.repo, (views.get(r.repo) ?? 0) + r.views);
     const stars = new Map<string, number>();
     for (const r of D.starDays) stars.set(r.repo, (stars.get(r.repo) ?? 0) + r.n);
     /* Momentum: the repo gaining the most stars, and its pace. */
