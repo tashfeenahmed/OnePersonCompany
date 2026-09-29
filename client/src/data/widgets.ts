@@ -220,7 +220,8 @@ export type ThreadCard = {
 export type DailyBar = {
   day: string;
   total: number;
-  parts?: { label: string; value: number; mark?: string | null }[];
+  /** `host` is a hostname for the venture favicon in the legend. */
+  parts?: { label: string; value: number; mark?: string | null; host?: string | null }[];
 };
 
 /**
@@ -1866,6 +1867,35 @@ export const WIDGETS: Record<string, Widget> = {
     name: "What this token will not read",
     kind: "rows",
     live: { cloudflare: true },
+  },
+
+  /* THE TRAFFIC & DNS BOARD'S VISUAL CARDS — sites as favicons, days as stacks
+     of sites, mail and DNS as ticks. Same document as the cf.* cards above. */
+  "traffic.pageViews": { src: "cf", name: "Page views", window: "selected", kind: "metric", live: { cloudflare: true } },
+  "traffic.daily": { src: "cf", name: "Requests per day", window: "selected", kind: "daily", live: { cloudflare: true }, unit: "count" },
+  "traffic.visitors": { src: "cf", name: "Visitors per day", window: "selected", kind: "daily", live: { cloudflare: true }, unit: "count" },
+  "traffic.sites": { src: "cf", name: "Requests by site", window: "selected", kind: "ranked", live: { cloudflare: true } },
+  "traffic.countries": { src: "cf", name: "Where requests come from", window: "selected", kind: "ranked", live: { cloudflare: true } },
+  "traffic.status": { src: "cf", name: "Response codes", window: "selected", kind: "proportion", live: { cloudflare: true } },
+  "traffic.cache": { src: "cf", name: "Cache hit ratio", window: "selected", kind: "proportion", live: { cloudflare: true } },
+  "traffic.threatsBySite": { src: "cf", name: "Threats blocked by site", window: "selected", kind: "ranked", live: { cloudflare: true } },
+  "traffic.dnsHealth": {
+    src: "cf",
+    name: "DNS and mail checklist",
+    window: "now",
+    kind: "table",
+    live: { cloudflare: true },
+    headers: ["Site", "Records", "Proxied", "MX", "SPF", "DMARC", "DKIM"],
+  },
+  "traffic.email": { src: "cf", name: "Mail protection", window: "now", kind: "proportion", live: { cloudflare: true } },
+  "traffic.delegation": { src: "cf", name: "Nameserver delegation", window: "now", kind: "proportion", live: { cloudflare: true } },
+  "traffic.table": {
+    src: "cf",
+    name: "Every site",
+    window: "selected",
+    kind: "table",
+    live: { cloudflare: true },
+    headers: ["Site", "Requests", "Visitors/day", "Views", "Cached", "Bandwidth", "Threats", "5xx"],
   },
   /*
     THE ONE UPTIME CARD THAT PREDATES THE PROBE.
@@ -5448,9 +5478,9 @@ export const DASHBOARD_PRESETS: {
       "bing.queries",
       "gsc.coverage",
       "cf.total",
-      "cf.daily",
-      "cf.requests",
-      "cf.dns",
+      "traffic.daily",
+      "traffic.sites",
+      "traffic.dnsHealth",
     ],
   },
   {
