@@ -128,7 +128,17 @@ function change(now: number, before: number | null): number | null {
 gscRoutes.get("/", (c) => {
   const days = Math.min(Math.max(Number(c.req.query("days") ?? 90) || 90, 7), 400);
   const sites = gscSites();
-  const rows = gscDays(days);
+  /*
+    THE TOTALS NEED TWO WHOLE WINDOWS WHATEVER THE LINE IS ASKED FOR. The
+    28-day totals and the 28 days before them are read from these rows, so a
+    board on a 7d or 30d window used to get totals built from five days and
+    a "previous window" of none at all — "5,130 clicks" becoming "909" when
+    the picker moved, and every movement card empty. The rows are read far
+    enough back for both windows; `days` only decides how long the drawn
+    lines are.
+  */
+  const rows = gscDays(Math.max(days, WINDOW_DAYS * 2 + LAG_DAYS + 2));
+  const lineSince = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
   const accounts = accountRows("gsc").map((a) => ({
     id: a.id,
     label: a.label,
@@ -221,6 +231,7 @@ gscRoutes.get("/", (c) => {
       entry.prevDays += 1;
     }
     byProperty.set(r.property, entry);
+    if (r.day < lineSince) continue;
     const line = dailyByProperty.get(r.property) ?? [];
     line.push({ day: r.day, clicks: r.clicks, impressions: r.impressions, position: r.position });
     dailyByProperty.set(r.property, line);
@@ -354,6 +365,7 @@ gscRoutes.get("/", (c) => {
 
   const byDay = new Map<string, { clicks: number; impressions: number; properties: number }>();
   for (const r of rows as GscDayRow[]) {
+    if (r.day < lineSince) continue;
     const d = byDay.get(r.day) ?? { clicks: 0, impressions: 0, properties: 0 };
     d.clicks += r.clicks;
     d.impressions += r.impressions;

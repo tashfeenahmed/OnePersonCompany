@@ -747,69 +747,43 @@ const SEED: StoreState = {
       is explained rather than discovered.
     */
     /*
-      RE-SEEDED IN SEED_VERSION 17 TO FOLLOW WORKDASH'S ALL-PROPERTIES SEARCH
-      PAGE TOP TO BOTTOM: the four tiles, the two lines under them (rank and
-      sitemaps), "Portfolio impressions per day" at full width with its clicks
-      twin, clicks against impressions, then every property drawn as itself —
-      first as the rail (a row and a sparkline each), then as the table and
-      the per-property lines — and the quiet ones last. After that the cards
-      Workdash's per-property page draws, cut across the portfolio: the
-      ranked queries, pages and page-two list, the per-property tables, the
-      zero-click floor, the sitemaps. Bing closes, still apart from Google.
-
-      THE PER-PROPERTY CARDS ARE NOT SEEDED HERE, and it is deliberate: they
-      take a venture (`PlacedWidget.param`) and the seed cannot know which
-      ventures have traffic. The rail shows every property at a glance, and
-      the palette adds "Search · <venture>" in one click for the ones that
-      deserve a card of their own.
-
-      Three `rows` cards left — `gsc.queries`, `gsc.pages`, `gsc.striking` —
-      replaced by their ranked-bar versions, as the SEO re-seed did.
+      THE PER-PROPERTY CARDS ARE NOT SEEDED HERE: they take a venture
+      (`PlacedWidget.param`) and the seed cannot know which ventures have
+      traffic. The site grids show every site at a glance, and the palette
+      adds "Search · <venture>" in one click for the ones that deserve a card
+      of their own.
     */
     {
       id: "d-search",
       slug: "search",
       name: "Search",
       widgets: [
-        /* Workdash's four tiles, then its two note lines as cards. */
+        /* Reworked 2026-09-29 at the owner's word — "more visuals, less
+           text, favicons": both engines' clicks and impressions up top and
+           as bars per day split by site, every site as a small card with its
+           favicon, then the queries, the page-two opportunities and what
+           moved. Google and Bing stay on separate cards. The tables, the
+           sitemaps and the "cannot say" cards stay in the palette. */
         { id: "se2", type: "gsc.clicks", w: 1 },
         { id: "se1", type: "gsc.impressions", w: 1 },
-        { id: "se21", type: "gsc.ctr", w: 1 },
-        { id: "se22", type: "gsc.properties", w: 1 },
-        { id: "se6", type: "gsc.position", w: 1 },
-        { id: "se23", type: "audit.issues", w: 1 },
-        { id: "se15", type: "gsc.sitemaps", w: 2 },
-        /* The portfolio, drawn: the daily lines and the dumbbell. */
-        { id: "se5", type: "gsc.trend", w: 4 },
-        { id: "se24", type: "gsc.clicksTrend", w: 4 },
-        { id: "se25", type: "gsc.dumbbell", w: 4 },
-        /* Every property as itself — the rail first, then the table. */
-        { id: "se26", type: "gsc.rail", w: 4 },
-        { id: "se13", type: "gsc.sites", w: 4 },
-        { id: "se27", type: "gsc.propertyClicks", w: 4 },
-        { id: "se28", type: "gsc.propertyImpressions", w: 4 },
-        { id: "se29", type: "gsc.quiet", w: 2 },
-        { id: "se8", type: "gsc.coverage", w: 2 },
-        /* The per-property page's cards, cut across the portfolio. */
-        { id: "se30", type: "gsc.queriesRanked", w: 2 },
-        { id: "se31", type: "gsc.pagesRanked", w: 2 },
-        { id: "se32", type: "gsc.strikingRanked", w: 4 },
-        { id: "se33", type: "gsc.propertyQueries", w: 4 },
-        { id: "se34", type: "gsc.propertyStriking", w: 4 },
-        { id: "se35", type: "gsc.zeroClick", w: 2 },
-        { id: "se12", type: "gsc.movers", w: 2 },
-        { id: "se36", type: "gsc.sitemapsByProperty", w: 4 },
-        { id: "se37", type: "gsc.cannot", w: 4 },
-        /* Bing, kept apart from Google as it always was. */
-        { id: "se3", type: "bing.impressions", w: 1 },
         { id: "se4", type: "bing.clicks", w: 1 },
-        { id: "se7", type: "bing.index", w: 1 },
-        { id: "se19", type: "bing.trend", w: 4 },
-        { id: "se18", type: "bing.sites", w: 4 },
+        { id: "se3", type: "bing.impressions", w: 1 },
+        { id: "se24", type: "gsc.clicksTrend", w: 2 },
+        { id: "se40", type: "search.bingDaily", w: 2 },
+        { id: "se5", type: "gsc.trend", w: 2 },
+        { id: "se19", type: "bing.trend", w: 2 },
+        { id: "se41", type: "search.googleSites", w: 4 },
+        { id: "se32", type: "gsc.strikingRanked", w: 2 },
+        { id: "se30", type: "gsc.queriesRanked", w: 2 },
+        { id: "se12", type: "gsc.movers", w: 2 },
+        { id: "se31", type: "gsc.pagesRanked", w: 2 },
+        { id: "se42", type: "search.bingSites", w: 4 },
         { id: "se10", type: "bing.queries", w: 2 },
-        { id: "se16", type: "bing.keywords", w: 2 },
-        { id: "se17", type: "bing.backlinks", w: 2 },
-        { id: "se20", type: "bing.crawl", w: 2 },
+        { id: "se43", type: "search.bingStriking", w: 2 },
+        { id: "se21", type: "gsc.ctr", w: 1 },
+        { id: "se6", type: "gsc.position", w: 1 },
+        { id: "se7", type: "bing.index", w: 1 },
+        { id: "se44", type: "search.bingCrawl", w: 1 },
       ],
     },
 
@@ -1380,7 +1354,7 @@ export function defaultWidth(type: string): 1 | 2 | 4 {
   const kind = WIDGETS[type]?.kind;
   if (kind === "metric") return 1;
   /* A section heading runs across the whole board. */
-  if (kind === "heading" || kind === "daily" || kind === "appfilter" || kind === "appgrid" || kind === "threads" || kind === "gallery" || kind === "adgallery" || kind === "sitegrid") return 4;
+  if (kind === "heading" || kind === "daily" || kind === "appfilter" || kind === "appgrid" || kind === "threads" || kind === "gallery" || kind === "adgallery" || kind === "sitegrid" || kind === "sitetiles") return 4;
   if (kind === "chart" || kind === "table" || kind === "runway") return 4;
   /* A feed carries a picture, three lines of copy and a strip of figures per
      row: at two columns the copy wraps to six lines and the figures stack. */

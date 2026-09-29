@@ -14,6 +14,7 @@ import { ThreadCards } from "@/components/demand/ThreadCards";
 import { AdGallery } from "@/components/ads/AdGallery";
 import { SiteGrid } from "@/components/seo/SiteGrid";
 import { HostMark } from "@/components/HostMark";
+import { SiteTiles } from "@/components/SiteTiles";
 import {
   Bars,
   Chart,
@@ -681,6 +682,10 @@ export function WidgetCard({
 
         {!empty && def.kind === "reviews" && def.appsDoc && (
           <ReviewList reviews={def.appsDoc.reviews} apps={def.appsDoc.apps} />
+        )}
+
+        {!empty && def.kind === "sitetiles" && def.sites && (
+          <SiteTiles sites={def.sites} caption={def.caption} />
         )}
 
         {!empty && def.kind === "daily" && def.daily && (
