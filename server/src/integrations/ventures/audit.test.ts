@@ -16,6 +16,8 @@ import {
   extractLinks,
   failureCode,
   noindexSeverity,
+  countWords,
+  headings,
   type AuditDoc,
   type Finding,
 } from "./audit.ts";
@@ -70,6 +72,48 @@ test("a failure is a page error or a broken link depending on who asked for it",
   assert.equal(noindexSeverity(true), "error");
   assert.equal(noindexSeverity(false), "notice");
   assert.equal(noindexSeverity(false, true), "error");
+});
+
+test("words are counted in every script, and estimated in the ones that do not space them", () => {
+  /* Latin still counts as it did, punctuation-only tokens still do not. */
+  assert.equal(countWords("Free LLM API — 12 models, one key."), 7);
+  /* Arabic, Cyrillic, Devanagari, Hangul: spaced scripts, one token a word.
+     The old `[a-zA-Z0-9]` test counted every one of these as zero. */
+  assert.equal(countWords("خطط الأسعار لجميع الطلاب في كل مكان"), 7);
+  assert.equal(countWords("Бесплатный доступ к моделям"), 4);
+  assert.equal(countWords("सभी मॉडल एक ही कुंजी से"), 6);
+  assert.equal(countWords("모든 모델을 하나의 키로"), 4);
+  /* Unspaced scripts: characters over an average word length. Ten Han is
+     five words, nine kana three, fourteen Thai (marks included) two. */
+  assert.equal(countWords("免费使用所有大型模型"), 5);
+  assert.equal(countWords("モデルをつかうよね"), 3);
+  assert.equal(countWords("ภาษาไทยง่ายมาก"), 2);
+});
+
+test("a page of Arabic prose is not thin, and a Chinese one carrying the English content is not either", () => {
+  const arabic = "يساعد المعلم الطالب على فهم الدرس خطوة بخطوة ".repeat(25);
+  assert.ok(countWords(arabic) >= 150, `Arabic counted as ${countWords(arabic)}`);
+  const english = "Every model behind one key, free to start and paid only when you want more. ".repeat(12);
+  const chinese = "每个模型都在一个密钥后面，免费开始，只有在需要更多时才付费。".repeat(12);
+  const en = countWords(english);
+  const zh = countWords(chinese);
+  assert.ok(zh >= 150, `Chinese counted as ${zh}`);
+  assert.ok(zh > en * 0.6 && zh < en * 1.6, `Chinese ${zh} is not in the same range as English ${en}`);
+  /* A token mixing a Latin word and Han is one word plus the estimate. */
+  assert.equal(countWords("API的"), 1 + Math.round(1 / 2));
+});
+
+test("an h1 spelled inside a script is not a heading", () => {
+  const html = `<body><h1>Aion 2.0 <small>by Aion</small></h1>
+    <script>
+      const modal = \`<div class="modal"><h1>\${name}</h1></div>\`;
+      el.innerHTML = '<h1 class="x">' + title + '</h1>';
+    </script>
+    <template><h1>Template</h1></template></body>`;
+  assert.equal(headings(html).count, 4);
+  const real = headings(stripNonContent(html));
+  assert.equal(real.count, 1);
+  assert.equal(real.first, "Aion 2.0 by Aion");
 });
 
 /* ------------------------------------------------------------ the crawl */
@@ -209,6 +253,57 @@ test("the start URL failing is a page error whatever the status", async () => {
     assert.equal(find(doc, "broken-link", "warning"), undefined);
     assert.equal(doc.links.broken.length, 0);
     assert.equal(doc.sitemap.found, null);
+  } finally {
+    restore();
+  }
+});
+
+test("one page reached by two addresses is one page, and a page canonicalised elsewhere does not duplicate a title", async () => {
+  const site = "https://dup.example.test";
+  const self = (path: string) => `<link rel="canonical" href="${site}${path}">`;
+  const restore = serve({
+    [`${site}/robots.txt`]: { status: 404, body: "no" },
+    "http://dup.example.test/": { status: 301, location: `${site}/` },
+    [`${site}/`]: {
+      body: page(
+        "Dup Example",
+        /* The footer's scheme-less habit: a link to the http:// home page,
+           which 301s back to the page it is on. */
+        `<a href="http://dup.example.test/">Home</a><a href="/?checkout=legacy">Old checkout</a>` +
+          `<a href="/a">A</a><a href="/b">B</a>`,
+        self("/"),
+      ),
+    },
+    /* Same title as the home page, canonical pointing at it: consolidated. */
+    [`${site}/?checkout=legacy`]: { body: page("Dup Example", "", self("/")) },
+    /* Same title as each other, each naming itself: these do compete. */
+    [`${site}/a`]: { body: page("Shared title", "", self("/a")) },
+    [`${site}/b`]: { body: page("Shared title", "", self("/b")) },
+  });
+
+  try {
+    const doc = (await runAudit(venture(`${site}/`))) as AuditDoc;
+    assert.ok(!("error" in doc), JSON.stringify(doc));
+
+    /* The home page is in `pages` once, as the address that answered. */
+    assert.equal(doc.pages.filter((p) => p.url === `${site}/`).length, 1);
+    assert.equal(doc.pages.length, 4);
+    /* The redirecting spelling was fetched by the crawl once and not HEADed
+       again by the link check — the one HEAD is the http→https probe. */
+    assert.equal(asked.filter((a) => a.method === "GET" && a.url === "http://dup.example.test/").length, 1);
+    assert.equal(asked.filter((a) => a.method === "HEAD" && a.url === "http://dup.example.test/").length, 1);
+    assert.equal(doc.links.checked, 0);
+
+    /* Only the two self-canonical pages share a title. The home page is not
+       its own duplicate, and the checkout variant is consolidated into it. */
+    const dup = find(doc, "duplicate-title", "warning")!;
+    assert.deepEqual(dup.pages.sort(), [`${site}/a`, `${site}/b`]);
+    assert.equal(dup.count, 2);
+    /* ...and the checkout variant is still reported, under its own finding. */
+    assert.deepEqual(find(doc, "canonical-elsewhere", "warning")!.pages, [`${site}/?checkout=legacy`]);
+    /* No fault on the home page is counted twice. */
+    for (const f of doc.findings)
+      assert.ok(f.pages.filter((u) => u === `${site}/`).length <= 1, `${f.code} lists the home page twice`);
   } finally {
     restore();
   }
