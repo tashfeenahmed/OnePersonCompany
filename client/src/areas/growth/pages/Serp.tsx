@@ -9,5 +9,5 @@ import { RunApp } from "@/components/runs/RunApp";
  * comparison in the report is arithmetic rather than an impression.
  */
 export function Serp() {
-  return <RunApp kind="serp" slug="serp" name="SERP teardown" />;
+  return <RunApp compact kind="serp" slug="serp" name="SERP teardown" />;
 }

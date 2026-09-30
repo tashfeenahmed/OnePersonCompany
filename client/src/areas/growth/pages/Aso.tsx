@@ -9,5 +9,5 @@ import { RunApp } from "@/components/runs/RunApp";
  * report, which fields it could not read rather than passing them by silence.
  */
 export function Aso() {
-  return <RunApp kind="aso" slug="aso" name="Store listing audit" />;
+  return <RunApp compact kind="aso" slug="aso" name="Store listing audit" />;
 }

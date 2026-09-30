@@ -11,5 +11,5 @@ import { RunApp } from "@/components/runs/RunApp";
  * it was deciding which of forty findings is worth an afternoon.
  */
 export function Seo() {
-  return <RunApp kind="seo" slug="seo" name="SEO" />;
+  return <RunApp compact kind="seo" slug="seo" name="SEO" />;
 }
