@@ -232,6 +232,13 @@ test("a script-embedded href is never crawled, and a link-discovered 404 is a br
        is a notice. */
     assert.deepEqual(find(doc, "noindex", "error")!.pages, [`${site}/legacy`]);
     assert.deepEqual(find(doc, "noindex", "notice")!.pages, [`${site}/manage`]);
+    /* ...and neither is held to the content checks: a page kept out of the
+       index has no ranking for a short body or a missing h1 to cost. */
+    for (const code of ["thin", "h1", "no-canonical", "duplicate-title", "title-length"])
+      for (const f of doc.findings.filter((f) => f.code === code))
+        for (const url of [`${site}/legacy`, `${site}/manage`])
+          assert.ok(!f.pages.includes(url), `${code} lists noindexed ${url}`);
+    assert.ok(find(doc, "thin", "warning")!.pages.includes(`${site}/pricing`));
     assert.equal(doc.sitemap.urls, 4);
     assert.ok(doc.sitemap.locs!.includes(`${site}/legacy`));
   } finally {
