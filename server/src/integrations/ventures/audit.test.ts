@@ -118,7 +118,7 @@ test("an h1 spelled inside a script is not a heading", () => {
 
 /* ------------------------------------------------------------ the crawl */
 
-type Route = { status?: number; body?: string; type?: string; location?: string };
+type Route = { status?: number; body?: string; type?: string; location?: string; silentOnce?: boolean; silent?: boolean };
 
 const asked: { method: string; url: string }[] = [];
 
@@ -130,6 +130,8 @@ function serve(routes: Record<string, Route>) {
     const method = (init?.method ?? "GET").toUpperCase();
     asked.push({ method, url });
     const r: Route = routes[url] ?? { status: 404, body: "<html><title>Not found</title></html>" };
+    if (r.silent || (r.silentOnce && asked.filter((a) => a.url === url).length === 1))
+      throw new TypeError("fetch failed");
     const headers: Record<string, string> = { "content-type": r.type ?? "text/html; charset=utf-8" };
     if (r.location) headers.location = r.location;
     const status = r.status ?? 200;
@@ -241,6 +243,42 @@ test("a script-embedded href is never crawled, and a link-discovered 404 is a br
     assert.ok(find(doc, "thin", "warning")!.pages.includes(`${site}/pricing`));
     assert.equal(doc.sitemap.urls, 4);
     assert.ok(doc.sitemap.locs!.includes(`${site}/legacy`));
+  } finally {
+    restore();
+  }
+});
+
+test("a request that gets no answer is asked again before anything is called broken", async () => {
+  const site = "https://retry.example.test";
+  const routes: Record<string, Route> = {
+    [`${site}/robots.txt`]: { status: 404, body: "no" },
+    /* Crawled: the first GET gets nothing, the second a page. */
+    [`${site}/flaky-page`]: { silentOnce: true, body: page("Flaky page", "", `<link rel="canonical" href="${site}/flaky-page">`) },
+    /* Past the page cap, so only the link check asks: once silent, then fine;
+       and one that never answers at all. */
+    [`${site}/z-flaky-link`]: { silentOnce: true },
+    [`${site}/z-dead-link`]: { silent: true },
+  };
+  const fill = Array.from({ length: 60 }, (_, i) => `/p${i}`);
+  for (const path of fill) routes[`${site}${path}`] = { body: page(`Page ${path}`, "", `<link rel="canonical" href="${site}${path}">`) };
+  routes[`${site}/`] = {
+    body: page(
+      "Retry Example",
+      `<a href="/flaky-page">F</a>${fill.map((p) => `<a href="${p}">${p}</a>`).join("")}<a href="/z-flaky-link">L</a><a href="/z-dead-link">D</a>`,
+      `<link rel="canonical" href="${site}/">`,
+    ),
+  };
+  const restore = serve(routes);
+  try {
+    const doc = (await runAudit(venture(`${site}/`))) as AuditDoc;
+    assert.ok(!("error" in doc), JSON.stringify(doc));
+    const flaky = doc.pages.find((p) => p.url === `${site}/flaky-page`)!;
+    assert.equal(flaky.status, 200);
+    assert.equal(asked.filter((a) => a.url === `${site}/flaky-page`).length, 2);
+    assert.equal(asked.filter((a) => a.method === "HEAD" && a.url === `${site}/z-flaky-link`).length, 2);
+    assert.equal(asked.filter((a) => a.method === "HEAD" && a.url === `${site}/z-dead-link`).length, 2);
+    assert.deepEqual(doc.links.broken.map((b) => b.url), [`${site}/z-dead-link`]);
+    assert.equal(find(doc, "page-error", "error"), undefined);
   } finally {
     restore();
   }
