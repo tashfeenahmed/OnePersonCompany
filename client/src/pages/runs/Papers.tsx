@@ -28,6 +28,7 @@ import { PaperShelf } from "@/components/runs/PaperShelf";
 export function Papers() {
   return (
     <RunApp
+      compact
       kind="papers"
       slug="papers"
       name="Papers"
