@@ -109,13 +109,36 @@ type Fetched = {
 };
 
 /**
+ * One request, asked twice when nothing answered.
+ *
+ * A status of 0 is the network, not the site: a stalled DNS lookup or
+ * connection on the auditing box reads exactly like a dead page. One such
+ * stall in 150 link checks (freellmapi.co, a model page that answered in
+ * 0.14 s a moment later) was enough to drop a clean site to C. So a request
+ * that got no answer at all is tried once more after a short gap, while the
+ * deadline allows; an answer of any status — a 404 included — is kept as it
+ * came, and a second silence is reported with its own sentence.
+ */
+async function get(
+  url: string,
+  method: "GET" | "HEAD",
+  deadline: number,
+): Promise<Fetched> {
+  const first = await getOnce(url, method, deadline);
+  if (first.status !== 0 || Date.now() + GAP_MS >= deadline) return first;
+  await sleep(GAP_MS);
+  const second = await getOnce(url, method, deadline);
+  return { ...second, ms: first.ms + second.ms };
+}
+
+/**
  * One request, following redirects by hand so the CHAIN survives.
  *
  * `redirect: "follow"` would give the final answer and throw the hops away —
  * and a hop is a finding: a link that goes 301 → 301 → 200 costs every crawler
  * two round trips for ever, and nothing but the chain can show it.
  */
-async function get(
+async function getOnce(
   url: string,
   method: "GET" | "HEAD",
   deadline: number,
