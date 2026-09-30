@@ -16,6 +16,7 @@ import {
   extractLinks,
   failureCode,
   noindexSeverity,
+  get,
   countWords,
   headings,
   type AuditDoc,
@@ -281,6 +282,26 @@ test("a request that gets no answer is asked again before anything is called bro
     assert.equal(find(doc, "page-error", "error"), undefined);
   } finally {
     restore();
+  }
+});
+
+test("a request the budget cuts short is out of time, not unanswered", async () => {
+  const real = globalThis.fetch;
+  let calls = 0;
+  /* A server that never answers: only the abort signal ends the request. */
+  globalThis.fetch = ((_: unknown, init?: { signal?: AbortSignal }) => {
+    calls += 1;
+    return new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)));
+  }) as typeof globalThis.fetch;
+  try {
+    const res = await get("https://slow.example.test/page", "HEAD", Date.now() + 200);
+    assert.equal(res.outOfTime, true);
+    assert.equal(res.status, 0);
+    assert.match(res.error!, /ran out of time/);
+    /* Not asked again: there is no time left to ask in. */
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = real;
   }
 });
 

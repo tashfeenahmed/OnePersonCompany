@@ -106,6 +106,9 @@ type Fetched = {
   bytes: number;
   ms: number;
   error: string | null;
+  /** The caller's deadline, not the site, ended this request: it was cut
+   *  short by the budget, so it says nothing about the page. */
+  outOfTime?: boolean;
 };
 
 /**
@@ -119,13 +122,13 @@ type Fetched = {
  * deadline allows; an answer of any status — a 404 included — is kept as it
  * came, and a second silence is reported with its own sentence.
  */
-async function get(
+export async function get(
   url: string,
   method: "GET" | "HEAD",
   deadline: number,
 ): Promise<Fetched> {
   const first = await getOnce(url, method, deadline);
-  if (first.status !== 0 || Date.now() + GAP_MS >= deadline) return first;
+  if (first.status !== 0 || first.outOfTime || Date.now() + GAP_MS >= deadline) return first;
   await sleep(GAP_MS);
   const second = await getOnce(url, method, deadline);
   return { ...second, ms: first.ms + second.ms };
@@ -149,7 +152,13 @@ async function getOnce(
 
   for (let hop = 0; hop < 6; hop++) {
     if (Date.now() >= deadline)
-      return { url: current, status: 0, chain, type: null, body: "", bytes: 0, ms: Date.now() - started, error: "The audit ran out of time before this request." };
+      return { url: current, status: 0, chain, type: null, body: "", bytes: 0, ms: Date.now() - started, error: "The audit ran out of time before this request.", outOfTime: true };
+    /* Which clock can stop this request. When the caller's deadline is nearer
+       than the per-request limit, a timeout is the budget running out, not
+       the site being slow — and reporting it as "no answer within 10 seconds"
+       is how the last link a 45-second link check reached became a broken
+       link on planintel.ie, twice, on pages that answer in 0.2 s. */
+    const budgetCuts = deadline - Date.now() < REQUEST_MS;
     try {
       const res = await fetch(current, {
         method,
@@ -189,6 +198,8 @@ async function getOnce(
       };
     } catch (err) {
       const name = err instanceof Error ? err.name : "Error";
+      if (name === "TimeoutError" && budgetCuts)
+        return { url: current, status: 0, chain, type: null, body: "", bytes: 0, ms: Date.now() - started, error: "The audit ran out of time before this request answered.", outOfTime: true };
       return {
         url: current,
         status: 0,
@@ -907,6 +918,8 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
     }
     if (!allowed(robots, path)) continue;
     const res = await get(url, "HEAD", linkDeadline);
+    /* Cut short by the budget: unknown, like every link after it, not broken. */
+    if (res.outOfTime) break;
     checked += 1;
     /* A HEAD that is refused is not a broken link — plenty of servers answer
        405 to one — so only a 4xx/5xx that is not 405 counts, and a transport
