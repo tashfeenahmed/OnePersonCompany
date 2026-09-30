@@ -927,6 +927,13 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
 
   /* --- the findings ---------------------------------------------------- */
   const ok = pages.filter((p) => p.status >= 200 && p.status < 300 && !p.error);
+  /* A NOINDEXED PAGE IS OUT OF THE CONTENT CHECKS. A sign-in page that tells
+     Google to stay away has no ranking to lose to a short body, a missing h1,
+     a missing canonical or a title it shares with the home page — those
+     findings only matter on a page that is meant to be found. It is still
+     reported, once, under `noindex` (an error when the sitemap names it), and
+     still read for page errors, titles and links. */
+  const indexable = ok.filter((p) => !p.noindex);
   const inSitemap = (p: PageReport) => sitemapSet.has(asked(p)) || sitemapSet.has(canon(p.url));
   const findings: Finding[] = [];
   const add = (
@@ -991,10 +998,10 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
      canonical pointed away from a page somebody wanted ranked is a fault of
      its own. A page with no canonical, or one naming itself, still counts. */
   const byTitle = new Map<string, string[]>();
-  for (const p of ok)
+  for (const p of indexable)
     if (p.title && p.canonicalSelf !== false)
       byTitle.set(p.title, [...(byTitle.get(p.title) ?? []), p.url]);
-  const competing = ok.filter((p) => p.canonicalSelf !== false).length;
+  const competing = indexable.filter((p) => p.canonicalSelf !== false).length;
   const dupes = [...byTitle.entries()].filter(([, urls]) => urls.length > 1);
   add("warning", "duplicate-title",
     `Titles used on more than one page (${dupes.length} title${dupes.length === 1 ? "" : "s"}).`,
@@ -1003,25 +1010,25 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
       "Two pages with one title compete with each other; a page whose canonical names another is consolidated into it instead, and is reported under canonical-elsewhere.");
 
   add("warning", "no-description", "Pages with no meta description.",
-    ok.filter((p) => !p.description).map((p) => p.url),
+    indexable.filter((p) => !p.description).map((p) => p.url),
     "Google writes its own snippet when there is none, out of whatever text it finds.");
 
   add("warning", "thin", `Pages with fewer than ${THIN_WORDS} words of prose.`,
-    ok.filter((p) => p.words < THIN_WORDS).map((p) => p.url),
+    indexable.filter((p) => p.words < THIN_WORDS).map((p) => p.url),
     "Script and style stripped, tags removed, whitespace-separated tokens holding a letter or number in any script counted. " +
       "Chinese, Japanese and Thai do not space their words, so there the characters are counted and divided by an average word length — an estimate. " +
       `${THIN_WORDS} is the convention every tool uses, not a measurement.`);
 
   add("warning", "h1", "Pages with no h1, or with more than one.",
-    ok.filter((p) => p.h1 !== 1).map((p) => p.url),
+    indexable.filter((p) => p.h1 !== 1).map((p) => p.url),
     "Counted from the HTML as served, less script, style, template and comments — an <h1> inside a JavaScript string is not a heading. One h1 is a convention rather than a rule since HTML5, which is why this is a warning.");
 
   add("warning", "no-canonical", "Pages with no canonical link.",
-    ok.filter((p) => !p.canonical).map((p) => p.url),
+    indexable.filter((p) => !p.canonical).map((p) => p.url),
     "Without one, every query-string variant of a URL is a separate page to a crawler.");
 
   add("warning", "canonical-elsewhere", "Pages whose canonical points at a different URL.",
-    ok.filter((p) => p.canonical && p.canonicalSelf === false).map((p) => p.url),
+    indexable.filter((p) => p.canonical && p.canonicalSelf === false).map((p) => p.url),
     "Deliberate on a duplicate and a disaster on a page you want ranked — this cannot tell which, so it reports the fact.");
 
   add("warning", "alt", "Pages with images that have no alt attribute.",
@@ -1029,11 +1036,11 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
     "An <img> with no alt attribute at all. An empty alt is deliberate and is not counted.");
 
   add("notice", "title-length", "Titles under 15 or over 60 characters.",
-    ok.filter((p) => p.title && (p.titleLength! < 15 || p.titleLength! > 60)).map((p) => p.url),
+    indexable.filter((p) => p.title && (p.titleLength! < 15 || p.titleLength! > 60)).map((p) => p.url),
     "Google truncates around 60 characters on a desktop result. A convention, measured in characters rather than pixels, which is what actually decides it.");
 
   add("notice", "description-length", "Meta descriptions under 50 or over 160 characters.",
-    ok.filter((p) => p.description && (p.descriptionLength! < 50 || p.descriptionLength! > 160)).map((p) => p.url),
+    indexable.filter((p) => p.description && (p.descriptionLength! < 50 || p.descriptionLength! > 160)).map((p) => p.url),
     "Same convention, same caveat.");
 
   add("notice", "redirect", "Pages reached through a redirect.",
