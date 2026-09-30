@@ -42,6 +42,7 @@ export function Dossiers() {
 
   return (
     <RunApp
+      compact
       kind="dossier"
       slug="dossier"
       name="People"
