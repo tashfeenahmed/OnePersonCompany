@@ -395,6 +395,75 @@ function decode(s: string): string {
     .replace(/&amp;/g, "&");
 }
 
+/**
+ * HOW MANY WORDS OF PROSE, IN WHATEVER SCRIPT THE PAGE IS WRITTEN IN.
+ *
+ * THE OLD COUNT ONLY SAW THE LATIN ALPHABET. It kept a whitespace token if it
+ * contained `[a-zA-Z0-9]`, so an Arabic sentence counted as nothing and a page
+ * of it read as its brand name, its prices and its nav. Measured on
+ * 2026-09-30: livetutor.io/ar/pricing carries about 1,150 Arabic words and was
+ * counted as 44, and the same fault filed every /ar/, /ru/, /hi/ and /zh-CN/
+ * page of two venture sites as thin — 45 warnings about a crawler that could
+ * not read. A token is now a word if it holds any Unicode letter or number
+ * (`\p{L}\p{N}`), which is what Arabic, Cyrillic, Devanagari, Greek, Hebrew
+ * and Hangul — every script that puts spaces between words — need.
+ *
+ * SOME SCRIPTS DO NOT SPACE THEIR WORDS AT ALL, and for those a whitespace
+ * count is the number of sentences, not words. Chinese and Japanese run their
+ * characters together and Thai (with Lao, Khmer and Myanmar, which write the
+ * same way) spaces only between phrases. Splitting them properly needs a
+ * dictionary segmenter, which is a lot of machinery to decide whether a page
+ * clears 150. So their characters are counted and divided by an average word
+ * length instead, per script:
+ *
+ *   Han (Chinese, and the kanji in Japanese)  2 characters a word
+ *   Hiragana and Katakana                      3 characters a word
+ *   Thai, Lao, Khmer, Myanmar                  6 characters a word — these
+ *                                              count their vowel and tone
+ *                                              marks as characters
+ *
+ * The divisors were checked against a real site on 2026-09-30: freellmapi.co's
+ * home page is about 370 words in English, and its /zh-CN/, /ja/ and /th/
+ * translations of the same content come out at about 370, 450 and 370. An
+ * estimate, and it says so in the finding — but an estimate in the right
+ * hundred, where the old count was one in the wrong order of magnitude.
+ * Those characters are taken out before the whitespace pass, so a token like
+ * `API的` is one word plus half of one rather than counted twice.
+ */
+const HAN = /\p{Script=Han}/gu;
+const KANA = /[\p{Script=Hiragana}\p{Script=Katakana}]/gu;
+const UNSPACED = /[\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/gu;
+
+export function countWords(text: string): number {
+  const dense = (re: RegExp, perWord: number) => (text.match(re)?.length ?? 0) / perWord;
+  const estimated = dense(HAN, 2) + dense(KANA, 3) + dense(UNSPACED, 6);
+  const spaced = text
+    .replace(HAN, " ")
+    .replace(KANA, " ")
+    .replace(UNSPACED, " ")
+    .split(/\s+/)
+    .filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+  return spaced + Math.round(estimated);
+}
+
+/**
+ * The h1s a reader would see, read from the document WITHOUT its machinery.
+ *
+ * `html` is expected to have been through `stripNonContent`. Run over the raw
+ * HTML, the count included every `<h1>` spelled inside a JavaScript string: a
+ * venture's model pages build a modal from a template literal that carries two
+ * of them, so a page with one real heading was counted as three and twenty
+ * pages were filed under "more than one h1". Same fault, same cure, as the
+ * link pass — see `stripNonContent`.
+ */
+export function headings(html: string): { count: number; first: string | null } {
+  const h1s = [...html.matchAll(/<h1\b[^>]*>([\s\S]{0,400}?)<\/h1>/gi)];
+  const first = h1s[0]
+    ? decode((h1s[0][1] ?? "").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim().slice(0, 200) || null
+    : null;
+  return { count: h1s.length, first };
+}
+
 export type PageReport = {
   url: string;
   status: number;
@@ -455,20 +524,21 @@ function readPage(res: Fetched, origin: string): { report: PageReport; links: st
     break;
   }
 
-  const h1s = [...html.matchAll(/<h1\b[^>]*>([\s\S]{0,400}?)<\/h1>/gi)];
   const imgs = tagsOf(html, "img");
 
-  /* THE DOCUMENT WITHOUT ITS MACHINERY, read once and used twice: for the
-     prose (script and style are not words on the page, and a site with a large
-     inline bundle would otherwise never read as thin) and for the links (a
-     JavaScript string that spells an anchor is not a link — see
-     `stripNonContent`). The head is NOT read from this: the title, the meta
-     tags and the canonical are matched against the document as served, which
-     is what a search engine parses. */
+  /* THE DOCUMENT WITHOUT ITS MACHINERY, read once and used three times: for
+     the prose (script and style are not words on the page, and a site with a
+     large inline bundle would otherwise never read as thin), for the h1s (a
+     heading inside a JavaScript template is not a heading — see `headings`)
+     and for the links (a JavaScript string that spells an anchor is not a
+     link — see `stripNonContent`). The head is NOT read from this: the title,
+     the meta tags and the canonical are matched against the document as
+     served, which is what a search engine parses. */
   const content = stripNonContent(html);
+  const h1 = headings(content);
 
   const text = decode(content.replace(/<[^>]+>/g, " "));
-  const words = text.split(/\s+/).filter((w) => /[a-zA-Z0-9]/.test(w)).length;
+  const words = countWords(text);
 
   const { links, internal, external } = extractLinks(content, res.url, origin);
 
@@ -483,8 +553,8 @@ function readPage(res: Fetched, origin: string): { report: PageReport; links: st
       titleLength: titleText ? titleText.length : null,
       description: description || null,
       descriptionLength: description ? description.length : null,
-      h1: h1s.length,
-      h1Text: h1s[0] ? decode(h1s[0][1] ?? "").replace(/\s+/g, " ").trim().slice(0, 200) || null : null,
+      h1: h1.count,
+      h1Text: h1.first,
       canonical,
       canonicalSelf: canonical === null ? null : sameUrl(canonical, res.url),
       noindex,
@@ -710,6 +780,19 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
      and the sitemap that lists it name the address that was ASKED FOR, and on
      a redirect those differ. */
   const requestedAs = new Map<string, string>();
+  /* ONE PAGE IS ONE PAGE HOWEVER MANY ADDRESSES LEAD TO IT. `seen` dedupes
+     what was ASKED FOR, and two different requests can land on one answer: a
+     site whose footer links to http://example.com/ sends the crawler to the
+     home page a second time by way of a 301, and until this was here that home
+     page was in `pages` twice — measured on a real venture on 2026-09-30 —
+     which filed its title as a duplicate of itself and counted every fault on
+     it twice. So the ANSWERING address is what a page is keyed by: the second
+     arrival is dropped, and its final address goes into `seen` so a direct
+     link to it later is not queued either. Every address that was fetched is
+     also kept, so the link check does not HEAD the redirecting spelling again
+     afterwards. */
+  const landedOn = new Set<string>();
+  const fetchedAs = new Set<string>();
   const blocked: string[] = [];
   let infrastructure = 0;
   let stopped = "the site was crawled to its end";
@@ -737,6 +820,7 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
     }
 
     const res = await get(url, "GET", deadline);
+    fetchedAs.add(canon(url));
     const ct = (res.type ?? "").toLowerCase();
     if (res.status >= 200 && res.status < 300 && ct && !ct.includes("html")) {
       /* Not a page. Counted as reached and not parsed — a PDF has no title tag
@@ -746,9 +830,17 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
       continue;
     }
 
+    const landed = canon(res.url);
+    if (landedOn.has(landed)) {
+      await sleep(GAP_MS);
+      continue;
+    }
+    landedOn.add(landed);
+    seen.add(landed);
+
     const { report, links } = readPage(res, origin);
     pages.push(report);
-    requestedAs.set(canon(report.url), canon(url));
+    requestedAs.set(landed, canon(url));
 
     for (const l of links) {
       const c = canon(l);
@@ -768,7 +860,7 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
   /* --- broken internal links ------------------------------------------ */
   const crawled = new Map(pages.map((p) => [canon(p.url), p]));
   const toCheck = [...linkSources.keys()]
-    .filter((u) => !crawled.has(u))
+    .filter((u) => !crawled.has(u) && !fetchedAs.has(u))
     .filter((u) => {
       try {
         return !NOT_THE_SITE.test(new URL(u).pathname);
@@ -888,14 +980,27 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
 
   /* Duplicate titles: the same string on more than one page. A template that
      forgot to vary its title is the single most common finding on a small
-     site, and it is invisible page by page. */
+     site, and it is invisible page by page.
+
+     A PAGE WHOSE CANONICAL NAMES ANOTHER URL IS NOT IN THE RACE. `/?checkout=
+     legacy` carrying the home page's title and a canonical pointing at the
+     home page is the site saying "this is that page", and Google consolidates
+     the two rather than ranking them against each other — which is the only
+     harm a duplicate title does. So those pages are left out of this finding;
+     `canonical-elsewhere` below still lists every one of them, because a
+     canonical pointed away from a page somebody wanted ranked is a fault of
+     its own. A page with no canonical, or one naming itself, still counts. */
   const byTitle = new Map<string, string[]>();
-  for (const p of ok) if (p.title) byTitle.set(p.title, [...(byTitle.get(p.title) ?? []), p.url]);
+  for (const p of ok)
+    if (p.title && p.canonicalSelf !== false)
+      byTitle.set(p.title, [...(byTitle.get(p.title) ?? []), p.url]);
+  const competing = ok.filter((p) => p.canonicalSelf !== false).length;
   const dupes = [...byTitle.entries()].filter(([, urls]) => urls.length > 1);
   add("warning", "duplicate-title",
     `Titles used on more than one page (${dupes.length} title${dupes.length === 1 ? "" : "s"}).`,
     dupes.flatMap(([, urls]) => urls),
-    `Compared as exact strings across the ${ok.length} pages crawled. Two pages with one title compete with each other.`);
+    `Compared as exact strings across the ${competing} crawled pages that are not canonicalised to another URL. ` +
+      "Two pages with one title compete with each other; a page whose canonical names another is consolidated into it instead, and is reported under canonical-elsewhere.");
 
   add("warning", "no-description", "Pages with no meta description.",
     ok.filter((p) => !p.description).map((p) => p.url),
@@ -903,11 +1008,13 @@ export async function runAudit(key: string): Promise<AuditDoc | { error: string 
 
   add("warning", "thin", `Pages with fewer than ${THIN_WORDS} words of prose.`,
     ok.filter((p) => p.words < THIN_WORDS).map((p) => p.url),
-    `Script and style stripped, tags removed, whitespace-separated tokens counted. ${THIN_WORDS} is the convention every tool uses, not a measurement.`);
+    "Script and style stripped, tags removed, whitespace-separated tokens holding a letter or number in any script counted. " +
+      "Chinese, Japanese and Thai do not space their words, so there the characters are counted and divided by an average word length — an estimate. " +
+      `${THIN_WORDS} is the convention every tool uses, not a measurement.`);
 
   add("warning", "h1", "Pages with no h1, or with more than one.",
     ok.filter((p) => p.h1 !== 1).map((p) => p.url),
-    "Counted from the HTML as served. One h1 is a convention rather than a rule since HTML5, which is why this is a warning.");
+    "Counted from the HTML as served, less script, style, template and comments — an <h1> inside a JavaScript string is not a heading. One h1 is a convention rather than a rule since HTML5, which is why this is a warning.");
 
   add("warning", "no-canonical", "Pages with no canonical link.",
     ok.filter((p) => !p.canonical).map((p) => p.url),
