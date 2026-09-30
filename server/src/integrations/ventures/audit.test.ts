@@ -117,6 +117,15 @@ test("an h1 spelled inside a script is not a heading", () => {
   assert.equal(real.first, "Aion 2.0 by Aion");
 });
 
+test("a heading with long markup inside is still one heading", () => {
+  const icon = `<span class="inline-flex items-center gap-2 whitespace-nowrap align-bottom sm:gap-2.5"><img alt="" loading="eager" width="40" height="40" class="shrink-0 object-contain size-6 rounded-md sm:size-10 sm:rounded-xl" src="/brand/social/facebook.png"/>Facebook</span>`;
+  const html = `<h1 class="text-balance text-[1.5rem] font-bold">Put your store&#x27;s<br/>${icon} &amp; ${icon.replace(/Facebook|facebook/g, "Instagram")}<br/>on autopilot.</h1>`;
+  assert.ok(html.length > 600);
+  const h = headings(html);
+  assert.equal(h.count, 1);
+  assert.equal(h.first, "Put your store's Facebook & Instagram on autopilot.");
+});
+
 /* ------------------------------------------------------------ the crawl */
 
 type Route = { status?: number; body?: string; type?: string; location?: string; silentOnce?: boolean; silent?: boolean };

@@ -491,11 +491,17 @@ export function countWords(text: string): number {
  * link pass — see `stripNonContent`.
  */
 export function headings(html: string): { count: number; first: string | null } {
-  const h1s = [...html.matchAll(/<h1\b[^>]*>([\s\S]{0,400}?)<\/h1>/gi)];
-  const first = h1s[0]
-    ? decode((h1s[0][1] ?? "").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim().slice(0, 200) || null
+  /* COUNTED BY THE OPENING TAG, NOT THE PAIR. A heading's markup can run long
+     — gososho.com's hero carries two inline icons and Tailwind class lists,
+     some 700 characters between <h1> and </h1> — and a pair matcher with a
+     length cap read it as no h1 at all. The text is read up to the close tag
+     with a far wider cap, for the first heading only. */
+  const count = [...html.matchAll(/<h1\b[^>]*>/gi)].length;
+  const inner = /<h1\b[^>]*>([\s\S]{0,20000}?)<\/h1>/i.exec(html)?.[1];
+  const first = inner
+    ? decode(inner.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim().slice(0, 200) || null
     : null;
-  return { count: h1s.length, first };
+  return { count, first };
 }
 
 export type PageReport = {
