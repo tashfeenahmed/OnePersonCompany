@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { useWide } from "./useWide";
-import { CalendarDays, Clock, ExternalLink, MapPin, Users, Video, X } from "lucide-react";
+import { CalendarDays, Clock, ExternalLink, MapPin, Pencil, Trash2, Users, Video, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { CalendarEvent } from "@/lib/api/reports";
@@ -26,8 +26,8 @@ import {
  * along the bottom of the screen. Escape, a click outside, or scrolling the
  * grid closes it.
  *
- * Read-only: the collector reads Google with a GET and nothing else, so the
- * only way out of the card is Google's own page for the event.
+ * On a writable calendar the card can edit or delete the event; delete asks
+ * once more in place, because it cannot be taken back from here.
  */
 export type OpenedEvent = {
   event: CalendarEvent;
@@ -53,6 +53,8 @@ export function EventPopover({
   today,
   now,
   onClose,
+  onEdit,
+  onDelete,
 }: {
   opened: OpenedEvent;
   color: string | null;
@@ -61,15 +63,33 @@ export function EventPopover({
   today: Date;
   now: Date;
   onClose: () => void;
+  /** Present only when the event's calendar is writable. */
+  onEdit?: () => void;
+  onDelete?: () => Promise<void>;
 }) {
   const { event, rect } = opened;
   const wide = useWide();
   const card = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(260);
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const remove = async () => {
+    if (!onDelete) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await onDelete();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setDeleting(false);
+    }
+  };
 
   useLayoutEffect(() => {
     if (card.current) setHeight(card.current.offsetHeight);
-  }, [event]);
+  }, [event, confirming, error]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -156,6 +176,28 @@ export function EventPopover({
               </div>
             )}
           </div>
+          {onEdit && (
+            <button
+              type="button"
+              onClick={onEdit}
+              aria-label="Edit event"
+              title="Edit"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground -mt-1 grid size-7 shrink-0 place-items-center rounded-lg"
+            >
+              <Pencil className="size-3.5" strokeWidth={1.75} />
+            </button>
+          )}
+          {onDelete && (
+            <button
+              type="button"
+              onClick={() => setConfirming(true)}
+              aria-label="Delete event"
+              title="Delete"
+              className="text-muted-foreground hover:bg-accent hover:text-foreground -mt-1 grid size-7 shrink-0 place-items-center rounded-lg"
+            >
+              <Trash2 className="size-3.5" strokeWidth={1.75} />
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}
@@ -213,6 +255,28 @@ export function EventPopover({
             )}
           </Row>
         </div>
+
+        {confirming && (
+          <div className="bg-muted flex flex-col gap-2 rounded-lg p-2.5 text-[13px]">
+            <span>
+              Delete this event from Google Calendar?
+              {event.attendees ? " Guests are not notified." : ""}
+            </span>
+            <div className="flex gap-2">
+              <Button size="xs" variant="destructive" onClick={remove} disabled={deleting}>
+                {deleting ? "Deleting…" : "Delete"}
+              </Button>
+              <Button size="xs" variant="outline" onClick={() => setConfirming(false)} disabled={deleting}>
+                Keep
+              </Button>
+            </div>
+          </div>
+        )}
+        {error && (
+          <p role="alert" className="text-destructive text-[12.5px]">
+            {error}
+          </p>
+        )}
 
         {event.link && (
           <a

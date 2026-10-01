@@ -10,6 +10,7 @@
     "dev": "node scripts/dev.mjs",
     "build": "npm --prefix server run typecheck && npm --prefix client run build",
     "start": "node --experimental-strip-types server/src/index.ts",
+    "calendar-token": "node scripts/calendar-token.mjs",
     "doctor": "node --experimental-strip-types server/src/cli/doctor.ts",
     "gameplay-previews": "node --experimental-strip-types server/src/cli/gameplay-previews.ts",
     "install-service": "node --experimental-strip-types server/src/cli/install.ts",

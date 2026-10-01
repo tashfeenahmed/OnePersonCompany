@@ -10,19 +10,27 @@
  * consent screen with `calendar.readonly` ticked — and a `verify` whose whole
  * job is to say that sentence when the pasted token is the mail one.
  *
- * READ-ONLY, STRUCTURALLY. `providers/gmail.ts` makes "this cannot archive,
- * label or send" a fact about the code by having one function that talks to
- * Gmail with `method: "GET"` hard-coded and no body parameter. The same shape
- * is kept here for the same reason: `get()` below is the only function in this
- * file that reaches Google's Calendar API, it is a GET, and there is no
- * argument anywhere that would make it a POST. A token minted with the wider
- * `calendar` scope — which some owners will already have — therefore cannot
- * create, move or cancel anything from this box.
+ * IT READS THROUGH `get()` AND WRITES THROUGH `send()`, AND NOTHING ELSE.
+ * This file used to be read-only by construction — one GET, no body
+ * parameter. The owner then asked for an agent that can put things on his
+ * calendar, and for a calendar page that can do the same, so the write now
+ * exists and lives in ONE function beside the read. Every write goes through
+ * `send()`, touches exactly one event, and only happens when the grant
+ * carries a write scope (`WRITE_SCOPES`) — a token minted with
+ * `calendar.readonly` still reads exactly as it did, and the page and the
+ * agent are told "this calendar is read-only" rather than shown a 403.
  *
- * WHAT IT READS, and nothing else:
- *   POST oauth2.googleapis.com/token          the refresh grant (not a Calendar call)
- *   GET  /calendar/v3/users/me/calendarList   which calendars, and which are selected
- *   GET  /calendar/v3/calendars/{id}/events   the window, expanded into instances
+ * WHAT IT CALLS:
+ *   POST   oauth2.googleapis.com/token                  the refresh grant
+ *   GET    /calendar/v3/users/me/calendarList           which calendars, which are selected
+ *   GET    /calendar/v3/calendars/{id}/events           the window, expanded into instances
+ *   POST   /calendar/v3/calendars/{id}/events           create one event
+ *   PATCH  /calendar/v3/calendars/{id}/events/{event}   change one event (or one occurrence)
+ *   DELETE /calendar/v3/calendars/{id}/events/{event}   delete one event (or one occurrence)
+ *
+ * NO GUESTS ARE EVER ADDED, and `sendUpdates` is always `none`. A write from
+ * here changes the owner's own calendar; it never emails anybody, which is a
+ * fact about the request body rather than a rule an agent could misread.
  *
  * `singleEvents=true` IS LOAD-BEARING AND NOT A CONVENIENCE. Without it a
  * weekly stand-up is ONE event with a recurrence rule, and every figure about
@@ -32,10 +40,12 @@
  * its own timezone arithmetic, and every row here is a real occurrence with a
  * real start.
  *
- * NO DESCRIPTION, EVER. The events table has no column for one — see migration
- * 032 — and this file does not ask Google for one either: the field mask below
- * names what is read, so a body is not fetched, not held in memory and not
- * logged. The same line the mail tables draw.
+ * NO DESCRIPTION IS READ OR STORED. The events table has no column for one —
+ * see migration 032 — and the field masks below never ask Google for one, on
+ * reads or on the echo of a write. A description can be WRITTEN (the owner or
+ * the agent may want notes on an event they create), and it goes to Google
+ * and nowhere else: it is not in the response mask, not in the table, and not
+ * logged.
  */
 import type { Account } from "../../accounts.ts";
 import * as accounts from "../../accounts.ts";
@@ -61,6 +71,23 @@ export const USABLE_SCOPES = [
   "https://www.googleapis.com/auth/calendar",
   "https://www.googleapis.com/auth/calendar.events.readonly",
 ];
+
+/** The scopes that can create, change and delete events. `calendar` is the
+ *  one the connect hint asks for, because it also reads the calendar list;
+ *  `calendar.events` writes events and is accepted beside `calendar.readonly`. */
+export const WRITE_SCOPES = [
+  "https://www.googleapis.com/auth/calendar",
+  "https://www.googleapis.com/auth/calendar.events",
+];
+
+/** Can a grant with these scopes write? An ABSENT scope list (Google omits it
+ *  from some refresh responses) is read as no: a calendar wrongly marked
+ *  read-only costs a reconnect, one wrongly marked writable costs a 403 in the
+ *  middle of somebody's sentence. */
+export const canWrite = (scopes: string[]) => scopes.some((s) => WRITE_SCOPES.includes(s));
+
+/** The access roles on a calendar that let its owner change events on it. */
+export const WRITABLE_ROLES = ["owner", "writer"];
 
 /** The window a collection maintains: a week back, three weeks ahead. Back far
  *  enough that "what did I do last week" is answerable, forward far enough
@@ -140,13 +167,7 @@ async function accessToken(
   };
 }
 
-/**
- * THE ONLY FUNCTION IN THIS FILE THAT TALKS TO GOOGLE CALENDAR.
- *
- * `method: "GET"` is written here and nowhere else and there is no body
- * parameter, which is what makes "this cannot create, move or cancel an event"
- * a fact about the code rather than a claim about the credential.
- */
+/** THE READ. `method: "GET"` and no body; every read in this file is this. */
 async function get<T>(
   path: string,
   token: string,
@@ -156,6 +177,43 @@ async function get<T>(
   const res = await fetch(`${API}${path}${qs.toString() ? `?${qs}` : ""}`, {
     method: "GET",
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    let reason = text.slice(0, 240);
+    try {
+      const doc = JSON.parse(text) as { error?: { message?: string } };
+      reason = doc.error?.message ?? reason;
+    } catch {
+      /* not JSON; the body is all there is */
+    }
+    throw new CalendarError(res.status, reason);
+  }
+  return (text.trim() ? JSON.parse(text) : {}) as T;
+}
+
+/**
+ * THE WRITE, and the only one. One event per call, `sendUpdates=none` on every
+ * request so a change here never emails a guest, and the same error shape as
+ * the read so a caller handles both alike.
+ */
+async function send<T>(
+  method: "POST" | "PATCH" | "DELETE",
+  path: string,
+  token: string,
+  body?: unknown,
+): Promise<T> {
+  const qs = new URLSearchParams([["sendUpdates", "none"]]);
+  if (method !== "DELETE") qs.set("fields", EVENT_FIELDS);
+  const res = await fetch(`${API}${path}?${qs}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   const text = await res.text();
@@ -282,73 +340,155 @@ export async function calendarList(token: string): Promise<CalendarInfo[]> {
  * it is a FLOOR. Saying so is the difference between a quiet week and a week
  * this code did not finish reading.
  */
+/** What Google sends for one event, as far as this file ever asks. */
+type GoogleEvent = {
+  id?: string;
+  summary?: string;
+  status?: string;
+  location?: string;
+  updated?: string;
+  htmlLink?: string;
+  hangoutLink?: string;
+  start?: { dateTime?: string; date?: string };
+  end?: { dateTime?: string; date?: string };
+  organizer?: { self?: boolean };
+  attendees?: { self?: boolean; responseStatus?: string }[];
+};
+
+/* THE MASK IS THE PRIVACY BOUNDARY, on reads and on the echo of a write.
+   `description` is not in it, so a body is never fetched, never held and never
+   logged. Nor are attendee addresses: only `self` and `responseStatus`, which
+   are about the owner. `htmlLink` and `hangoutLink` are addresses of the
+   occurrence, not its content, and neither names a guest. */
+const EVENT_FIELDS =
+  "id,summary,status,location,updated,htmlLink,hangoutLink,start,end," +
+  "organizer/self,attendees(self,responseStatus)";
+
+function toRow(item: GoogleEvent & { id: string }): EventRow {
+  const allDay = !!item.start?.date && !item.start?.dateTime;
+  const mine = (item.attendees ?? []).find((a) => a.self === true);
+  return {
+    id: item.id,
+    summary: item.summary ?? null,
+    start: item.start?.dateTime ?? item.start?.date ?? null,
+    end: item.end?.dateTime ?? item.end?.date ?? null,
+    allDay,
+    status: item.status ?? null,
+    location: item.location ?? null,
+    attendees: item.attendees ? item.attendees.length : null,
+    organizerSelf: item.organizer ? item.organizer.self === true : null,
+    response: mine?.responseStatus ?? null,
+    /* ONLY https, and only from Google. Both of these end up in an `href`
+       on the page, so a scheme that is not https — a `javascript:` a
+       compromised proxy inserted, say — is dropped here rather than trusted
+       to a renderer that might one day forget to check. */
+    link: httpsOnly(item.htmlLink),
+    meetLink: httpsOnly(item.hangoutLink),
+    updated: item.updated ?? null,
+  };
+}
+
 export async function events(
   token: string,
   calendarId: string,
   timeMin: string,
   timeMax: string,
 ): Promise<{ events: EventRow[]; truncated: boolean }> {
-  const doc = await get<{
-    items?: {
-      id?: string;
-      summary?: string;
-      status?: string;
-      location?: string;
-      updated?: string;
-      htmlLink?: string;
-      hangoutLink?: string;
-      start?: { dateTime?: string; date?: string };
-      end?: { dateTime?: string; date?: string };
-      organizer?: { self?: boolean };
-      attendees?: { self?: boolean; responseStatus?: string }[];
-    }[];
-    nextPageToken?: string;
-  }>(`/calendars/${encodeURIComponent(calendarId)}/events`, token, [
-    ["timeMin", timeMin],
-    ["timeMax", timeMax],
-    ["singleEvents", "true"],
-    ["orderBy", "startTime"],
-    ["maxResults", String(MAX_EVENTS)],
-    ["showDeleted", "false"],
-    /* THE MASK IS THE PRIVACY BOUNDARY. `description` is not in it, so a body
-       is never fetched, never held and never logged. Nor are attendee
-       addresses: only `self` and `responseStatus`, which are about the owner.
-       `htmlLink` and `hangoutLink` were added to it for the calendar page and
-       do not move that line: both are addresses of the occurrence, neither is
-       its content, and neither names a guest. */
+  const doc = await get<{ items?: GoogleEvent[]; nextPageToken?: string }>(
+    `/calendars/${encodeURIComponent(calendarId)}/events`,
+    token,
     [
-      "fields",
-      "nextPageToken,items(id,summary,status,location,updated,htmlLink," +
-        "hangoutLink,start,end,organizer/self,attendees(self,responseStatus))",
+      ["timeMin", timeMin],
+      ["timeMax", timeMax],
+      ["singleEvents", "true"],
+      ["orderBy", "startTime"],
+      ["maxResults", String(MAX_EVENTS)],
+      ["showDeleted", "false"],
+      ["fields", `nextPageToken,items(${EVENT_FIELDS})`],
     ],
-  ]);
+  );
 
   const out: EventRow[] = [];
-  for (const item of doc.items ?? []) {
-    if (!item.id) continue;
-    const allDay = !!item.start?.date && !item.start?.dateTime;
-    const mine = (item.attendees ?? []).find((a) => a.self === true);
-    out.push({
-      id: item.id,
-      summary: item.summary ?? null,
-      start: item.start?.dateTime ?? item.start?.date ?? null,
-      end: item.end?.dateTime ?? item.end?.date ?? null,
-      allDay,
-      status: item.status ?? null,
-      location: item.location ?? null,
-      attendees: item.attendees ? item.attendees.length : null,
-      organizerSelf: item.organizer ? item.organizer.self === true : null,
-      response: mine?.responseStatus ?? null,
-      /* ONLY https, and only from Google. Both of these end up in an `href`
-         on the page, so a scheme that is not https — a `javascript:` a
-         compromised proxy inserted, say — is dropped here rather than trusted
-         to a renderer that might one day forget to check. */
-      link: httpsOnly(item.htmlLink),
-      meetLink: httpsOnly(item.hangoutLink),
-      updated: item.updated ?? null,
-    });
-  }
+  for (const item of doc.items ?? []) if (item.id) out.push(toRow(item as GoogleEvent & { id: string }));
   return { events: out, truncated: !!doc.nextPageToken };
+}
+
+/* --------------------------------------------------------------- writers */
+
+/**
+ * What a caller may set on an event. Each field is optional on a change —
+ * absent leaves it alone — and `null` on `location` or `description` clears
+ * it. A time is either timed (RFC3339 with an offset) or all-day
+ * ('YYYY-MM-DD', end EXCLUSIVE as Google has it), and which one is read off
+ * its shape; the route checks that start and end agree.
+ */
+export type EventPatch = {
+  summary?: string;
+  start?: string;
+  end?: string;
+  location?: string | null;
+  description?: string | null;
+};
+
+function toGoogle(patch: EventPatch): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  if (patch.summary !== undefined) body.summary = patch.summary;
+  if (patch.location !== undefined) body.location = patch.location ?? "";
+  if (patch.description !== undefined) body.description = patch.description ?? "";
+  /* Google wants the OTHER key nulled when an event changes between timed and
+     all-day, or it keeps both and refuses the patch. */
+  const at = (v: string) =>
+    isDay(v) ? { date: v, dateTime: null } : { dateTime: v, date: null };
+  if (patch.start !== undefined) body.start = at(patch.start);
+  if (patch.end !== undefined) body.end = at(patch.end);
+  return body;
+}
+
+/** A bare 'YYYY-MM-DD' — an all-day bound, as Google spells one. */
+export const isDay = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v);
+
+const eventPath = (calendarId: string, eventId?: string) =>
+  `/calendars/${encodeURIComponent(calendarId)}/events` +
+  (eventId ? `/${encodeURIComponent(eventId)}` : "");
+
+export async function createEvent(
+  token: string,
+  calendarId: string,
+  patch: EventPatch & { summary: string; start: string; end: string },
+): Promise<EventRow> {
+  const item = await send<GoogleEvent>("POST", eventPath(calendarId), token, toGoogle(patch));
+  if (!item.id) throw new CalendarError(200, "Google created the event and returned no id for it.");
+  return toRow(item as GoogleEvent & { id: string });
+}
+
+/** A change to one event. On a recurring series the id the collector holds
+ *  is ONE OCCURRENCE (it reads with singleEvents=true), so this changes that
+ *  occurrence and not the series. */
+export async function updateEvent(
+  token: string,
+  calendarId: string,
+  eventId: string,
+  patch: EventPatch,
+): Promise<EventRow> {
+  const item = await send<GoogleEvent>(
+    "PATCH",
+    eventPath(calendarId, eventId),
+    token,
+    toGoogle(patch),
+  );
+  return toRow({ ...item, id: item.id ?? eventId });
+}
+
+/** Delete one event — or, for an occurrence of a series, cancel that one
+ *  occurrence. A 410 means it was already gone, which is the outcome asked
+ *  for, so it is not an error. */
+export async function deleteEvent(token: string, calendarId: string, eventId: string) {
+  try {
+    await send("DELETE", eventPath(calendarId, eventId), token);
+  } catch (err) {
+    if (err instanceof CalendarError && err.status === 410) return;
+    throw err;
+  }
 }
 
 /* -------------------------------------------------------------- accounts */
@@ -415,8 +555,8 @@ export async function verify(values: {
             .slice(0, 4)
             .join(", ")} and not calendar.readonly. Google grants scopes at the ` +
           "consent screen and no call from here can widen one, so this needs " +
-          "its own refresh token: rerun your OAuth helper with " +
-          "https://www.googleapis.com/auth/calendar.readonly in the scope list. " +
+          "its own refresh token: run `npm run calendar-token`, or your own OAuth " +
+          "helper with https://www.googleapis.com/auth/calendar in the scope list. " +
           "The Gmail token in this vault cannot read a calendar.",
       };
 
@@ -442,8 +582,8 @@ export async function verify(values: {
           error:
             "Google refreshed that token and then refused the calendar with " +
             "“insufficient authentication scopes”. It was minted without " +
-            "calendar.readonly — rerun your OAuth helper with " +
-            "https://www.googleapis.com/auth/calendar.readonly and paste the new " +
+            "a calendar scope — run `npm run calendar-token` (or your OAuth helper " +
+            "with https://www.googleapis.com/auth/calendar) and paste the new " +
             "refresh token.",
         };
       if (err.status === 403 && /has not been used|is disabled/i.test(err.body))
