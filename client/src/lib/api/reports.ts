@@ -118,6 +118,7 @@ export type UmamiReport = {
 /** One occurrence. There is no description and no guest list on this wire:
  *  `attendees` is a count and `response` is the owner's own answer. */
 export type CalendarEvent = {
+  accountId: number;
   calendarId: string;
   calendar: string;
   eventId: string;
@@ -153,6 +154,8 @@ export type CalendarDay = {
 
 export type CalendarReport = {
   connected: boolean;
+  /** At least one calendar can be written to — see `calendars[].writable`. */
+  canWrite: boolean;
   accounts: {
     id: number;
     label: string;
@@ -174,6 +177,8 @@ export type CalendarReport = {
     /** Google's own colour as '#rrggbb', or null where it sent nothing
      *  usable. Never a colour this app picked — see migration 036. */
     color: string | null;
+    /** The grant can write AND the calendar's role is owner or writer. */
+    writable: boolean;
     seenAt: string | null;
   }[];
   today: CalendarDay & { next: CalendarEvent | null };
@@ -194,6 +199,36 @@ export type CalendarReport = {
     heldBefore: number;
   };
   notes: Record<string, string>;
+};
+
+/** What the page's form sends. Times are 'YYYY-MM-DD' (all-day, end
+ *  exclusive) or RFC3339 with an offset. */
+export type CalendarEventInput = {
+  summary?: string;
+  start?: string;
+  end?: string;
+  location?: string | null;
+  description?: string | null;
+  calendarId?: string;
+  account?: number;
+};
+
+export const calendarEvents = {
+  create: (body: CalendarEventInput) =>
+    call<{ ok: true; event: CalendarEvent }>("/calendar/events", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  update: (eventId: string, body: CalendarEventInput) =>
+    call<{ ok: true; event: CalendarEvent }>(`/calendar/events/${encodeURIComponent(eventId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  remove: (eventId: string, where: { calendarId: string; account: number }) =>
+    call<{ ok: true }>(`/calendar/events/${encodeURIComponent(eventId)}`, {
+      method: "DELETE",
+      body: JSON.stringify(where),
+    }),
 };
 
 /* ------------------------------------------------------------------- pypi */

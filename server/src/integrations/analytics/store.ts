@@ -281,6 +281,8 @@ export type CalendarRow = {
   access_role: string | null;
   /** Google's own backgroundColor as '#rrggbb', or null. Migration 036. */
   color: string | null;
+  /** 1 when the grant can write AND the calendar's role allows it. Migration 037. */
+  writable: number;
   seen_at: string;
 };
 
@@ -294,6 +296,7 @@ export function replaceCalendars(
     selected: boolean;
     accessRole: string | null;
     color: string | null;
+    writable?: boolean;
   }[],
 ) {
   const seen = now();
@@ -303,13 +306,13 @@ export function replaceCalendars(
     const ins = db.prepare(
       `INSERT INTO calendar_calendars
          (account_id, calendar_id, summary, timezone, is_primary, selected,
-          access_role, color, seen_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          access_role, color, writable, seen_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const r of rows)
       ins.run(
         accountId, r.id, r.summary, r.timezone, r.primary ? 1 : 0,
-        r.selected ? 1 : 0, r.accessRole, r.color, seen,
+        r.selected ? 1 : 0, r.accessRole, r.color, r.writable ? 1 : 0, seen,
       );
     db.exec("COMMIT");
   } catch (err) {
@@ -413,6 +416,48 @@ export function replaceCalendarEvents(
     db.exec("ROLLBACK");
     throw err;
   }
+}
+
+/**
+ * One event, written straight after this box changed it in Google — so the
+ * page and the agent see their own write without waiting two hours for the
+ * collector. The collector's next window replacement supersedes it either way.
+ */
+export function upsertCalendarEvent(accountId: number, calendarId: string, e: CalendarEventInput) {
+  db.prepare(
+    `INSERT INTO calendar_events
+       (account_id, calendar_id, event_id, summary, starts_at, ends_at,
+        all_day, status, location, attendees, organizer_self, response,
+        html_link, hangout_link, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+     ON CONFLICT(account_id, calendar_id, event_id) DO UPDATE SET
+       summary = excluded.summary, starts_at = excluded.starts_at,
+       ends_at = excluded.ends_at, all_day = excluded.all_day,
+       status = excluded.status, location = excluded.location,
+       attendees = excluded.attendees,
+       organizer_self = excluded.organizer_self,
+       response = excluded.response, html_link = excluded.html_link,
+       hangout_link = excluded.hangout_link,
+       updated_at = excluded.updated_at`,
+  ).run(
+    accountId, calendarId, e.id, e.summary, e.start, e.end,
+    e.allDay ? 1 : 0, e.status, e.location, e.attendees,
+    e.organizerSelf === null ? null : e.organizerSelf ? 1 : 0,
+    e.response, e.link, e.meetLink, e.updated,
+  );
+}
+
+export function deleteCalendarEvent(accountId: number, calendarId: string, eventId: string) {
+  db.prepare(
+    "DELETE FROM calendar_events WHERE account_id = ? AND calendar_id = ? AND event_id = ?",
+  ).run(accountId, calendarId, eventId);
+}
+
+/** Where an event id lives, for a caller that only has the id. */
+export function findCalendarEvent(eventId: string): CalendarEventRow[] {
+  return db
+    .prepare("SELECT * FROM calendar_events WHERE event_id = ?")
+    .all(eventId) as unknown as CalendarEventRow[];
 }
 
 /** Events whose start string sorts inside [from, to). Both bounds are the

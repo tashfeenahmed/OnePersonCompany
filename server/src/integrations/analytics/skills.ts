@@ -6,12 +6,12 @@
  * never be WEAKER. Each rule below traces to a paragraph in the route file
  * beside it, and the two change together.
  *
- * ALL FOUR ARE READ-ONLY. No entry here has `actions`, which — as the registry
- * header puts it — is the thing to read first: a skill with no `actions` key
- * cannot be made to write by any request the proxy will accept. Nothing in
- * this area has a write to offer in the first place; Umami, PyPI and Bluesky
- * are read through APIs this box only ever GETs, and the calendar provider
- * hard-codes its one verb for exactly that reason.
+ * THREE ARE READ-ONLY AND ONE WRITES. Umami, PyPI and Bluesky have no
+ * `actions` — as the registry header puts it, a skill with no `actions` key
+ * cannot be made to write by any request the proxy will accept. The calendar
+ * does: the owner asked for an agent that can put things on his calendar, so
+ * it can create, change and delete events on calendars marked `writable` —
+ * never adding a guest and never emailing anybody.
  */
 import type { Skill } from "../../skills/registry.ts";
 
@@ -91,10 +91,11 @@ export const SKILLS: Skill[] = [
     title: "Calendar — what is on today, and how much of the week is spoken for",
     plugins: ["calendar"],
     about:
-      "Google Calendar, read-only, across the calendars the owner has ticked in " +
-      "Google. Today's events, the next seven days grouped by day, and busy " +
-      "hours per day computed by merging overlapping meetings. The collector " +
-      "keeps seven days back and twenty-one ahead.",
+      "Google Calendar across the calendars the owner has ticked in Google. " +
+      "Today's events, the next seven days grouped by day, and busy hours per " +
+      "day computed by merging overlapping meetings. The collector keeps seven " +
+      "days back and twenty-one ahead. Events can be created, moved, renamed " +
+      "and deleted on calendars marked `writable`.",
     rules: [
       "BUSY HOURS MERGE OVERLAPPING EVENTS AND NEVER ADD THEM. Two calls booked " +
         "over the same hour are one busy hour. A figure that added them would be " +
@@ -115,6 +116,19 @@ export const SKILLS: Skill[] = [
         "column that could hold one.",
       "Only calendars ticked in Google are read. A calendar the owner unticked " +
         "is absent rather than empty, and the calendars list says which is which.",
+      "WRITE ONLY WHERE `writable` IS TRUE on the calendar, and only when the " +
+        "owner asked for this event — never to block time on a guess. Read the " +
+        "day first: say so if the new event overlaps something, rather than " +
+        "booking over it silently.",
+      "TIMES CARRY AN OFFSET. Send 2026-10-02T15:00:00+01:00, not 15:00 — use " +
+        "the calendar's `timezone` from the default view. An all-day event is " +
+        "'YYYY-MM-DD' and its end is EXCLUSIVE: a one-day event on the 2nd ends " +
+        "on the 3rd.",
+      "AN EVENT ID IS ONE OCCURRENCE. Rows are read with recurring series " +
+        "expanded, so changing or deleting a weekly meeting's id touches that " +
+        "week only. Say so when the owner asked about \"the meeting\".",
+      "No guest is ever added or emailed from here. If the owner wants people " +
+        "invited, tell him to do it in Google.",
     ],
     views: [
       {
@@ -134,9 +148,101 @@ export const SKILLS: Skill[] = [
         ],
       },
     ],
+    actions: [
+      {
+        key: "create_event",
+        method: "POST",
+        path: "/api/calendar/events",
+        about:
+          "Put one event on a calendar. Answers with the event as the default view shows it. No guests, no emails.",
+        params: [
+          { name: "summary", type: "string", required: true, about: "The title, at most 500 characters." },
+          {
+            name: "start",
+            type: "string",
+            required: true,
+            about:
+              "RFC3339 with an offset (2026-10-02T15:00:00+01:00), or 'YYYY-MM-DD' for an all-day event.",
+          },
+          {
+            name: "end",
+            type: "string",
+            required: false,
+            about:
+              "Same kind as start. Absent is one hour later, or the next day for an all-day event (all-day ends are exclusive).",
+          },
+          {
+            name: "calendarId",
+            type: "string",
+            required: false,
+            about: "Which calendar, from the default view's `calendars`. Absent is the primary writable one.",
+          },
+          { name: "location", type: "string", required: false, about: "A place or a link, at most 500 characters." },
+          {
+            name: "description",
+            type: "string",
+            required: false,
+            about: "Notes on the event, at most 8000 characters. Sent to Google and not kept on this box.",
+          },
+        ],
+      },
+      {
+        key: "update_event",
+        method: "PATCH",
+        path: "/api/calendar/events/:eventId",
+        about:
+          "Change one event: rename, move, or edit its location or notes. Only the fields sent change; moving the start alone keeps its length.",
+        params: [
+          {
+            name: "eventId",
+            type: "string",
+            required: true,
+            in: "path",
+            about: "The event's `eventId` from the default view.",
+          },
+          { name: "summary", type: "string", required: false, about: "A new title." },
+          { name: "start", type: "string", required: false, about: "A new start, same rules as create_event." },
+          { name: "end", type: "string", required: false, about: "A new end, same kind as the start." },
+          { name: "location", type: "string", required: false, about: "A new location; null clears it." },
+          { name: "description", type: "string", required: false, about: "New notes; null clears them." },
+          {
+            name: "calendarId",
+            type: "string",
+            required: false,
+            about: "Needed only for an event outside the collected window, or one on two calendars.",
+          },
+        ],
+      },
+      {
+        key: "delete_event",
+        method: "DELETE",
+        path: "/api/calendar/events/:eventId",
+        about:
+          "Delete one event — or, for a recurring series, cancel that one occurrence. Guests are not notified.",
+        destructive: true,
+        params: [
+          {
+            name: "eventId",
+            type: "string",
+            required: true,
+            in: "path",
+            about: "The event's `eventId` from the default view.",
+          },
+          {
+            name: "calendarId",
+            type: "string",
+            required: false,
+            about: "Needed only for an event outside the collected window, or one on two calendars.",
+          },
+        ],
+      },
+    ],
+    /* The actions write to Google — a machine that is not this one. */
+    openWorld: true,
     asks: [
       "How much of tomorrow is already booked?",
       "What is on today, and what is the next thing that has not started yet?",
+      "Put a call with the accountant on Thursday at 3pm.",
     ],
   },
 
