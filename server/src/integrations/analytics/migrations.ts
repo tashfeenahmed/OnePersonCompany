@@ -383,6 +383,22 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
     `,
   },
   {
+    name: "037_calendar_writable",
+    sql: `
+      -- WHETHER THIS BOX MAY CHANGE EVENTS ON A CALENDAR, per calendar.
+      --
+      -- Two things decide it and the collector knows both at the same moment:
+      -- the GRANT (a refresh token minted with \`calendar\` or
+      -- \`calendar.events\` can write, one minted with \`calendar.readonly\`
+      -- cannot) and the calendar's own \`accessRole\` (owner and writer can;
+      -- a shared reader or a holiday feed cannot, whatever the grant).
+      -- Stored rather than worked out per request because the page and the
+      -- agent ask "can I add an event here?" on every read, and only a token
+      -- refresh can answer the first half. 0 until the collector next runs.
+      ALTER TABLE calendar_calendars ADD COLUMN writable INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
     name: "494_github_insights",
     sql: `
       -- STARS BY DAY and RELEASE DOWNLOADS — see providers/githubInsights.ts.

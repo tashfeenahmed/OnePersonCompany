@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { CalendarOff, ChevronLeft, ChevronRight, Keyboard } from "lucide-react";
+import { CalendarOff, ChevronLeft, ChevronRight, Keyboard, Plus } from "lucide-react";
 
 import { PageShell } from "@/components/PageShell";
 import { Button } from "@/components/ui/button";
 import { useApi } from "@/hooks/useApi";
-import { reports, type CalendarEvent, type CalendarReport } from "@/lib/api/reports";
+import { calendarEvents, reports, type CalendarEvent, type CalendarReport } from "@/lib/api/reports";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { Agenda } from "./Agenda";
+import { EventForm, type FormTarget } from "./EventForm";
 import { EventPopover, type OpenedEvent } from "./EventPopover";
 import { useWide } from "./useWide";
 import { MonthGrid } from "./MonthGrid";
@@ -39,8 +40,8 @@ import {
 } from "./dates";
 
 /**
- * CALENDAR — the owner's Google calendars, read-only, as Day / Week / Month /
- * Agenda views.
+ * CALENDAR — the owner's Google calendars as Day / Week / Month / Agenda
+ * views, with create, edit and delete on the calendars the grant can write.
  *
  * THE URL IS THE SELECTION. `/calendar/2026-10-01?view=week` is the week of
  * the 1st; `/calendar` is today in the last view used (Week on a wide screen,
@@ -56,9 +57,11 @@ import {
  * Busy time merges overlaps and gives all-day entries no hours — the server's
  * own rule, recomputed here so hiding a calendar changes the figure.
  *
- * READ-ONLY. The collector talks to Google with a single hard-coded GET and
- * there is no route that writes, so there is no click-to-create: clicking an
- * event opens its details and a link to Google Calendar.
+ * WRITES, WHERE THEY CAN. A calendar is `writable` when the Google grant has
+ * the `calendar` scope and the owner's role on it is owner or writer
+ * (migration 037). Then "New event" and a click on an empty slot open the
+ * form, and an event's card can edit or delete it. A read-only grant draws
+ * the page exactly as before, with one line saying how to turn writes on.
  */
 
 const ASK_DAYS = 60;
@@ -138,7 +141,7 @@ function NotConnected() {
       <CalendarOff className="text-muted-foreground size-8" strokeWidth={1.5} />
       <div className="text-[16px] font-medium">Connect your Google Calendar</div>
       <p className="text-muted-foreground max-w-md text-[13.5px]">
-        The calendar needs its own read-only Google grant (the Gmail one can't read calendars).
+        The calendar needs its own Google grant (the Gmail one can't read calendars).
       </p>
       <Button asChild size="sm" className="mt-1">
         <Link to="/integrations/calendar">Connect Google Calendar</Link>
@@ -302,12 +305,34 @@ export function Calendar() {
   /* --------------------------------------------------- the event card */
 
   const [opened, setOpened] = useState<OpenedEvent | null>(null);
-  const close = useCallback(() => setOpened(null), []);
+  const close = useCallback(() => setOpened(null), [setOpened]);
   const openAt = useCallback((event: CalendarEvent, e: MouseEvent<HTMLElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     setOpened({ event, rect: { x: r.left, y: r.top, w: r.width, h: r.height } });
-  }, []);
+  }, [setOpened]);
   const activeKey = opened ? eventKey(opened.event) : null;
+
+  /* ------------------------------------------------------------ writes */
+
+  const writable = useMemo(
+    () =>
+      (data?.calendars ?? [])
+        .filter((k) => k.writable)
+        .sort((a, b) => Number(b.primary) - Number(a.primary)),
+    [data],
+  );
+  const canWriteTo = useCallback(
+    (e: CalendarEvent) => writable.some((k) => k.calendarId === e.calendarId && k.accountId === e.accountId),
+    [writable],
+  );
+  const [form, setForm] = useState<FormTarget | null>(null);
+  const canWrite = !!data?.canWrite;
+  const reload = report.reload;
+  const startAt = (at: Date) => {
+    setOpened(null);
+    setForm({ mode: "create", at });
+  };
+  const newEvent = () => startAt(newEventAt(anchor, today, now));
 
   /* ---------------------------------------------------------- keyboard */
 
@@ -317,6 +342,12 @@ export function Calendar() {
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
       const key = e.key.toLowerCase();
+      if (key === "c" && canWrite) {
+        setOpened(null);
+        setForm({ mode: "create", at: newEventAt(anchor, today, now) });
+        e.preventDefault();
+        return;
+      }
       if (key === "t") go(today);
       else if ((e.key === "ArrowLeft" || key === "p" || key === "k") && canPrev) go(stepPeriod(view, anchor, -1));
       else if ((e.key === "ArrowRight" || key === "n" || key === "j") && canNext) go(stepPeriod(view, anchor, 1));
@@ -327,11 +358,11 @@ export function Calendar() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [go, today, view, anchor, canPrev, canNext]);
+  }, [go, today, now, view, anchor, canPrev, canNext, canWrite]);
 
   /* ------------------------------------------------------------ render */
 
-  const sub = `Your Google calendars, read-only · times in ${TIMEZONE}`;
+  const sub = `Your Google calendars${data && !data.canWrite ? ", read-only" : ""} · times in ${TIMEZONE}`;
 
   if (report.error)
     return (
@@ -395,6 +426,12 @@ export function Calendar() {
         <div className="min-w-0">
           {/* Toolbar */}
           <div className="mb-3 flex flex-wrap items-center gap-2">
+            {data.canWrite && (
+              <Button size="sm" onClick={newEvent} title="New event (C)">
+                <Plus strokeWidth={1.75} />
+                New event
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -470,6 +507,7 @@ export function Calendar() {
               activeKey={activeKey}
               onOpen={openAt}
               onPickDay={(d) => go(parseISODay(d)!, "day")}
+              onCreateAt={data.canWrite ? startAt : undefined}
             />
           )}
           {view === "day" && columns[0] && columns[0].held && columns[0].timed.length + columns[0].allDay.length === 0 && (
@@ -509,7 +547,7 @@ export function Calendar() {
             <Kbd>→</Kbd> move <Kbd>D</Kbd>
             <Kbd>W</Kbd>
             <Kbd>M</Kbd>
-            <Kbd>A</Kbd> switch view <Kbd>Esc</Kbd> close
+            <Kbd>A</Kbd> switch view{data.canWrite && <> <Kbd>C</Kbd> new event</>} <Kbd>Esc</Kbd> close
           </div>
         </div>
 
@@ -546,9 +584,16 @@ export function Calendar() {
             </summary>
             <ul className="mt-1.5 list-disc space-y-1 pl-4">
               <li>
-                Read-only, from {data.accounts.map((a) => a.label).join(", ") || "Google"}. Only calendars
-                ticked in Google are read; hiding one here only changes this browser's view.
+                {data.canWrite ? "Synced with" : "Read-only, from"}{" "}
+                {data.accounts.map((a) => a.label).join(", ") || "Google"}. Only calendars ticked in Google
+                are read; hiding one here only changes this browser's view.
               </li>
+              {!data.canWrite && (
+                <li>
+                  To add and edit events here (and let the agent do it), reconnect the calendar with a
+                  token minted with the full <code>calendar</code> scope — <code>npm run calendar-token</code>.
+                </li>
+              )}
               <li>
                 Covers {dayHeading(heldFrom)} to {dayHeading(heldTo)}. Hatched days are outside that
                 window — unknown, not free.
@@ -568,10 +613,50 @@ export function Calendar() {
           today={today}
           now={now}
           onClose={close}
+          onEdit={
+            canWriteTo(opened.event)
+              ? () => {
+                  setForm({ mode: "edit", event: opened.event });
+                  setOpened(null);
+                }
+              : undefined
+          }
+          onDelete={
+            canWriteTo(opened.event)
+              ? async () => {
+                  await calendarEvents.remove(opened.event.eventId, {
+                    calendarId: opened.event.calendarId,
+                    account: opened.event.accountId,
+                  });
+                  setOpened(null);
+                  reload();
+                }
+              : undefined
+          }
+        />
+      )}
+      {form && (
+        <EventForm
+          key={form.mode === "edit" ? eventKey(form.event) : form.at.toISOString()}
+          target={form}
+          calendars={writable}
+          onClose={() => setForm(null)}
+          onSaved={() => {
+            setForm(null);
+            reload();
+          }}
         />
       )}
     </PageShell>
   );
+}
+
+/** Where "New event" starts: the next whole hour when the day in view is
+ *  today, nine in the morning on any other day. */
+function newEventAt(anchor: Date, today: Date, now: Date): Date {
+  const at = new Date(sameDay(anchor, today) ? now : anchor);
+  at.setHours(sameDay(anchor, today) ? now.getHours() + 1 : 9, 0, 0, 0);
+  return at;
 }
 
 function Kbd({ children }: { children: string }) {

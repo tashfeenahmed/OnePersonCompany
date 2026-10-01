@@ -144,9 +144,11 @@ export const manifest: IntegrationManifest = {
         if (!refreshToken)
           return (
             "Paste a refresh token minted with access_type=offline AND the " +
-            "https://www.googleapis.com/auth/calendar.readonly scope. The Gmail " +
-            "token already in this vault will not do: Google grants scopes at " +
-            "the consent screen and nothing here can widen one."
+            "https://www.googleapis.com/auth/calendar scope (calendar.readonly " +
+            "also works, but then the agent and the calendar page can only read). " +
+            "`npm run calendar-token` in the repo mints one. The Gmail token " +
+            "already in this vault will not do: Google grants scopes at the " +
+            "consent screen and nothing here can widen one."
           );
         const res = await calendar.verify({ clientId, clientSecret, refreshToken });
         return res.ok ? null : res.error;

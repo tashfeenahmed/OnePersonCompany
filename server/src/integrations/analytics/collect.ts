@@ -272,7 +272,14 @@ export async function collectCalendar(): Promise<CollectResult & { events: numbe
         );
 
       const list = await calendar.calendarList(token);
-      replaceCalendars(account.id, list);
+      const writes = calendar.canWrite(scopes);
+      replaceCalendars(
+        account.id,
+        list.map((c) => ({
+          ...c,
+          writable: writes && calendar.WRITABLE_ROLES.includes(c.accessRole ?? ""),
+        })),
+      );
 
       for (const cal of list.filter((c) => c.selected)) {
         try {

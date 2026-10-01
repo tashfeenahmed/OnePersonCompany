@@ -176,6 +176,7 @@ export function TimeGrid({
   activeKey,
   onOpen,
   onPickDay,
+  onCreateAt,
 }: {
   columns: DayColumn[];
   today: Date;
@@ -185,6 +186,9 @@ export function TimeGrid({
   /** The event whose card is open, drawn with a ring. */
   activeKey: string | null;
   onOpen: OnOpen;
+  /** A click on an empty slot starts a new event there, half-hour snapped.
+   *  Absent when no calendar can be written to. */
+  onCreateAt?: (at: Date) => void;
   /** A click on a day's heading opens that day. */
   onPickDay: (day: string) => void;
 }) {
@@ -339,6 +343,18 @@ export function TimeGrid({
                   className="border-line-soft relative border-l"
                   style={col.held ? undefined : hatch}
                   title={col.held ? undefined : "Outside the days the calendar collector reads"}
+                  onClick={
+                    onCreateAt && col.held
+                      ? (e) => {
+                          if (e.target !== e.currentTarget) return;
+                          const y = e.clientY - e.currentTarget.getBoundingClientRect().top;
+                          const mins = Math.min(23 * 60 + 30, Math.max(0, Math.floor((y / HOUR_PX) * 2) * 30));
+                          const at = new Date(col.date);
+                          at.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
+                          onCreateAt(at);
+                        }
+                      : undefined
+                  }
                 >
                   {hours.slice(1).map((h) => (
                     <div

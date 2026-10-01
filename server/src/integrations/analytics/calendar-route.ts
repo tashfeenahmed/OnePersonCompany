@@ -37,12 +37,17 @@
  */
 import { Hono } from "hono";
 import { accountRows } from "../../db.ts";
-import { AHEAD_DAYS, BACK_DAYS } from "./calendar.ts";
+import * as google from "./calendar.ts";
+import { AHEAD_DAYS, BACK_DAYS, CalendarError, isDay, type EventPatch } from "./calendar.ts";
 import {
   calendarEventsBetween,
   calendars,
   clockAt,
+  deleteCalendarEvent,
+  findCalendarEvent,
+  upsertCalendarEvent,
   type CalendarEventRow,
+  type CalendarRow,
 } from "./store.ts";
 
 export const calendarRoutes = new Hono();
@@ -132,6 +137,7 @@ function busyMinutes(events: CalendarEventRow[]): number {
 }
 
 const shape = (e: CalendarEventRow, calendarName: (id: string) => string) => ({
+  accountId: e.account_id,
   calendarId: e.calendar_id,
   calendar: calendarName(e.calendar_id),
   eventId: e.event_id,
@@ -145,9 +151,8 @@ const shape = (e: CalendarEventRow, calendarName: (id: string) => string) => ({
   attendees: e.attendees,
   organizerSelf: e.organizer_self === null ? null : e.organizer_self === 1,
   response: e.response,
-  /* WHERE THE OCCURRENCE CAN BE CHANGED, since it cannot be changed here.
-     Null on every row collected before migration 036, and null is drawn as
-     "no link" rather than as a broken one. */
+  /* Google's own page for the occurrence. Null on every row collected before
+     migration 036, and null is drawn as "no link" rather than as a broken one. */
   link: e.html_link,
   meetLink: e.hangout_link,
   busy: isBusy(e),
@@ -234,6 +239,9 @@ calendarRoutes.get("/", (c) => {
 
   return c.json({
     connected: accountRows("calendar").some((a) => a.connected === 1),
+    /** Can anything here be written? True when at least one calendar is
+     *  writable — see migration 037. The page shows "New event" on this. */
+    canWrite: cals.some((k) => k.writable === 1),
     accounts: accountRows("calendar").map((a) => ({
       id: a.id,
       label: a.label,
@@ -255,6 +263,9 @@ calendarRoutes.get("/", (c) => {
       /** Google's own colour for it, so a grid on this box agrees with the
        *  app the owner already knows. Null until the collector next runs. */
       color: k.color,
+      /** This box may create, change and delete events on it: the grant has a
+       *  write scope AND the calendar's role is owner or writer. */
+      writable: k.writable === 1,
       seenAt: k.seen_at,
     })),
     today: {
@@ -316,6 +327,294 @@ calendarRoutes.get("/", (c) => {
       privacy:
         "No event description is stored or fetched, and no attendee is named: " +
         "`attendees` is a count and `response` is the owner's own answer.",
+      writes:
+        "Events can be created, changed and deleted on calendars marked " +
+        "`writable`, through POST/PATCH/DELETE /api/calendar/events. Guests " +
+        "are never added or emailed. A row collected from a recurring series " +
+        "is one occurrence, so a change or delete touches that occurrence only.",
     },
   });
+});
+
+/* ================================================================ writes */
+
+/**
+ * CREATE, CHANGE AND DELETE ONE EVENT — the page's form and the agent's
+ * `calendar` skill actions both land here.
+ *
+ * THE WRITE GOES TO GOOGLE FIRST AND TO THIS BOX SECOND. Google is the
+ * calendar; the table here is a copy of it. So the row is written only from
+ * what Google answered, and a refused write leaves the table exactly as it
+ * was. The collector's next run replaces the window anyway, which is what
+ * makes writing the one row straight away safe rather than a second source
+ * of truth.
+ *
+ * ONLY A CALENDAR MARKED WRITABLE IS WRITTEN TO (migration 037). A read-only
+ * grant, or a calendar somebody shared as read-only, is a 409 with the
+ * sentence that fixes it, not a 403 relayed from Google.
+ */
+
+const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+const MAX_SUMMARY = 500;
+const MAX_LOCATION = 500;
+const MAX_DESCRIPTION = 8_000;
+
+type Body = Record<string, unknown>;
+
+class Refused extends Error {
+  status: 400 | 404 | 409;
+  constructor(status: 400 | 404 | 409, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+/** A time bound: an all-day 'YYYY-MM-DD' or an RFC3339 instant WITH an
+ *  offset. A bare local time is refused — "15:00" in whose clock? */
+function bound(name: string, v: unknown): string {
+  if (typeof v !== "string" || !(isDay(v) || RFC3339.test(v)) || Number.isNaN(Date.parse(v)))
+    throw new Refused(
+      400,
+      `"${name}" is 'YYYY-MM-DD' for an all-day event or an RFC3339 time with an ` +
+        "offset, like 2026-10-02T15:00:00+01:00.",
+    );
+  return v;
+}
+
+function text(name: string, v: unknown, max: number, nullable: boolean): string | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null && nullable) return null;
+  if (typeof v !== "string") throw new Refused(400, `"${name}" is a string.`);
+  if (v.length > max) throw new Refused(400, `"${name}" is at most ${max} characters.`);
+  return v;
+}
+
+/** End after start, and both the same kind. An all-day end is EXCLUSIVE, as
+ *  Google has it, so a one-day event on the 2nd ends on the 3rd. */
+function checkSpan(start: string, end: string) {
+  if (isDay(start) !== isDay(end))
+    throw new Refused(400, "Start and end are both all-day dates or both times — not one of each.");
+  if (Date.parse(end) <= Date.parse(start))
+    throw new Refused(
+      400,
+      isDay(start)
+        ? "An all-day end is exclusive: a one-day event on the 2nd ends on the 3rd."
+        : "The end is after the start.",
+    );
+}
+
+/** Keep an event's length when only its start moves. */
+function shifted(oldStart: string, oldEnd: string, newStart: string): string {
+  if (isDay(newStart)) {
+    const days = Math.max(1, Math.round((Date.parse(oldEnd) - Date.parse(oldStart)) / 86_400_000));
+    const d = new Date(`${newStart}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+  const ms = isDay(oldStart) ? 3_600_000 : Date.parse(oldEnd) - Date.parse(oldStart);
+  return new Date(Date.parse(newStart) + Math.max(ms, 60_000)).toISOString().replace(".000Z", "Z");
+}
+
+/** The calendar a write goes to, checked writable. */
+function target(calendarId: unknown, account: unknown): CalendarRow {
+  const cals = calendars();
+  const accountId = account === undefined || account === null ? null : Number(account);
+  const scoped = cals.filter((k) => accountId === null || k.account_id === accountId);
+  let cal: CalendarRow | undefined;
+  if (calendarId !== undefined && calendarId !== null) {
+    if (typeof calendarId !== "string") throw new Refused(400, '"calendarId" is a string.');
+    cal = scoped.find((k) => k.calendar_id === calendarId);
+    if (!cal)
+      throw new Refused(404, `There is no calendar "${calendarId}" here. GET /api/calendar lists them.`);
+  } else {
+    cal =
+      scoped.find((k) => k.is_primary === 1 && k.writable === 1) ??
+      scoped.find((k) => k.writable === 1) ??
+      scoped.find((k) => k.is_primary === 1);
+    if (!cal) throw new Refused(409, "No calendar is connected.");
+  }
+  if (cal.writable !== 1) throw notWritable(cal);
+  return cal;
+}
+
+function notWritable(cal: CalendarRow): Refused {
+  const role = cal.access_role ?? "unknown";
+  return new Refused(
+    409,
+    google.WRITABLE_ROLES.includes(role)
+      ? `${cal.summary ?? cal.calendar_id} is read-only here because the Google grant ` +
+          "is read-only. Reconnect the calendar plugin with a refresh token minted " +
+          "with the https://www.googleapis.com/auth/calendar scope."
+      : `${cal.summary ?? cal.calendar_id} is shared with this account as "${role}", ` +
+          "so its events cannot be changed from here — or from Google.",
+  );
+}
+
+/** The event being changed: where it lives, and its row when this box holds one. */
+function locate(eventId: string, body: Body): { cal: CalendarRow; row: CalendarEventRow | null } {
+  if (body.calendarId !== undefined && body.calendarId !== null) {
+    const cal = target(body.calendarId, body.account);
+    const row =
+      findCalendarEvent(eventId).find(
+        (r) => r.calendar_id === cal.calendar_id && r.account_id === cal.account_id,
+      ) ?? null;
+    return { cal, row };
+  }
+  const rows = findCalendarEvent(eventId).filter(
+    (r) => body.account === undefined || body.account === null || r.account_id === Number(body.account),
+  );
+  if (!rows.length)
+    throw new Refused(
+      404,
+      `No event "${eventId}" is held here. Send calendarId as well for an event ` +
+        "outside the collected window.",
+    );
+  if (rows.length > 1)
+    throw new Refused(
+      409,
+      `"${eventId}" is on ${rows.length} calendars (an invitation you were sent twice). ` +
+        "Send calendarId to say which.",
+    );
+  const row = rows[0]!;
+  const cal = calendars().find(
+    (k) => k.calendar_id === row.calendar_id && k.account_id === row.account_id,
+  );
+  if (!cal) throw new Refused(404, `The calendar "${row.calendar_id}" is no longer connected.`);
+  if (cal.writable !== 1) throw notWritable(cal);
+  return { cal, row };
+}
+
+async function tokenFor(accountId: number): Promise<string> {
+  const ready = google.tokenAccounts("calendar_write").find((r) => r.account.id === accountId);
+  if (!ready) throw new Refused(409, "That calendar's Google account has no credential stored.");
+  return (await google.open(ready.values)).token;
+}
+
+const nameOf = (id: string) => calendars().find((k) => k.calendar_id === id)?.summary ?? id;
+
+function written(cal: CalendarRow, ev: google.EventRow) {
+  upsertCalendarEvent(cal.account_id, cal.calendar_id, ev);
+  const row = findCalendarEvent(ev.id).find(
+    (r) => r.calendar_id === cal.calendar_id && r.account_id === cal.account_id,
+  )!;
+  return { ok: true, event: shape(row, nameOf) };
+}
+
+async function readBody(c: { req: { json: () => Promise<unknown> } }): Promise<Body> {
+  const b = await c.req.json().catch(() => null);
+  if (b === null) return {};
+  if (typeof b !== "object" || Array.isArray(b))
+    throw new Refused(400, "The body is a JSON object.");
+  return b as Body;
+}
+
+/** Google's refusal, passed on as a sentence with a status that is not 500. */
+function failed(err: unknown) {
+  if (err instanceof Refused) return { status: err.status, error: err.message };
+  if (err instanceof CalendarError) {
+    const status = err.status === 404 || err.status === 410 ? 404 : err.status === 400 ? 400 : 502;
+    return { status: status as 400 | 404 | 502, error: `Google said: ${err.body}` };
+  }
+  const name = err instanceof Error ? err.name : "Error";
+  return {
+    status: 502 as const,
+    error: name === "TimeoutError" ? "Google did not answer within 30 seconds." : `Could not reach Google (${name}).`,
+  };
+}
+
+calendarRoutes.post("/events", async (c) => {
+  try {
+    const body = await readBody(c);
+    const summary = text("summary", body.summary, MAX_SUMMARY, false);
+    if (!summary?.trim()) throw new Refused(400, 'An event needs a "summary" — its title.');
+    const start = bound("start", body.start);
+    /* No end is an hour for a timed event and one day for an all-day one —
+       what Google's own quick-add does. */
+    const end =
+      body.end === undefined || body.end === null
+        ? isDay(start)
+          ? shifted(start, start, start)
+          : new Date(Date.parse(start) + 3_600_000).toISOString().replace(".000Z", "Z")
+        : bound("end", body.end);
+    checkSpan(start, end);
+    const patch: EventPatch & { summary: string; start: string; end: string } = {
+      summary: summary.trim(),
+      start,
+      end,
+    };
+    const location = text("location", body.location, MAX_LOCATION, true);
+    const description = text("description", body.description, MAX_DESCRIPTION, true);
+    if (location) patch.location = location;
+    if (description) patch.description = description;
+
+    const cal = target(body.calendarId, body.account);
+    const ev = await google.createEvent(await tokenFor(cal.account_id), cal.calendar_id, patch);
+    return c.json(written(cal, ev), 201);
+  } catch (err) {
+    const f = failed(err);
+    return c.json({ error: f.error }, f.status);
+  }
+});
+
+calendarRoutes.patch("/events/:eventId", async (c) => {
+  try {
+    const eventId = c.req.param("eventId");
+    const body = await readBody(c);
+    const { cal, row } = locate(eventId, body);
+    const patch: EventPatch = {};
+
+    const summary = text("summary", body.summary, MAX_SUMMARY, false);
+    if (summary !== undefined) {
+      if (!summary?.trim()) throw new Refused(400, "A title cannot be empty.");
+      patch.summary = summary.trim();
+    }
+    const location = text("location", body.location, MAX_LOCATION, true);
+    if (location !== undefined) patch.location = location;
+    const description = text("description", body.description, MAX_DESCRIPTION, true);
+    if (description !== undefined) patch.description = description;
+
+    const start = body.start === undefined ? undefined : bound("start", body.start);
+    let end = body.end === undefined ? undefined : bound("end", body.end);
+    if (start !== undefined || end !== undefined) {
+      if (start !== undefined && end === undefined) {
+        if (!row?.starts_at || !row.ends_at)
+          throw new Refused(400, 'Send "end" as well — this event is not held here to keep its length.');
+        end = shifted(row.starts_at, row.ends_at, start);
+      }
+      const s = start ?? row?.starts_at;
+      if (!s) throw new Refused(400, 'Send "start" as well — this event is not held here.');
+      checkSpan(s, end!);
+      if (start !== undefined) patch.start = start;
+      patch.end = end;
+      /* Switching kind (timed ⇄ all-day) needs both bounds in the new kind. */
+      if (start === undefined) patch.start = s;
+    }
+
+    if (!Object.keys(patch).length)
+      throw new Refused(400, "Nothing to change. Send summary, start, end, location or description.");
+
+    const ev = await google.updateEvent(await tokenFor(cal.account_id), cal.calendar_id, eventId, patch);
+    return c.json(written(cal, ev));
+  } catch (err) {
+    const f = failed(err);
+    return c.json({ error: f.error }, f.status);
+  }
+});
+
+calendarRoutes.delete("/events/:eventId", async (c) => {
+  try {
+    const eventId = c.req.param("eventId");
+    const body = await readBody(c);
+    const { cal } = locate(eventId, {
+      ...body,
+      calendarId: body.calendarId ?? c.req.query("calendarId"),
+      account: body.account ?? c.req.query("account"),
+    });
+    await google.deleteEvent(await tokenFor(cal.account_id), cal.calendar_id, eventId);
+    deleteCalendarEvent(cal.account_id, cal.calendar_id, eventId);
+    return c.json({ ok: true, deleted: { calendarId: cal.calendar_id, eventId } });
+  } catch (err) {
+    const f = failed(err);
+    return c.json({ error: f.error }, f.status);
+  }
 });
