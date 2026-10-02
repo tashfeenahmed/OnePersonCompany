@@ -106,6 +106,11 @@ export function RunApp({
     label: string;
     match: (r: RunSummary) => boolean;
     preset?: Record<string, string>;
+    /** The filter is known to be coming but cannot be applied yet (the
+     *  watchlist it matches against is still loading). Nothing opens itself
+     *  until it lands — otherwise the newest run of ALL of them opens and
+     *  stays open once the filter arrives. */
+    pending?: boolean;
   } | null;
   /** The server's own discriminator: `research`, `competitors`, … */
   kind: string;
@@ -353,13 +358,13 @@ export function RunApp({
     !!detail && isLive(detail.status) && detail.kind === kind;
 
   /* The fold's default: open when there is nothing else to look at. */
-  const composeOpen = composing ?? (!runId && shown.length === 0 && !!list.data);
+  const composeOpen = composing ?? (!runId && shown.length === 0 && !!list.data && !narrow?.pending);
 
   /* THE LATEST SUCCESSFUL RUN OPENS ITSELF in the tab layout, so choosing a
      venture in the rail lands on its newest finished report. `replace`, so
      Back does not bounce off the bare address straight into the run again. */
   const latestDone =
-    compact && !runId && list.data?.key === listKey
+    compact && !runId && list.data?.key === listKey && !narrow?.pending
       ? (shown.find((r) => r.status === "done") ?? null)
       : null;
   useEffect(() => {

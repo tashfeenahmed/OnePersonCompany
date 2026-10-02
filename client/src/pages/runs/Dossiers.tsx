@@ -28,17 +28,22 @@ export function Dossiers() {
      in the rail agree. */
   const [params] = useSearchParams();
   const personId = params.get("person");
-  const watch = useApi(() => (personId ? peopleApi.watch() : Promise.resolve(null)), [personId]);
+  /* Loaded ONCE, not per person: keyed on `personId`, useApi emptied it on
+     every rail click, and for that moment the page had no filter and opened
+     the newest dossier of anybody — which then stayed open. */
+  const watch = useApi(() => peopleApi.watch(), []);
   const people = watch.data?.people ?? [];
   const person = personId && personId !== UNFILED ? people.find((p) => p.id === personId) : null;
 
-  const narrow = !personId || !watch.data
+  const narrow = !personId
     ? null
-    : personId === UNFILED
-      ? { label: "unfiled", match: (r: { title: string }) => !people.some((p) => attaches(r.title, p.name)) }
-      : person
-        ? { label: person.name, match: (r: { title: string }) => attaches(r.title, person.name), preset: { person: person.name } }
-        : { label: "nobody on the list", match: () => false };
+    : !watch.data
+      ? { label: "…", match: () => false, pending: true }
+      : personId === UNFILED
+        ? { label: "unfiled", match: (r: { title: string }) => !people.some((p) => attaches(r.title, p.name)) }
+        : person
+          ? { label: person.name, match: (r: { title: string }) => attaches(r.title, person.name), preset: { person: person.name } }
+          : { label: "nobody on the list", match: () => false };
 
   return (
     <RunApp
