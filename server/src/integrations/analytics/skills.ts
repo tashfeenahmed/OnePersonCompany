@@ -9,7 +9,7 @@
  * THREE ARE READ-ONLY AND ONE WRITES. Umami, PyPI and Bluesky have no
  * `actions` — as the registry header puts it, a skill with no `actions` key
  * cannot be made to write by any request the proxy will accept. The calendar
- * does: the owner asked for an agent that can put things on his calendar, so
+ * does: the owner asked for an agent that can put things on the calendar, so
  * it can create, change and delete events on calendars marked `writable` —
  * never adding a guest and never emailing anybody.
  */
@@ -128,7 +128,7 @@ export const SKILLS: Skill[] = [
         "expanded, so changing or deleting a weekly meeting's id touches that " +
         "week only. Say so when the owner asked about \"the meeting\".",
       "No guest is ever added or emailed from here. If the owner wants people " +
-        "invited, tell him to do it in Google.",
+        "invited, tell the owner to do it in Google.",
     ],
     views: [
       {
