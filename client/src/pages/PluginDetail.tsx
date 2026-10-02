@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { CATEGORIES, PLUGINS, type Plugin } from "@/data/plugins";
 import { useStore } from "@/lib/store";
 import { useApi } from "@/hooks/useApi";
+import { BRAND_ICONS } from "@/data/brandIcons";
 import { api, type PluginAccount, type ServerPlugin } from "@/lib/api";
 import { HetznerPanel } from "@/components/HetznerPanel";
 import { TelegramPanel } from "@/components/TelegramPanel";
@@ -726,6 +727,10 @@ function PluginSettings({ id, onSaved }: { id: string; onSaved: () => void }) {
  *   — the vault entries it owns, BY NAME. Never a value: there is no route
  *     that returns one and this file could not render one if it tried.
  */
+/** The plugins whose credential is a Google refresh token, and so get a
+ *  Connect with Google button. Must match GOOGLE_SCOPES on the server. */
+const GOOGLE_PLUGINS = ["gmail", "calendar", "adsense"];
+
 function Accounts({
   plugin,
   server,
@@ -746,6 +751,47 @@ function Accounts({
   const [done, setDone] = useState<string | null>(null);
 
   const accounts = server?.accounts ?? [];
+
+  /* CONNECT WITH GOOGLE, on the plugins that hold a Google refresh token.
+     Paste-back: Google opens in a new tab, and after Allow that tab lands on
+     a "can't be reached" page at 127.0.0.1 whose address carries the code.
+     The owner pastes that address here. Nothing leaves the network. */
+  const google = GOOGLE_PLUGINS.includes(plugin.id);
+  const [waiting, setWaiting] = useState(false);
+  const [landed, setLanded] = useState("");
+
+  async function connectGoogle() {
+    setBusy(true);
+    setProblem(null);
+    setDone(null);
+    try {
+      const { url } = await api.googleStart(plugin.id);
+      window.open(url, "_blank", "noopener");
+      setWaiting(true);
+      setLanded("");
+    } catch (err) {
+      setProblem(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function finishGoogle() {
+    setBusy(true);
+    setProblem(null);
+    setDone(null);
+    try {
+      const out = await api.googleFinish(landed);
+      setWaiting(false);
+      setLanded("");
+      setDone(`Connected ${out.account}${out.warning ? ` — ${out.warning}` : ""}`);
+      onChanged();
+    } catch (err) {
+      setProblem(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function begin(which: number | "new", initialLabel = "") {
     setOpen(which);
@@ -796,9 +842,55 @@ function Accounts({
         </span>
       </div>
 
+      {google && (
+        <div className="bg-card mb-4 flex flex-col gap-3 rounded-[14px] p-3.5">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button onClick={() => connectGoogle()} disabled={busy}>
+              <span
+                aria-hidden="true"
+                className="size-4 [&>svg]:size-4 [&>svg]:fill-current"
+                dangerouslySetInnerHTML={{
+                  __html: `<svg viewBox="0 0 24 24">${BRAND_ICONS.google?.svg ?? ""}</svg>`,
+                }}
+              />
+              {accounts.length ? "Reconnect with Google" : "Connect with Google"}
+            </Button>
+            <span className="text-muted-foreground min-w-0 flex-1 text-[12.5px]">
+              Opens Google in a new tab. Signing in with an address that is
+              already here updates that account instead of adding another.
+            </span>
+          </div>
+          {waiting && (
+            <div className="flex flex-col gap-2 text-[13px]">
+              <span>
+                After you click <b>Allow</b>, the tab shows “This site can’t be
+                reached” at 127.0.0.1. Copy that page’s whole address and paste
+                it here:
+              </span>
+              <div className="flex flex-wrap gap-2">
+                <Input
+                  autoFocus
+                  value={landed}
+                  onChange={(e) => setLanded(e.target.value)}
+                  placeholder="http://127.0.0.1:53682/?state=…&code=…"
+                  className="min-w-0 flex-1"
+                />
+                <Button size="sm" onClick={finishGoogle} disabled={busy || !landed.trim()}>
+                  {busy ? "Connecting…" : "Finish"}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setWaiting(false)} disabled={busy}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {!accounts.length && (
         <p className="text-muted-foreground mb-4 text-[14px]">
-          Nothing is stored for {plugin.name} yet. Add an account below and it
+          Nothing is stored for {plugin.name} yet.{" "}
+          {google ? "Connect with Google above, or add" : "Add"} an account below and it
           is checked against {plugin.name} before anything is written down.
         </p>
       )}
@@ -885,7 +977,17 @@ function Accounts({
       )}
 
       {problem && (
-        <p className="text-destructive mt-3 text-[13px]">{problem}</p>
+        <p className="text-destructive mt-3 text-[13px]">
+          {problem}
+          {google && /Google sign-in first/.test(problem) && (
+            <>
+              {" "}
+              <Link to="/integrations/google" className="underline underline-offset-2">
+                Set it up
+              </Link>
+            </>
+          )}
+        </p>
       )}
       {done && !problem && (
         <p className="text-ok mt-3 flex items-center gap-1.5 text-[13px]">

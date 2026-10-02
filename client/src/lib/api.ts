@@ -3593,6 +3593,22 @@ export const api = {
       { method: "PATCH", body: JSON.stringify(body) },
     ),
 
+  /** Connect with Google, paste-back: `googleStart` returns the consent URL,
+   *  and `googleFinish` takes the 127.0.0.1 address the consent tab lands on. */
+  googleStatus: () =>
+    call<{ ready: boolean; redirectUri: string; plugins: string[] }>("/google-oauth/status"),
+  googleStart: (plugin: string, accountId?: number) =>
+    call<{ url: string; redirect: string }>(
+      "/google-oauth/start",
+      { method: "POST", body: JSON.stringify({ plugin, accountId }) },
+      { notifyChange: false },
+    ),
+  googleFinish: (url: string) =>
+    call<{ ok: true; account: string; accountId: number; warning: string | null }>(
+      "/google-oauth/finish",
+      { method: "POST", body: JSON.stringify({ url }) },
+    ),
+
   removeAccount: (id: string, accountId: number) =>
     call<ServerPlugin>(`/plugins/${id}/accounts/${accountId}`, {
       method: "DELETE",

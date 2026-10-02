@@ -1178,6 +1178,36 @@ export const PLUGINS: Plugin[] = [
     ],
   },
   {
+    id: "google",
+    name: "Google sign-in",
+    icon: "google",
+    cat: "comms",
+    connected: false,
+    secret: "google-oauth",
+    desc: "Optional: the Google OAuth client behind Connect with Google.",
+    help: "Only needed on a box that has never had a Google account connected \u2014 otherwise Connect with Google reuses the OAuth client already stored on Gmail, Calendar or AdSense. In Google Cloud \u2192 APIs & Services \u2192 Credentials, create an OAuth client of type \u201cDesktop app\u201d and paste its client ID and secret here. Connect with Google is paste-back: after Allow, the Google tab lands on a page at 127.0.0.1 that cannot load, and you paste its address into the integration page. Nothing passes through any public server, and the code in that address is useless without the secret held on this box.",
+    docs: "https://console.cloud.google.com/apis/credentials",
+    fields: [
+      {
+        key: "client-id",
+        entry: "google-oauth-client-id",
+        label: "Desktop client ID",
+        kind: "secret",
+        ph: "\u2026.apps.googleusercontent.com, type Desktop app",
+      },
+      {
+        key: "client-secret",
+        entry: "google-oauth-client-secret",
+        label: "Client secret",
+        kind: "secret",
+        ph: "shown beside the client ID",
+      },
+    ],
+    usedBy: [
+      "Connect with Google on Gmail, Google Calendar and AdSense",
+    ],
+  },
+  {
     id: "gmail",
     name: "Gmail",
     icon: "gmail",
@@ -1274,7 +1304,7 @@ export const PLUGINS: Plugin[] = [
     connected: false,
     secret: "calendar",
     desc: "Today and the week ahead: what is booked, and how many hours of it there are.",
-    help: "THE SAME OAUTH CLIENT AS GMAIL, A DIFFERENT SCOPE, and that is the whole reason this is a second plugin. Google grants scopes at the consent screen, per grant, and nothing on this box can widen one \u2014 so the refresh token in the Gmail plugin was minted for gmail.modify and can no more read a calendar than a Hetzner token can read Stripe. Rerun the consent flow with calendar.readonly ticked, paste the same client id and secret beside the NEW refresh token, and the check here refuses the mail token by name rather than storing it to 403 forever. READ-ONLY STRUCTURALLY: one function reaches Google here and it is a GET with no body parameter, so even a token carrying the wider calendar scope cannot create, move or cancel anything from this box. NOTHING PRIVATE IS HELD \u2014 no event description is stored or even fetched and no attendee is ever named: the attendee field is a count and the response is your own answer. Busy hours MERGE overlapping events rather than adding them, and an all-day event contributes no hours at all because there is no honest number for one.",
+    help: "Click Connect with Google and sign in as the calendar's account: the grant carries the full calendar scope, so the calendar page and the agent can add, move and delete events as well as read them. Only calendars you own or can edit are written to, guests are never added or emailed, and event descriptions are never stored. Busy hours MERGE overlapping events rather than adding them, and an all-day event contributes no hours. Pasting a client ID, secret and refresh token by hand still works — a calendar.readonly token keeps the page read-only.",
     docs: "https://console.cloud.google.com/apis/credentials",
     fields: [
       {
@@ -1282,7 +1312,7 @@ export const PLUGINS: Plugin[] = [
         entry: "calendar-client-id",
         label: "OAuth client ID",
         kind: "secret",
-        ph: "the same Desktop app client Gmail uses",
+        ph: "the OAuth client that minted the refresh token",
       },
       {
         key: "client-secret",
@@ -1296,7 +1326,7 @@ export const PLUGINS: Plugin[] = [
         entry: "calendar-refresh-token",
         label: "Refresh token",
         kind: "secret",
-        ph: "minted with access_type=offline AND calendar.readonly \u2014 not the Gmail one",
+        ph: "or use Connect with Google above \u2014 a token with the calendar scope can add events",
       },
     ],
     usedBy: [

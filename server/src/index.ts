@@ -42,6 +42,7 @@ const COLLECTORS: Record<string, () => Promise<{ ok: boolean; error?: string | n
   ...manifestCollectors(),
 };
 import { plugins } from "./routes/plugins.ts";
+import { googleOAuthRoutes } from "./routes/google-oauth.ts";
 import { hetznerRoutes } from "./routes/hetzner.ts";
 import { metrics } from "./routes/metrics.ts";
 import { domains } from "./routes/domains.ts";
@@ -181,6 +182,7 @@ app.get("/api/health", async (c) =>
 );
 
 app.route("/api/plugins", plugins);
+app.route("/api/google-oauth", googleOAuthRoutes);
 app.route("/api/hetzner", hetznerRoutes);
 app.route("/api/metrics", metrics);
 app.route("/api/domains", domains);
