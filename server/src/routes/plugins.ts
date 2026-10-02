@@ -46,6 +46,7 @@ import * as openrouterChat from "../providers/openrouter-chat.ts";
 import * as demand from "../providers/demand.ts";
 import * as telegram from "../providers/telegram.ts";
 import { configValue } from "../db.ts";
+import { verifyClient as verifyGoogleClient } from "./google-oauth.ts";
 import { COLLECTORS as BUILTIN_COLLECTORS } from "../collector.ts";
 import { manifestCollectors, manifestPlugins } from "../integrations/index.ts";
 import type { PluginRegistryEntry } from "../integrations/manifest.ts";
@@ -83,6 +84,18 @@ export const plugins = new Hono();
 const BUILTIN: Record<
   string,
   PluginRegistryEntry> = {
+  /*
+    GOOGLE SIGN-IN — the one Web application OAuth client every "Connect with
+    Google" button uses. Not a data source: nothing is collected from it. It
+    is here because the vault seals secrets per account and the client secret
+    has to live somewhere. See routes/google-oauth.ts.
+  */
+  google: {
+    secret: "google-oauth",
+    fields: ["client-id", "client-secret"],
+    verify: verifyGoogleClient,
+  },
+
   hetzner: {
     secret: "hetzner-token",
     fields: ["token"],

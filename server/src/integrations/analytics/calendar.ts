@@ -12,7 +12,7 @@
  *
  * IT READS THROUGH `get()` AND WRITES THROUGH `send()`, AND NOTHING ELSE.
  * This file used to be read-only by construction — one GET, no body
- * parameter. The owner then asked for an agent that can put things on his
+ * parameter. The owner then asked for an agent that can put things on the
  * calendar, and for a calendar page that can do the same, so the write now
  * exists and lives in ONE function beside the read. Every write goes through
  * `send()`, touches exactly one event, and only happens when the grant
