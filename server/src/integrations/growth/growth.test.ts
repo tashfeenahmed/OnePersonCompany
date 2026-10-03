@@ -17,7 +17,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractStructure, gapsAgainst, median, relevance, tokens, unmeasurable } from "./pages.ts";
+import { extractStructure, gapsAgainst, median, relevance, tokens, unmeasurable, unanswered } from "./pages.ts";
 import { EXPERIMENTS, STAGES, forStage } from "./cro-library.ts";
 import { fortnight, type DayRow } from "./ads.ts";
 
@@ -51,6 +51,16 @@ test("one countable word cannot be checked, and an identifier says so", () => {
   assert.match(unmeasurable("acmeproduct") ?? "", /single word/);
   assert.match(unmeasurable("d14a5r2") ?? "", /identifier/);
   assert.equal(unmeasurable("planning permission rules"), null);
+});
+
+test("a search that returned nothing is the node's silence, not a degraded query", () => {
+  /* The r-lojq94 shape: every engine refused, zero results came back, and the
+     old code counted ratio 0 and called the owner's real Search Console
+     queries queries "the engine could not match". */
+  assert.equal(unanswered([{ title: "anything" }]), null, "a search with results is a fair search");
+  const reason = unanswered([]);
+  assert.match(reason ?? "", /zero results/);
+  assert.match(reason ?? "", /says nothing about whether anybody searches/, "the reason must not blame the query");
 });
 
 test("the HTML reader counts what a search engine sees", () => {

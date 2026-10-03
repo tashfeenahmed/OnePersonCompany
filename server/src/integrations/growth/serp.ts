@@ -53,6 +53,7 @@ import {
   relevance,
   tokens,
   unmeasurable,
+  unanswered,
   type Gap,
   type PageStructure,
 } from "./pages.ts";
@@ -281,7 +282,11 @@ export async function serpRun(runId: string, v: VentureRow, input: Record<string
 
     /* THE CHECK BEFORE THE CONCLUSIONS. An unmeasurable query is searched and
        reported and never judged; a degraded one is searched, reported, and the
-       gap list is withheld with the ratio printed beside it. */
+       gap list is withheld with the ratio printed beside it. A search that
+       returned NOTHING is unmeasurable too — see `unanswered`: an empty page
+       has no title to have matched or mismatched, so it goes on the node's
+       tab, not the query's. */
+    row.unmeasurable = row.unmeasurable ?? unanswered(got.results);
     if (!row.unmeasurable) {
       const rel = relevance(q.query, got.results);
       row.relevance = rel.ratio;
@@ -357,6 +362,7 @@ export async function serpRun(runId: string, v: VentureRow, input: Record<string
         `RULES, all binding:`,
         `- NEVER INVENT A FIGURE. Every number you write must appear in the data below. If you want one that is not there, say it is not measured.`,
         `- A DEGRADED QUERY PROVES NOTHING. Where a query is marked degraded the search engine answered a different question; do not draw any conclusion about those pages.`,
+        `- AN UNMEASURABLE QUERY IS NOT A BAD QUERY. Where a query is marked unmeasurable, the relevance check could not run — every word in it is a stop word, it is a single word, or the search returned zero results because the engines refused. That is a fact about the check or about the search node, not evidence that the query is one "the search engine cannot match"; never recommend auditing or replacing a query list on the strength of an unmeasurable row.`,
         `- A PAGE MARKED thin OR error WAS NOT READ. A 403 from a firewall is not a short page.`,
         `- "OUR RANK" IS THE METASEARCH NODE'S ORDER ON ONE REQUEST, not Google's position. Where a Google position is given it is Search Console's average over its own window. Never merge the two and never call either "our ranking" without saying which.`,
         `- A QUERY MARKED source=description WAS DERIVED FROM THE VENTURE RECORD by this server. Nothing says anybody searches for it. Say so if you use it.`,
