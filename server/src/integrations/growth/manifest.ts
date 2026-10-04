@@ -32,6 +32,7 @@ import type { Skill } from "../../skills/registry.ts";
 import { growthRoutes } from "./routes.ts";
 import { PLUGIN, parseSitemaps, refreshConnected, startIndexingTimer } from "./indexing.ts";
 import { STAGES } from "./cro-library.ts";
+import { SAVED_QUERIES_KEY, SAVED_QUERIES_PLUGIN, parseSavedQueries } from "./serp.ts";
 
 /* --------------------------------------------------------------- settings */
 
@@ -78,6 +79,30 @@ const indexingConfig = {
   /* CONNECTED MEANS THE OWNER CONFIGURED SOMETHING — backlinks' rule. */
   after() {
     refreshConnected();
+  },
+};
+
+/*
+  THE SAVED TEARDOWN QUERIES HANG OFF THE SEARCH CONSOLE PAGE. A scheduled SERP
+  teardown is handed no queries, so without this it tears down whatever Search
+  Console's striking band holds that night — or, for a site with no traffic
+  yet, a phrase derived from the description. A line here is the owner's
+  answer, and it wins over both. See `pickQueries` in serp.ts.
+*/
+const teardownQueriesConfig = {
+  keys: {
+    [SAVED_QUERIES_KEY]: {
+      label: "Teardown queries",
+      hint:
+        "One venture per line as `Venture name = query one | query two`, up to five queries a venture. Every SERP teardown run for that venture that was not given queries of its own — which is every scheduled one — tears down these instead of Search Console's striking-distance queries or a phrase derived from the description. Use two words or more: over one word the relevance check cannot tell a real result set from a different question. Lines starting with # are ignored.",
+      ph: "Acme = ai planner for small teams | plan my week for me",
+      check(value: string) {
+        const lines = value.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+        const bad = lines.filter((l) => parseSavedQueries(l).size === 0);
+        if (bad.length) return `Each line is \`Venture name = query | query\`: ${bad[0]!.slice(0, 60)}`;
+        return null;
+      },
+    },
   },
 };
 
@@ -355,6 +380,7 @@ export const manifest: IntegrationManifest = {
 
   config: {
     [PLUGIN]: indexingConfig,
+    [SAVED_QUERIES_PLUGIN]: teardownQueriesConfig,
   },
 
   routes: [{ path: "/api/growth", app: growthRoutes }],

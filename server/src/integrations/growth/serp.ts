@@ -15,11 +15,14 @@
  * WHERE THE QUERIES COME FROM, in the order they are tried, and the ORIGIN IS
  * RECORDED because the three are not equally good evidence:
  *
- *   owner        typed into the form. The best kind: somebody decided.
+ *   owner        typed into the form, or saved for the venture in the Search
+ *                Console plugin's "Teardown queries" setting. The best kind:
+ *                somebody decided.
  *   gsc          striking-distance queries out of Search Console — position 5
- *                to 20, most impressions first. A page already exists, Google
- *                already shows it, and the only thing between it and clicks is
- *                what is on the pages above.
+ *                to 20, most impressions first, two countable words or more
+ *                (then the property's busiest such queries at any position).
+ *                A page already exists, Google already shows it, and the only
+ *                thing between it and clicks is what is on the pages above.
  *   description  derived mechanically from the venture record when there is no
  *                Search Console property. This is a GUESS AT A QUERY and the
  *                report says so: it is not evidence that anybody searches for
@@ -44,7 +47,7 @@
  * what to do about it. Figures first, prose second, and the figures are never
  * the model's.
  */
-import { db, now, type VentureRow } from "../../db.ts";
+import { configValue, db, now, type VentureRow } from "../../db.ts";
 import * as searxng from "../../providers/searxng.ts";
 import { hostMatch, hostOf, registrable } from "../../shared/host.ts";
 import {
@@ -81,16 +84,22 @@ export type PickedQuery = {
   gscImpressions: number | null;
 };
 
-/** The Search Console property that COVERS this venture's host. The property
- *  string is `sc-domain:example.com` or a URL prefix; `hostOf` reduces both,
- *  and a venture with no matching property gets none rather than the first one
- *  in the table.
+/** The Search Console property that IS this venture's host. The property
+ *  string is `sc-domain:example.com` or a URL prefix; `hostOf` reduces both
+ *  (dropping `www.`), and a venture with no matching property gets none rather
+ *  than the first one in the table.
  *
- *  `hostMatch`, one-directional through `shared/host.ts` — see its header. */
+ *  THE SAME HOST, NOT A PARENT DOMAIN. `hostMatch` alone would let
+ *  `sc-domain:studio.example` cover `notes.studio.example` — true for ownership, and
+ *  wrong here: gsc_queries is stored without a page dimension, so every query
+ *  under that property belongs to the parent site. A product on a subdomain
+ *  inherited the studio's queries (a misspelling of the studio's name) and
+ *  tore down pages about something else entirely. A subdomain venture with no property of its own falls
+ *  through to the owner's saved queries or the description instead. */
 export function propertyFor(host: string | null): string | null {
   if (!host) return null;
   const rows = db.prepare("SELECT property FROM gsc_sites").all() as unknown as { property: string }[];
-  for (const r of rows) if (hostMatch(r.property, host)) return r.property;
+  for (const r of rows) if (hostMatch(r.property, host) === "same") return r.property;
   return null;
 }
 
@@ -136,13 +145,112 @@ export function strikingRows(property: string | null, limit: number): StrikingRo
     .all(STRIKING_MIN_POSITION, STRIKING_MAX_POSITION, MIN_IMPRESSIONS, ...args, limit) as unknown as StrikingRow[];
 }
 
+/**
+ * Is this Search Console query worth a teardown.
+ *
+ * ONE COUNTABLE WORD IS NOT A TEARDOWN. `unmeasurable` in pages.ts explains
+ * why the relevance check means nothing over one word, and a run whose every
+ * query is "acme" or "acme ai" files cards about choosing better queries
+ * instead of cards about the page. So a picked query needs two countable
+ * words — the same `tokens` the relevance check counts.
+ *
+ * TEST TRAFFIC IS NOT DEMAND. Search Console records whatever was typed,
+ * including the strings a smoke test searched for ("agent smoke000123"
+ * "example.com"). A run-id-shaped word, or a reserved example domain, marks a
+ * query nobody looking for the product typed.
+ *
+ * Applied to the teardown's pick only. The dashboard's striking list reads
+ * `strikingRows` unfiltered, because there it is a list of what Search
+ * Console said, not a choice of what to spend a run on.
+ */
+export function teardownWorthy(query: string): boolean {
+  if (tokens(query).length < 2) return false;
+  if (/\bexample\.(com|org|net)\b/i.test(query)) return false;
+  /* A word that is letters run into four digits or more ("smoke000123"), or
+     six digits or more on its own. A year on its own is a real query word. */
+  for (const word of query.toLowerCase().split(/[^a-z0-9]+/)) {
+    const digits = word.match(/\d/g)?.length ?? 0;
+    if ((digits >= 4 && /[a-z]/.test(word)) || digits >= 6) return false;
+  }
+  return true;
+}
+
 export function strikingQueries(property: string, limit: number): PickedQuery[] {
-  return strikingRows(property, limit).map((r) => ({
-    query: r.query,
-    source: "gsc" as const,
-    gscPosition: r.position ?? null,
-    gscImpressions: r.impressions,
-  }));
+  /* Read wider than the limit: the filter throws rows away, and a property
+     whose top three are single words may still have a fourth worth tearing
+     down. */
+  return strikingRows(property, limit * 10)
+    .filter((r) => teardownWorthy(r.query))
+    .slice(0, limit)
+    .map((r) => ({
+      query: r.query,
+      source: "gsc" as const,
+      gscPosition: r.position ?? null,
+      gscImpressions: r.impressions,
+    }));
+}
+
+/**
+ * The property's busiest teardown-worthy queries at ANY position — the
+ * fallback when nothing in the striking band survives `teardownWorthy`.
+ *
+ * Still Search Console's own words and still labelled `gsc` with the position
+ * beside them, so the report can say "position 34" rather than pretending it
+ * is a striking-distance query. Better evidence than a query derived from the
+ * description, which nobody has been shown to type at all.
+ */
+export function busiestQueries(property: string, limit: number): PickedQuery[] {
+  const rows = db
+    .prepare(
+      `SELECT query, impressions, position FROM gsc_queries
+        WHERE property = ? AND impressions >= 1
+        ORDER BY impressions DESC, query LIMIT ?`,
+    )
+    .all(property, limit * 20) as unknown as { query: string; impressions: number; position: number | null }[];
+  return rows
+    .filter((r) => teardownWorthy(r.query))
+    .slice(0, limit)
+    .map((r) => ({ query: r.query, source: "gsc" as const, gscPosition: r.position ?? null, gscImpressions: r.impressions }));
+}
+
+/** Where the owner's saved queries live: a setting on the Search Console
+ *  plugin's page, because "which queries" is the question that plugin's data
+ *  answers the rest of the time. */
+export const SAVED_QUERIES_PLUGIN = "gsc";
+export const SAVED_QUERIES_KEY = "teardown-queries";
+
+/**
+ * The owner's saved teardown queries, one venture per line:
+ *
+ *     Acme = ai planner for small teams | plan my week for me
+ *
+ * The left side is the venture's name or slug, case-insensitive; queries are
+ * separated by `|`; `#` starts a comment line. Read by every run that was not
+ * handed queries of its own — which is every scheduled teardown — so a query
+ * chosen once keeps being the one torn down, instead of whatever Search
+ * Console's top row happens to be that night.
+ */
+export function parseSavedQueries(raw: string | null | undefined): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const line of String(raw ?? "").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const name = trimmed.slice(0, eq).trim().toLowerCase();
+    const queries = trimmed
+      .slice(eq + 1)
+      .split("|")
+      .map((q) => q.trim().replace(/\s+/g, " "))
+      .filter(Boolean);
+    if (name && queries.length) out.set(name, [...(out.get(name) ?? []), ...queries]);
+  }
+  return out;
+}
+
+export function savedQueries(v: VentureRow): string[] {
+  const saved = parseSavedQueries(configValue(SAVED_QUERIES_PLUGIN, SAVED_QUERIES_KEY));
+  return saved.get(v.name.toLowerCase()) ?? (v.slug ? saved.get(v.slug.toLowerCase()) : undefined) ?? [];
 }
 
 /**
@@ -166,20 +274,29 @@ export function describedQueries(v: VentureRow, limit: number): PickedQuery[] {
   return out.slice(0, limit);
 }
 
-/** The queries this run will tear down, and where each came from. */
+/**
+ * The queries this run will tear down, and where each came from.
+ *
+ * In order: typed into this run's form; saved for this venture on the Search
+ * Console settings page; Search Console's striking band; Search Console's
+ * busiest teardown-worthy queries at any position; derived from the
+ * description. Typed and saved are both `owner` — somebody decided.
+ */
 export function pickQueries(v: VentureRow, typed: string): PickedQuery[] {
-  const owner = typed
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .slice(0, MAX_QUERIES)
-    .map((query) => ({ query, source: "owner" as const, gscPosition: null, gscImpressions: null }));
+  const asOwner = (list: string[]): PickedQuery[] =>
+    list.slice(0, MAX_QUERIES).map((query) => ({ query, source: "owner" as const, gscPosition: null, gscImpressions: null }));
+  const owner = asOwner(typed.split("\n").map((l) => l.trim()).filter(Boolean));
   if (owner.length) return owner;
+
+  const saved = asOwner(savedQueries(v));
+  if (saved.length) return saved;
 
   const property = propertyFor(v.host);
   if (property) {
     const striking = strikingQueries(property, 3);
     if (striking.length) return striking;
+    const busiest = busiestQueries(property, 3);
+    if (busiest.length) return busiest;
   }
   return describedQueries(v, 2);
 }
@@ -360,6 +477,7 @@ export async function serpRun(runId: string, v: VentureRow, input: Record<string
         `- A PAGE MARKED thin OR error WAS NOT READ. A 403 from a firewall is not a short page.`,
         `- "OUR RANK" IS THE METASEARCH NODE'S ORDER ON ONE REQUEST, not Google's position. Where a Google position is given it is Search Console's average over its own window. Never merge the two and never call either "our ranking" without saying which.`,
         `- A QUERY MARKED source=description WAS DERIVED FROM THE VENTURE RECORD by this server. Nothing says anybody searches for it. Say so if you use it.`,
+        `- NO USABLE COMPARISON, NO PAGE RECOMMENDATION. Where no query produced a usable comparison, do not recommend adding words, headings, links, schema, images or sections to our page — nothing measured says the pages above us carry more of them. Recommend only what would make the next teardown usable: which queries to save instead (the "Teardown queries" setting on the Search Console plugin page), or what has to be true of the site first.`,
         ``,
         `THE DATA:`,
         ``,
