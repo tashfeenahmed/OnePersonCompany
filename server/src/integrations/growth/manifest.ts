@@ -95,7 +95,7 @@ const teardownQueriesConfig = {
       label: "Teardown queries",
       hint:
         "One venture per line as `Venture name = query one | query two`, up to five queries a venture. Every SERP teardown run for that venture that was not given queries of its own — which is every scheduled one — tears down these instead of Search Console's striking-distance queries or a phrase derived from the description. Use two words or more: over one word the relevance check cannot tell a real result set from a different question. Lines starting with # are ignored.",
-      ph: "Sosho = ai social media manager for small business | social media posts for my shop",
+      ph: "Acme = ai planner for small teams | plan my week for me",
       check(value: string) {
         const lines = value.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
         const bad = lines.filter((l) => parseSavedQueries(l).size === 0);

@@ -37,7 +37,7 @@ function property(prop: string, queries: [string, number, number][]) {
 }
 
 test("a subdomain venture does not inherit its parent domain's Search Console queries", () => {
-  property("sc-domain:studio.example", [["neu sotwe", 40, 8], ["studio software agency", 30, 9]]);
+  property("sc-domain:studio.example", [["studio sotware", 40, 8], ["studio software agency", 30, 9]]);
   assert.equal(propertyFor("studio.example"), "sc-domain:studio.example");
   assert.equal(propertyFor("www.studio.example"), "sc-domain:studio.example", "www. is the same site");
   assert.equal(propertyFor("notes.studio.example"), null, "a product on a subdomain is not the studio");
@@ -45,13 +45,13 @@ test("a subdomain venture does not inherit its parent domain's Search Console qu
   const v = venture("notes-app", "Notes App", "notes.studio.example", "Ask questions about your notes on iPhone. Private.");
   const picked = pickQueries(v, "");
   assert.ok(picked.every((q) => q.source === "description"), JSON.stringify(picked));
-  assert.ok(!picked.some((q) => q.query === "neu sotwe"));
+  assert.ok(!picked.some((q) => q.query === "studio sotware"));
 });
 
 test("single-word and test-traffic queries are not torn down", () => {
   assert.equal(teardownWorthy("neu"), false);
-  assert.equal(teardownWorthy("scallop ai"), false, "'ai' is under three letters, so one countable word");
-  assert.equal(teardownWorthy('"agent smoke027786" "example.com"'), false);
+  assert.equal(teardownWorthy("acme ai"), false, "'ai' is under three letters, so one countable word");
+  assert.equal(teardownWorthy('"agent smoke000123" "example.com"'), false);
   assert.equal(teardownWorthy("planning permission search"), true);
   assert.equal(teardownWorthy("best apps 2026"), true, "a year is not test traffic");
 });
@@ -59,7 +59,7 @@ test("single-word and test-traffic queries are not torn down", () => {
 test("the striking band skips junk, then falls back to the busiest multi-word queries at any position", () => {
   property("sc-domain:shop.example", [
     ["shop", 90, 6],
-    ["agent smoke027786 example.com", 50, 7],
+    ["agent smoke000123 example.com", 50, 7],
     ["shop opening hours dublin", 12, 11],
   ]);
   const shop = venture("shop", "Shop", "shop.example", "A shop.");
@@ -87,16 +87,16 @@ test("saved queries win over Search Console and the description; typed queries w
 });
 
 test("the saved-queries format", () => {
-  const m = parseSavedQueries("Sosho = a b | c d\n\nno equals sign\n= orphan\nSosho = e f");
-  assert.deepEqual([...m.entries()], [["sosho", ["a b", "c d", "e f"]]]);
+  const m = parseSavedQueries("Acme = a b | c d\n\nno equals sign\n= orphan\nAcme = e f");
+  assert.deepEqual([...m.entries()], [["acme", ["a b", "c d", "e f"]]]);
 });
 
 test("the description fallback derives a multi-word query labelled description", () => {
   const v = venture(
-    "scallop",
-    "ScallopBot",
-    "scallop.example",
-    "ScallopBot is a self-hosted AI assistant that remembers. It runs on a Pi.",
+    "barnacle",
+    "BarnacleBot",
+    "barnacle.example",
+    "BarnacleBot is a self-hosted AI assistant that remembers. It runs on a home server.",
   );
   const picked = describedQueries(v, 2);
   assert.equal(picked[0]!.source, "description");

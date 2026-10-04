@@ -162,9 +162,9 @@ export function needles(product: Product): string[] {
 }
 
 /**
- * A name too short to identify anything on its own. "OB-1" flattens to three
- * characters, and Wikipedia resolves it to the off-by-one error while
- * Wikidata finds a ship called OB-1 — both exact matches on the name, neither
+ * A name too short to identify anything on its own. "ZB-1" flattens to three
+ * characters, and Wikipedia resolves it to the an unrelated article while
+ * Wikidata finds a ship called ZB-1 — both exact matches on the name, neither
  * about the product. Under six letters and digits a name is a coincidence
  * waiting to happen, so a record found by it alone is not enough.
  */
@@ -177,7 +177,7 @@ export function ambiguousName(product: Product): boolean {
 /**
  * Does this text tie the record to the product rather than to the name? The
  * product's host (or any of its hosts), or the host's stem when it is long
- * enough to be distinctive — "overbrilliant" for overbrilliant.com — or the
+ * enough to be distinctive — "zebrabyte" for zebrabyte.example — or the
  * name itself when the name is distinctive.
  */
 export function corroborates(text: unknown, product: Product): boolean {
@@ -297,7 +297,7 @@ export async function wikipedia(product: Product): Promise<Finding> {
       note: "the title resolves to a disambiguation page, which is not an article about this product",
     };
   /* A REDIRECT IS SOMEBODY ELSE'S ARTICLE. The summary endpoint follows
-     redirects silently — "OB-1" comes back as "Off-by-one error" — so an
+     redirects silently — "ZB-1" comes back as "Zettabyte" — so an
      article whose own title is not the name asked for, or a name too short to
      identify anything, counts only when the article itself mentions the
      product's host or distinctive name. */
@@ -339,7 +339,7 @@ export async function wikidata(product: Product): Promise<Finding> {
   if (got.kind !== "ok") return nonAnswer(got);
   const want = flat(product.name);
   /* An exact label on a short name is still a coincidence — a ship called
-     OB-1 is labelled exactly "OB-1" — so a short name needs its description to
+     ZB-1 is labelled exactly "ZB-1" — so a short name needs its description to
      mention the product too. */
   const short = ambiguousName(product);
   let lookalike = false;
@@ -374,9 +374,9 @@ export async function github(product: Product, ns: string[]): Promise<Finding> {
   );
   if (got.kind === "missing") return { status: "absent", url: null, evidence: null, note: null };
   if (got.kind !== "ok") return nonAnswer(got);
-  /* A SHORT NAME IS BURIED IN A NAME SEARCH. "OB-1" ranks a thousand
-     strangers' repos above github.com/Overbrilliant/ob-1, whose homepage is
-     overbrilliant.com. The account named after the host's stem is the other
+  /* A SHORT NAME IS BURIED IN A NAME SEARCH. "ZB-1" ranks a thousand
+     strangers' repos above github.com/Zebrabyte/zb-1, whose homepage is
+     zebrabyte.example. The account named after the host's stem is the other
      place the product's own repo would be, so its repos are read too — still
      accepted only on a homepage that is ours. */
   const items: Repo[] = [...(got.data.items ?? [])];

@@ -304,7 +304,7 @@ export const manifest: IntegrationManifest = {
             "the generated ones miss the market. Write them the way a stranger " +
             "with the problem would, without the product's name: a question that " +
             "names it measures nothing and is dropped. Up to 8 per venture.",
-          ph: "Betaware AI = best app for sports betting picks | is there an AI that helps with football bets",
+          ph: "Acme = best app for planning a trip | is there an AI that plans my week",
           check(value) {
             const lines = value.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
             const bad = lines.find((l) => l.indexOf("=") < 1 || !l.slice(l.indexOf("=") + 1).trim());

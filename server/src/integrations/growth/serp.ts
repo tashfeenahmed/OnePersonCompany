@@ -90,11 +90,11 @@ export type PickedQuery = {
  *  than the first one in the table.
  *
  *  THE SAME HOST, NOT A PARENT DOMAIN. `hostMatch` alone would let
- *  `sc-domain:neu.so` cover `chatwithnotes.neu.so` — true for ownership, and
+ *  `sc-domain:studio.example` cover `notes.studio.example` — true for ownership, and
  *  wrong here: gsc_queries is stored without a page dimension, so every query
  *  under that property belongs to the parent site. A product on a subdomain
- *  inherited the studio's queries ("neu sotwe") and tore down a university's
- *  software programme. A subdomain venture with no property of its own falls
+ *  inherited the studio's queries (a misspelling of the studio's name) and
+ *  tore down pages about something else entirely. A subdomain venture with no property of its own falls
  *  through to the owner's saved queries or the description instead. */
 export function propertyFor(host: string | null): string | null {
   if (!host) return null;
@@ -150,12 +150,12 @@ export function strikingRows(property: string | null, limit: number): StrikingRo
  *
  * ONE COUNTABLE WORD IS NOT A TEARDOWN. `unmeasurable` in pages.ts explains
  * why the relevance check means nothing over one word, and a run whose every
- * query is "neu" or "scallop ai" files cards about choosing better queries
+ * query is "acme" or "acme ai" files cards about choosing better queries
  * instead of cards about the page. So a picked query needs two countable
  * words — the same `tokens` the relevance check counts.
  *
  * TEST TRAFFIC IS NOT DEMAND. Search Console records whatever was typed,
- * including the strings a smoke test searched for ("agent smoke027786"
+ * including the strings a smoke test searched for ("agent smoke000123"
  * "example.com"). A run-id-shaped word, or a reserved example domain, marks a
  * query nobody looking for the product typed.
  *
@@ -166,7 +166,7 @@ export function strikingRows(property: string | null, limit: number): StrikingRo
 export function teardownWorthy(query: string): boolean {
   if (tokens(query).length < 2) return false;
   if (/\bexample\.(com|org|net)\b/i.test(query)) return false;
-  /* A word that is letters run into four digits or more ("smoke027786"), or
+  /* A word that is letters run into four digits or more ("smoke000123"), or
      six digits or more on its own. A year on its own is a real query word. */
   for (const word of query.toLowerCase().split(/[^a-z0-9]+/)) {
     const digits = word.match(/\d/g)?.length ?? 0;
@@ -222,7 +222,7 @@ export const SAVED_QUERIES_KEY = "teardown-queries";
 /**
  * The owner's saved teardown queries, one venture per line:
  *
- *     Sosho = ai social media manager for small business | social media posts for my shop
+ *     Acme = ai planner for small teams | plan my week for me
  *
  * The left side is the venture's name or slug, case-insensitive; queries are
  * separated by `|`; `#` starts a comment line. Read by every run that was not
