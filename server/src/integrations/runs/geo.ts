@@ -3,7 +3,7 @@ import type { ChatTurn } from "../../chat/backend.ts";
 import type { ModelProvider, ToolWireTurn } from "../../models/provider.ts";
 import { assistantCallTurn, messageText, parseToolCalls, resultTurn, type ToolDialect } from "../runtime/tools.ts";
 import { verdictFor } from "../runtime/probe.ts";
-import { db, now, type VentureRow } from "../../db.ts";
+import { configValue, db, now, type VentureRow } from "../../db.ts";
 import { sanitizeReportHtml } from "./html.ts";
 import { fencedJson } from "./kinds.ts";
 import type { Step } from "./store.ts";
@@ -175,7 +175,10 @@ export async function geoRun(opts: { runId: string; venture: VentureRow; input: 
        that opens with the product's own name would otherwise put the name
        into a question that is meant to be asked without it. */
     { text: `Recommend a tool for ${strangersWords(v, category)}. Name specific products.`, kind: "direct" },
-    ...(await genericQuestions({ v, category, tools })).map((text): Question => ({ text, kind: "generic" })),
+    /* The owner's own stranger questions for this venture, when they wrote
+       some, in place of the generated ones — a betting product measured on
+       "best AI tool for X" asks is measured on the wrong market. */
+    ...(ownerGenericQuestions(v) ?? (await genericQuestions({ v, category, tools }))).map((text): Question => ({ text, kind: "generic" })),
     ...(input.questions ?? "")
       .split("\n")
       .map((q) => q.trim())
@@ -415,6 +418,56 @@ function resultsText(query: string, results: SearchHit[]): string {
 }
 
 /* ------------------------------------------------- the questions a stranger asks */
+
+/** The settings pseudo-plugin the owner's per-venture questions live under. */
+export const GEO_PLUGIN = "geo";
+export const MAX_OWNER_QUESTIONS = 8;
+
+/**
+ * `Venture name = question one | question two`, one venture per line. The
+ * venture is matched on its name, its slug or its host, case-insensitively.
+ * Lines whose questions are empty are ignored.
+ */
+export function parseVentureQuestions(raw: string | null | undefined): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const line of (raw ?? "").split("\n")) {
+    const t = line.trim();
+    if (!t || t.startsWith("#")) continue;
+    const eq = t.indexOf("=");
+    if (eq < 1) continue;
+    const key = t.slice(0, eq).trim().toLowerCase();
+    const qs = t
+      .slice(eq + 1)
+      .split("|")
+      .map((q) => q.trim().replace(/\s+/g, " "))
+      .filter(Boolean)
+      .slice(0, MAX_OWNER_QUESTIONS);
+    if (key && qs.length) out.set(key, qs);
+  }
+  return out;
+}
+
+/**
+ * The owner's generic asks for this venture, or null to generate them.
+ *
+ * Filtered the way the generated ones are: a question that names the product
+ * measures nothing, so it is dropped — and if that leaves none, the generated
+ * questions are used rather than a run with no generic asks.
+ */
+export function ownerGenericQuestions(v: VentureRow, raw: string | null = configValue(GEO_PLUGIN, "questions")): string[] | null {
+  const map = parseVentureQuestions(raw);
+  const keys = [v.name, v.slug, v.host].filter((k): k is string => !!k).map((k) => k.toLowerCase());
+  const found = keys.map((k) => map.get(k)).find((qs) => qs?.length);
+  if (!found) return null;
+  const banned = [v.name, v.host, v.host?.split(".")[0]]
+    .filter((s): s is string => !!s && s.length >= 3)
+    .map((s) => s.toLowerCase().replace(/[^a-z0-9]/g, ""));
+  const usable = found.filter((q) => {
+    const flat = q.toLowerCase().replace(/[^a-z0-9]/g, "");
+    return !banned.some((b) => b && flat.includes(b));
+  });
+  return usable.length ? usable : null;
+}
 
 /**
  * THE GENERIC ASKS, GENERATED ONCE PER RUN.

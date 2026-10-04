@@ -1833,7 +1833,18 @@ export async function collectAppStore(): Promise<MobileSummary> {
         vendor: a.vendor ?? null,
         apps: a.apps?.length ?? 0,
       });
+      /* An app that went from in-review to on the store between two passes
+         was just released: its venture gets one store audit, queued here so
+         nobody has to remember to ask. Imported late, because the run queue
+         reaches back into this module. */
+      const release = await import("./integrations/growth/release.ts");
+      const before = release.onStoreSnapshot(a.id);
       replaceAppStoreApps(a.id, a.label, a.apps ?? []);
+      const released = release.releasedSince(before, a.apps ?? []);
+      if (released.length) {
+        const queued = release.queueReleaseAudits(released);
+        if (queued.length) (await import("./integrations/runs/executor.ts")).pump();
+      }
 
       /*
         EVERY DAY APPLE ANSWERED IS RECORDED, INCLUDING THE EMPTY ONES. A day

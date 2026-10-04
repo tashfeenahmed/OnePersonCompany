@@ -83,9 +83,9 @@ export const SOURCE_LABEL: Record<SourceId, string> = {
 /** How each source is asked, published on the document so a reader knows what
  *  an `absent` from it is worth. */
 export const SOURCE_METHOD: Record<SourceId, string> = {
-  wikipedia: "REST summary endpoint for the brand as a title",
-  wikidata: "wbsearchentities, accepted only on an exact label match",
-  github: "repository search, accepted only when a repo's homepage is the product's host",
+  wikipedia: "REST summary endpoint for the brand as a title; a redirect or a short name counts only when the article mentions the product",
+  wikidata: "wbsearchentities, accepted only on an exact label match (and, for a short name, a description that mentions the product)",
+  github: "repository search by name and by the host-stem account, accepted only when a repo's homepage is the product's host",
   pypi: "the exact-name JSON endpoint, accepted only when a project url is the product's host",
   appstore: "iTunes Search, accepted only when the seller url is the product's host",
   hackernews: "Algolia's HN index, accepted only when a story points at the product's host",
@@ -159,6 +159,34 @@ export function needles(product: Product): string[] {
     if (f.length >= 4) out.add(f);
   }
   return [...out];
+}
+
+/**
+ * A name too short to identify anything on its own. "OB-1" flattens to three
+ * characters, and Wikipedia resolves it to the off-by-one error while
+ * Wikidata finds a ship called OB-1 — both exact matches on the name, neither
+ * about the product. Under six letters and digits a name is a coincidence
+ * waiting to happen, so a record found by it alone is not enough.
+ */
+export const DISTINCT_NAME_MIN = 6;
+
+export function ambiguousName(product: Product): boolean {
+  return flat(product.name).length < DISTINCT_NAME_MIN;
+}
+
+/**
+ * Does this text tie the record to the product rather than to the name? The
+ * product's host (or any of its hosts), or the host's stem when it is long
+ * enough to be distinctive — "overbrilliant" for overbrilliant.com — or the
+ * name itself when the name is distinctive.
+ */
+export function corroborates(text: unknown, product: Product): boolean {
+  const raw = String(text ?? "").toLowerCase();
+  if (product.hosts.some((h) => raw.includes(h.toLowerCase()))) return true;
+  const hay = flat(text);
+  const stem = flat(product.host.split(".")[0]);
+  if (stem.length >= DISTINCT_NAME_MIN && hay.includes(stem)) return true;
+  return !ambiguousName(product) && hay.includes(flat(product.name));
 }
 
 export function namesBrand(text: unknown, ns: string[]): boolean {
@@ -251,9 +279,13 @@ function nonAnswer(got: Exclude<Got<unknown>, { kind: "ok" } | { kind: "missing"
  *  disambiguation page is not an article about this product. */
 export async function wikipedia(product: Product): Promise<Finding> {
   const title = encodeURIComponent(product.name.replace(/\s+/g, "_"));
-  const got = await getJson<{ type?: string; content_urls?: { desktop?: { page?: string } } }>(
-    `https://en.wikipedia.org/api/rest_v1/page/summary/${title}`,
-  );
+  const got = await getJson<{
+    type?: string;
+    title?: string;
+    description?: string;
+    extract?: string;
+    content_urls?: { desktop?: { page?: string } };
+  }>(`https://en.wikipedia.org/api/rest_v1/page/summary/${title}`);
   if (got.kind === "missing")
     return { status: "absent", url: null, evidence: null, note: "no article under this exact title" };
   if (got.kind !== "ok") return nonAnswer(got);
@@ -263,6 +295,22 @@ export async function wikipedia(product: Product): Promise<Finding> {
       url: null,
       evidence: null,
       note: "the title resolves to a disambiguation page, which is not an article about this product",
+    };
+  /* A REDIRECT IS SOMEBODY ELSE'S ARTICLE. The summary endpoint follows
+     redirects silently — "OB-1" comes back as "Off-by-one error" — so an
+     article whose own title is not the name asked for, or a name too short to
+     identify anything, counts only when the article itself mentions the
+     product's host or distinctive name. */
+  const redirected = flat(got.data.title) !== flat(product.name);
+  const about = `${got.data.title ?? ""} ${got.data.description ?? ""} ${got.data.extract ?? ""}`;
+  if ((redirected || ambiguousName(product)) && !corroborates(about, product))
+    return {
+      status: "absent",
+      url: null,
+      evidence: null,
+      note: redirected
+        ? `the title resolves to “${got.data.title}”, an article that does not mention this product`
+        : "an article has this title but does not mention this product's host or name",
     };
   return {
     status: "present",
@@ -284,15 +332,32 @@ export async function wikidata(product: Product): Promise<Finding> {
     limit: "5",
     type: "item",
   });
-  const got = await getJson<{ search?: { label?: string; concepturi?: string; url?: string }[] }>(
+  const got = await getJson<{ search?: { label?: string; description?: string; concepturi?: string; url?: string }[] }>(
     `https://www.wikidata.org/w/api.php?${q}`,
   );
   if (got.kind === "missing") return { status: "absent", url: null, evidence: null, note: null };
   if (got.kind !== "ok") return nonAnswer(got);
   const want = flat(product.name);
-  for (const row of got.data.search ?? [])
-    if (flat(row.label) === want)
-      return { status: "present", url: row.concepturi ?? row.url ?? null, evidence: "page", note: null };
+  /* An exact label on a short name is still a coincidence — a ship called
+     OB-1 is labelled exactly "OB-1" — so a short name needs its description to
+     mention the product too. */
+  const short = ambiguousName(product);
+  let lookalike = false;
+  for (const row of got.data.search ?? []) {
+    if (flat(row.label) !== want) continue;
+    if (short && !corroborates(row.description, product)) {
+      lookalike = true;
+      continue;
+    }
+    return { status: "present", url: row.concepturi ?? row.url ?? null, evidence: "page", note: null };
+  }
+  if (lookalike)
+    return {
+      status: "absent",
+      url: null,
+      evidence: null,
+      note: "an item carries this exact label but its description is not about this product — the name is too short to count on its own",
+    };
   return {
     status: "absent",
     url: null,
@@ -303,13 +368,27 @@ export async function wikidata(product: Product): Promise<Finding> {
 
 /** GitHub repository search, gated on the repo's homepage being ours. */
 export async function github(product: Product, ns: string[]): Promise<Finding> {
-  const got = await getJson<{
-    items?: { full_name?: string; description?: string; homepage?: string; html_url?: string }[];
-  }>(`https://api.github.com/search/repositories?per_page=8&q=${encodeURIComponent(product.name)}`);
+  type Repo = { full_name?: string; description?: string; homepage?: string; html_url?: string };
+  const got = await getJson<{ items?: Repo[] }>(
+    `https://api.github.com/search/repositories?per_page=8&q=${encodeURIComponent(product.name)}`,
+  );
   if (got.kind === "missing") return { status: "absent", url: null, evidence: null, note: null };
   if (got.kind !== "ok") return nonAnswer(got);
+  /* A SHORT NAME IS BURIED IN A NAME SEARCH. "OB-1" ranks a thousand
+     strangers' repos above github.com/Overbrilliant/ob-1, whose homepage is
+     overbrilliant.com. The account named after the host's stem is the other
+     place the product's own repo would be, so its repos are read too — still
+     accepted only on a homepage that is ours. */
+  const items: Repo[] = [...(got.data.items ?? [])];
+  const stem = product.host.split(".")[0] ?? "";
+  if (/^[a-z0-9-]{2,39}$/i.test(stem) && !items.some((i) => ours(i.homepage, product))) {
+    const owned = await getJson<{ items?: Repo[] }>(
+      `https://api.github.com/search/repositories?per_page=8&q=${encodeURIComponent(`user:${stem}`)}`,
+    );
+    if (owned.kind === "ok") items.push(...(owned.data.items ?? []));
+  }
   let candidate: string | null = null;
-  for (const item of got.data.items ?? []) {
+  for (const item of items) {
     if (!namesBrand(`${item.full_name} ${item.description} ${item.homepage}`, ns)) continue;
     if (ours(item.homepage, product))
       return { status: "present", url: item.html_url ?? null, evidence: "linked", note: null };
