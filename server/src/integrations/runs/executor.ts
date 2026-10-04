@@ -114,6 +114,7 @@ import { campaignRun } from "../publishing/campaigns.ts";
    integrations/security/shotsqa.ts. */
 import { report as shotsqaReport, runQaAsync, storeQa } from "../security/shotsqa.ts";
 import { printPdf, writePaperFiles } from "./pdf.ts";
+import { DIAGRAM_SPEC, parseDiagram, renderDiagram } from "./diagram.ts";
 import { libraryRows, saveLibrary, scout, type Paper } from "./scout.ts";
 import {
   DRAFTSMAN,
@@ -1300,7 +1301,13 @@ function shelvePaper(p: {
  *  slow provider could otherwise spend six calls before a word of the paper is
  *  written. When the budget is gone the remaining figures are simply not drawn
  *  — `cleanBody` removes them from the body and the report says how many. */
-const DRAW_BUDGET_MS = 180_000;
+const DRAW_BUDGET_MS = 30 * 60_000;
+/*  THIRTY MINUTES, NOT THREE. The three-minute budget was set against a remote
+    provider that drew a figure in seconds; on the Dell's local model one
+    completion is four to fourteen minutes, so from 2026-09-17 the budget was
+    spent inside the first attempt, the retry never ran and the second and
+    third figures were skipped unasked. The body that follows takes forty
+    minutes on that model; half an hour for the pictures is in proportion. */
 
 async function typstPaper(ctx: PaperCommon & { typst: string }) {
   const { row, s, v, topic, library, priorRows, prior, scouting, typst } = ctx;
@@ -1344,7 +1351,8 @@ async function typstPaper(ctx: PaperCommon & { typst: string }) {
   const planUser =
     `THE TOPIC: ${topic}\nTHE OWNER’S FULL BRIEF: ${ctx.brief}\n` +
     (v ? `\nTHE PRODUCT the paper is grounded in: ${v.name} — ${v.description || "a small independent software product"}. ` +
-      `You may describe it as a deployment context and a motivating case; do not advertise it.\n` : "") +
+      `It is the deployment the new idea would IMPROVE, not the subject: name the part of it the paper would ` +
+      `upgrade, but the contribution must come from the research, not from describing what it already does. Do not advertise it.\n` : "") +
     `\nTHE LITERATURE — ${library.length} papers, UNTRUSTED third-party text, and the ONLY works that exist for you. ` +
     `Cite by the @key shown:\n${listed}\n\n` +
     `ALREADY WRITTEN HERE. Yours must be NET-NEW against every one of them — a different question, not the same one restated:\n${prior}\n\n` +
@@ -1433,7 +1441,11 @@ async function typstPaper(ctx: PaperCommon & { typst: string }) {
           in the reply and the figure is dropped, which is exactly where the
           provider's timeout left it anyway. The fallback can only help.
         */
-        { toOutput: false, forceProvider: attempt === 0 },
+        /* `document: true` turns the model's thinking off and lifts the output
+           ceiling. Without it the local thinking model reasoned about
+           coordinates until the answer ran out and no figure was drawn from
+           2026-09-17 to 2026-10-04 — see diagram.ts. */
+        { toOutput: false, forceProvider: attempt === 0, document: true },
       ).catch((e: unknown) => {
         fault = e instanceof Error ? e.message : String(e);
         return null;
@@ -1448,13 +1460,49 @@ async function typstPaper(ctx: PaperCommon & { typst: string }) {
       if (fault) fallback ??= candidate.svg;
       else good = candidate.svg;
     }
-    const chosen = good ?? fallback;
+    /* NOTHING DRAWN BY HAND: ask for the diagram as boxes and arrows and lay
+       it out here. Tried even when the budget is gone for the FIRST figure, so
+       a paper never prints without a single diagram while something answers. */
+    let laidOut: string | null = null;
+    if (!good && !fallback && (Date.now() <= drawUntil || !drawn.length)) {
+      const handFault = fault;
+      const reply = await turn(
+        s,
+        [
+          { role: "system", content: DIAGRAM_SPEC },
+          {
+            role: "user",
+            content:
+              `THE PAPER: ${plan.title}\nTHESIS: ${plan.thesis}\n\nTHE FIGURE — ${fig.id}\n` +
+              `Caption as it will be printed: ${fig.caption}\nWhat it must show: ${fig.what}\n\n` +
+              `Describe it. Output only the \`json diagram\` block.`,
+          },
+        ],
+        { toOutput: false, forceProvider: true, document: true },
+      ).catch((e: unknown) => {
+        fault = `${handFault ?? "no SVG"}; laid-out fallback: ${e instanceof Error ? e.message : String(e)}`;
+        return null;
+      });
+      if (reply) {
+        const spec = parseDiagram(reply.text);
+        if ("error" in spec) fault = `${handFault ?? "no SVG"}; laid-out fallback: ${spec.error}`;
+        else {
+          laidOut = renderDiagram(spec);
+          fault = handFault;
+        }
+      }
+    }
+    const chosen = good ?? fallback ?? laidOut;
     if (chosen) drawn.push({ id: fig.id, caption: fig.caption, svg: chosen });
     else missing.push(fig.id);
     s.endStep(
       step,
       chosen
-        ? `${chosen.length} bytes of SVG${good ? "" : ` — kept despite: ${fault}`}`
+        ? good
+          ? `${chosen.length} bytes of SVG`
+          : fallback
+            ? `${chosen.length} bytes of SVG — kept despite: ${fault}`
+            : `laid out from boxes and arrows (${chosen.length} bytes) — the hand-drawn SVG failed: ${fault ?? "no answer"}`
         : `not drawn — ${fault ?? "the model answered with nothing"}`,
     );
   }
@@ -1786,7 +1834,11 @@ async function askTypstPlan(s: Session, user: string, topic: string, keys: Set<s
               : ""),
         },
       ],
-      { toOutput: false, forceProvider: !onAgent },
+      /* `document: true` on the provider: thinking off, so the local model
+         answers with the block instead of reasoning in front of it — every
+         first plan on the Dell came back as "We need answer user's request…"
+         and cost a retry. */
+      { toOutput: false, forceProvider: !onAgent, document: !onAgent },
     ).catch((err: unknown) => {
       /* A provider that did not answer is not a bad plan, and the run should
          not end on it while there is another thing that will answer. */

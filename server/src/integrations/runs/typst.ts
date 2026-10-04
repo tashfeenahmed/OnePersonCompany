@@ -164,6 +164,12 @@ WHAT MAKES A GOOD CHOICE:
 - It must be REALISTIC. No proposal that needs a hundred annotators, a proprietary dataset or a training run nobody could afford.
 - Honesty beats ambition. If the evidence is thin, plan a smaller paper — a position paper, a measurement study, a protocol proposal — rather than inventing results.
 
+LOOK FORWARD, NOT AT THE PRODUCT. The point of this paper is to bring something NEW in from the research frontier that would make the product — and systems like it — better than they are today. It is not a write-up of what the product already does.
+- DO NOT describe, formalise or rename the product's current design. "A configuration framework for our chatbot", "the three-part pipeline we use", "a taxonomy of the product's features" are product documentation, not research, and they are the failure this rule exists to stop.
+- START FROM THE LITERATURE. Find the strongest and most recent ideas in the papers you were given — prefer work from the last two or three years — and ask which of them, or which combination of them, would REPLACE or UPGRADE a part of a system like this one with something measurably better.
+- The product is the deployment where the idea would be tried and the motivating case, never the subject. Every contribution must be something the product does not have today, and the abstract should make clear what changes for the better and why the research says it should.
+- Ambition belongs here: a newer and better mechanism, borrowed or combined from the research, beats a careful description of the status quo every time.
+
 WHERE THE NEW IDEA SHOULD COME FROM. A gap is not the absence of a paper with your title on it; every unwritten title is absent. These are the seams that actually produce a contribution:
 - A DISAGREEMENT. Two papers you were given assume incompatible things, or report results that do not sit together. Naming the conflict and proposing what would settle it is a paper.
 - A TRANSPLANT. A mechanism established in a neighbouring field has never been tried on this problem, and there is a specific reason to think it transfers.
@@ -178,7 +184,7 @@ Reply with ONLY a fenced code block whose info string is exactly \`json plan\`, 
 {
   "title": "the paper's title, 6-14 words, specific, no colon-subtitle padding",
   "thesis": "one sentence: the claim the paper makes",
-  "novelty": "one sentence: what is in this paper that is in none of the papers you were given",
+  "novelty": "one sentence: what is in this paper that is in none of the papers you were given, and what it improves over how such systems work today",
   "columns": 1 or 2,
   "abstract": "150-220 words, no citations, no bracketed numbers",
   "keywords": ["4-6", "index", "terms"],
@@ -191,7 +197,7 @@ Reply with ONLY a fenced code block whose info string is exactly \`json plan\`, 
 RULES FOR THE PLAN:
 - "columns": 2 for a conventional empirical or systems paper; 1 when the paper is short, argumentative, or leans on wide figures or long equations. Choose, and the choice will be honoured.
 - "sections": 5 to 8, in order, starting with Introduction and ending with Conclusion. Include Related Work.
-- "figures": 1 to 3, and NEVER zero. Every one must be a DIAGRAM that explains a mechanism, a pipeline, an architecture or a relationship — not decoration, and not a chart of numbers you do not have. Anything that can be proposed can be drawn.
+- "figures": 2 or 3 where the paper allows, 1 at the least, and NEVER zero. Every one must be a DIAGRAM that explains a mechanism, a pipeline, an architecture or a relationship — not decoration, and not a chart of numbers you do not have. Anything that can be proposed can be drawn. The first should show the proposed mechanism end to end; a good second contrasts how such systems work today with what the paper proposes.
 - "cite": only bibkeys from the library you were given, at least four where the library allows it.
 - No prose outside the block.`;
 
@@ -357,6 +363,7 @@ HOW TO WRITE IT:
 - CITE, WITH THE KEYS. This is the one instruction a draft has actually failed on: a Related Work section can be written that describes six papers beautifully and names not one of them, and the result is a paper with an EMPTY bibliography, because the printed references are built from your @keys and from nothing else. A work you describe without a key does not appear in the references and, to a reader, was not cited. Write "@berglund2025heuristic pair heuristic search with a solver", not "one line of work pairs heuristic search with a solver". Related Work should be dense with keys, the Introduction should carry several, and every key your plan chose must appear somewhere. Only the keys on the CITATION KEYS list exist — one you invent will be removed and the sentence around it will read as unsupported.
 - Include every figure the plan lists, at the point in the argument where it belongs, with exactly the file name, caption and label the plan gives it, and refer to it in the prose by its label.
 - BE HONEST ABOUT WHAT IS PROPOSED VERSUS MEASURED. This paper proposes something; it has no experimental results. Write the evaluation section as a DESIGN — the study you would run, the baselines, the metrics, the confounds — in the future or conditional tense. Never report a number as if it had been observed, and never invent a table of results.
+- THE NEW IDEA IS THE PAPER. Any product named in the brief gets at most one short paragraph of context; do not spend sections describing how it works today. The bulk of the paper is the new mechanism, the research it comes from and why that research says it will be better, and how the improvement would be measured.
 - Write in the register of the field: precise, unhedged where the claim is sound, explicit about limitations where it is not.`;
 
 /* LaTeX's symbol names against Typst's. The line below that strips a backslash
@@ -909,8 +916,11 @@ WHAT MAKES IT WORTH PRINTING: it must show a MECHANISM — how something flows, 
 export function cleanSvg(raw: string): { svg: string } | { error: string } {
   let svg = String(raw ?? "").trim();
   svg = svg.replace(/^```[a-z]*\s*/i, "").replace(/```$/, "").trim();
-  const start = svg.indexOf("<svg");
+  /* The LAST `<svg` before the last `</svg>`: a model that reasons in its
+     reply quotes "<svg xmlns=…" from the brief long before the element, and
+     the first mention would take all of that reasoning with it. */
   const end = svg.lastIndexOf("</svg>");
+  const start = end < 0 ? svg.indexOf("<svg") : svg.lastIndexOf("<svg", end);
   if (start < 0 || end < 0)
     return {
       error: `no complete <svg> element in ${svg.length} characters of answer — it began “${svg.slice(0, 80)}”`,
