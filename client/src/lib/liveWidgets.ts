@@ -5207,7 +5207,7 @@ Object.assign(LIVE_BUILDERS, {
         : ["No feed token — one query a minute, so one phrase a collection", "warn"],
     );
 
-    const deferred = D.reddit.queries.filter((q) => q.status === "skipped");
+    const deferred = D.reddit.queries.filter((q) => q.status === "skipped" || q.deferredAt);
     const refused = D.reddit.queries.filter(
       (q) => q.status === "throttled" || q.status === "failed",
     );

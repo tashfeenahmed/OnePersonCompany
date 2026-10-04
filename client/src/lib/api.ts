@@ -2001,7 +2001,11 @@ export type DemandQuery = {
   tierLabel: string | null;
   items: number | null;
   error: string | null;
+  /** When the last real answer came in. Null when there has never been one. */
   askedAt: string | null;
+  /** When a later collection ran out of budget before this phrase. The
+   *  status, items and askedAt above are still the last real answer. */
+  deferredAt: string | null;
 };
 
 type DemandSection = {

@@ -210,7 +210,7 @@ export async function backlinksBlock(v: VentureRow): Promise<Block> {
  * top-level list is still accepted so an older document still surfaces them.
  */
 export async function demandBlock(): Promise<Block> {
-  type Query = { term: string; status?: string; items?: number | null; error?: string | null; askedAt?: string | null };
+  type Query = { term: string; status?: string; items?: number | null; error?: string | null; askedAt?: string | null; deferredAt?: string | null };
   /** One thread. `points` is the score on both sides — Reddit's upvotes come
    *  from the Arctic Shift lookup, Hacker News's from Algolia — and both are
    *  null where the tier that found the row could not score it. */
@@ -252,7 +252,11 @@ export async function demandBlock(): Promise<Block> {
             .map(({ label, side }) => {
               const query = (side?.queries ?? []).find((q) => q.term === term);
               const status = query?.status ?? "unasked";
-              return `${label} ${threads(side, term)}${status === "ok" ? "" : ` NOT MEASURED (${status}${query?.error ? `: ${query.error}` : ""})`}`;
+              /* A phrase a later run deferred still carries its last real
+                 answer (see writeDemandQuery), so it is a measurement with a
+                 date, not a NOT MEASURED. */
+              const when = query?.askedAt ? ` (last asked ${query.askedAt.slice(0, 10)})` : "";
+              return `${label} ${threads(side, term)}${status === "ok" ? when : ` NOT MEASURED (${status}${query?.error ? `: ${query.error}` : ""})`}`;
             })
             .join("; ")}`,
         )
@@ -284,15 +288,16 @@ export async function demandBlock(): Promise<Block> {
     lines.push(
       ``,
       `Phrases nobody would let us ask, or that failed — these are NOT evidence that nobody is talking about them:`,
-      ...skipped.slice(0, 20),
+      ...skipped.slice(0, 40),
     );
-  /* SIX THOUSAND RATHER THAN FOUR, and only because the tally was added above
-     it. Twenty watch phrases is a page and a half of counted lines that the
-     report is required to chart; trimming them away would leave the writer the
-     fifty thread titles the tally was computed FROM and no numbers, which is
-     the failure this block was rewritten to remove. The thread lists are still
-     capped at twenty-five a side, so the block cannot run away. */
-  return { source: "Demand — Reddit, Hacker News, the search node", text: trim(lines.join("\n"), 6_000) };
+  /* FOURTEEN THOUSAND, because the tally comes first and must survive whole.
+     The list holds up to a hundred phrases now (MAX_TERMS), each a counted
+     line the report is required to chart; trimming them away would leave the
+     writer the fifty thread titles the tally was computed FROM and no
+     numbers, which is the failure this block was rewritten to remove. The
+     thread lists are still capped at twenty-five a side, so the block cannot
+     run away. */
+  return { source: "Demand — Reddit, Hacker News, the search node", text: trim(lines.join("\n"), 14_000) };
 }
 
 export async function searchConsoleBlock(v: VentureRow): Promise<Block> {
