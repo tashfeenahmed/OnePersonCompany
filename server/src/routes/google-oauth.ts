@@ -58,7 +58,7 @@ export async function verifyClient(values: Record<string, string>): Promise<stri
   const clientId = (values["client-id"] ?? "").trim();
   const clientSecret = (values["client-secret"] ?? "").trim();
   if (!clientId.endsWith(".apps.googleusercontent.com"))
-    return "Paste the client ID of a “Web application” OAuth client — it ends in .apps.googleusercontent.com.";
+    return "Paste the client ID of a “Desktop app” OAuth client — it ends in .apps.googleusercontent.com.";
   if (!clientSecret) return "The client secret is shown beside the client ID in Google Cloud.";
   try {
     const res = await fetch(TOKEN_URL, {
