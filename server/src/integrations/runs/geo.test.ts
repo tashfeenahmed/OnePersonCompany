@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, now, ventureRowById } from "../../db.ts";
-import { geoRun, type GeoTools } from "./geo.ts";
+import { geoRun, ownerGenericQuestions, parseVentureQuestions, type GeoTools } from "./geo.ts";
 import { looksLikeHtmlReport, splitTrailingFence } from "./html.ts";
 import type { Step } from "./store.ts";
 
@@ -398,4 +398,13 @@ test("the owner can switch the search off, and a model that will not call tools 
   const rows = db.prepare("SELECT searches FROM geo_answers WHERE run_id=?").all("r-geo-refused") as unknown as { searches: string | null }[];
   assert.ok(rows.every((r) => r.searches === null));
   assert.match(splitTrailingFence(sink2.join("")).doc, /stub-model-1 did not answer with tool calls — Stub Provider \(main\) answered 400/);
+});
+
+test("owner questions per venture replace the generated generic asks, minus any that name the product", () => {
+  const map = parseVentureQuestions("Helpdock = best support chat for a small shop | is Helpdock good | what replaces email support\n# note\nOther = x");
+  assert.deepEqual(map.get("helpdock"), ["best support chat for a small shop", "is Helpdock good", "what replaces email support"]);
+  const v = venture("geo-ownerq", "Helpdock answers support chats.");
+  assert.deepEqual(ownerGenericQuestions(v, "helpdock = best support chat for a small shop | is Helpdock good"), ["best support chat for a small shop"]);
+  assert.equal(ownerGenericQuestions(v, "Someone else = a question"), null);
+  assert.equal(ownerGenericQuestions(v, "Helpdock = what is helpdock.example"), null);
 });

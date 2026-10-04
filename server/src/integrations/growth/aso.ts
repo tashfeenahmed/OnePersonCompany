@@ -220,6 +220,28 @@ const clean = (s: unknown, cap: number): string | null => {
   return t ? t.slice(0, cap) : null;
 };
 
+/** The empty listing of an app that has no public document yet. */
+function pendingListing(ref: AppRef): Listing {
+  return {
+    store: ref.store,
+    appId: ref.appId,
+    name: ref.name,
+    subtitle: null,
+    description: null,
+    descriptionChars: null,
+    screenshots: null,
+    rating: null,
+    ratingCount: null,
+    ratingFrom: null,
+    updatedAt: null,
+    version: null,
+    genres: [],
+    url: null,
+    notes: [],
+    error: null,
+  };
+}
+
 /** Apple's public lookup — the shopper's own document. */
 export async function appleListing(appId: string, storefront: string | null): Promise<Listing> {
   const country = (storefront || "us").toLowerCase();
@@ -477,7 +499,32 @@ export async function playListing(pkg: string): Promise<Listing> {
 
 /* ------------------------------------------------- which apps are this venture's */
 
-export type AppRef = { store: "appstore" | "play"; appId: string; name: string | null; storefront: string | null };
+export type AppRef = {
+  store: "appstore" | "play";
+  appId: string;
+  name: string | null;
+  storefront: string | null;
+  /** App Store Connect's own state for the app, when the collector has it
+   *  (READY_FOR_DISTRIBUTION, WAITING_FOR_REVIEW, …). Null for Play. */
+  state?: string | null;
+  /** False when App Store Connect says the app is not on the store yet. Null
+   *  when nothing says either way. */
+  onStore?: boolean | null;
+};
+
+/**
+ * WHY AN APP HAS NO PUBLIC LISTING YET, or null when it should have one.
+ *
+ * App Store Connect is the authority on the id and the release state, and the
+ * collector has already read both. An app it lists as waiting for review has
+ * no public lookup document, and that is not a wrong id — an audit that says
+ * "check the id" or "contact Apple" about an app in review sends somebody to
+ * chase a problem that does not exist.
+ */
+export function unreleased(ref: AppRef): string | null {
+  if (ref.store !== "appstore" || ref.onStore !== false) return null;
+  return `not released yet — App Store Connect state ${ref.state ?? "unknown"}; id ${ref.appId} is the correct id (read from App Store Connect itself). There is no public listing to audit until it is released, and an audit is queued automatically when it is.`;
+}
 
 const alnum = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -518,14 +565,24 @@ export function appsForVenture(v: VentureRow): AppRef[] {
     );
 
   const out: AppRef[] = [];
-  const apple = db.prepare("SELECT app_id, bundle_id, name, storefront FROM appstore_apps").all() as unknown as {
+  const apple = db.prepare("SELECT app_id, bundle_id, name, storefront, state, on_store FROM appstore_apps").all() as unknown as {
     app_id: string;
     bundle_id: string | null;
     name: string | null;
     storefront: string | null;
+    state: string | null;
+    on_store: number | null;
   }[];
   for (const a of apple)
-    if (hit(a.name, a.bundle_id)) out.push({ store: "appstore", appId: a.app_id, name: a.name, storefront: a.storefront });
+    if (hit(a.name, a.bundle_id))
+      out.push({
+        store: "appstore",
+        appId: a.app_id,
+        name: a.name,
+        storefront: a.storefront,
+        state: a.state,
+        onStore: a.on_store === null ? null : a.on_store === 1,
+      });
 
   const play = db.prepare("SELECT DISTINCT package FROM play_stats").all() as unknown as { package: string }[];
   for (const p of play) if (hit(p.package)) out.push({ store: "play", appId: p.package, name: null, storefront: null });
@@ -816,7 +873,12 @@ export async function asoRun(runId: string, v: VentureRow, input: Record<string,
 
   for (const ref of chosen) {
     const step = tools.startStep("aso", `${ref.store}: ${ref.name ?? ref.appId}`);
-    const listing = ref.store === "appstore" ? await appleListing(ref.appId, ref.storefront) : await playListing(ref.appId);
+    const pending = unreleased(ref);
+    const listing: Listing = pending
+      ? { ...pendingListing(ref), error: pending }
+      : ref.store === "appstore"
+        ? await appleListing(ref.appId, ref.storefront)
+        : await playListing(ref.appId);
     const checks = runChecks(listing);
     const scored = score(checks);
     const rv = listing.error ? { rows: [], note: "The listing could not be read, so no comparison was made." } : await rivals(listing);
@@ -858,6 +920,23 @@ export async function asoRun(runId: string, v: VentureRow, input: Record<string,
     note: "Every check and score was computed by this server from the listing documents; the analysis in the report is a model's reading of them.",
   });
 
+  /* NOTHING RELEASED, NOTHING TO ANALYSE. Every app this venture has is still
+     in App Store Connect's queue; a model handed only "could not be read"
+     writes "verify the id" cards every time. The page says what the state is
+     and files nothing. */
+  if (audited.every((a) => unreleased(a.ref))) {
+    const analysis: Analysis = {
+      headline: `${v.name} is not on the App Store yet — nothing to audit until it is released`,
+      verdict: audited.map((a) => `${a.ref.name ?? a.ref.appId}: ${unreleased(a.ref)}`).join(" "),
+      sections: [],
+      recommendations: [],
+      cards: [],
+      failed: null,
+    };
+    tools.say(sanitizeReportHtml(asoDocument(v, audited, analysis, ts)));
+    return;
+  }
+
   const write = tools.startStep("write", "recommendations");
   const analysis = await askAnalysis(tools, [
     {
@@ -872,6 +951,7 @@ export async function asoRun(runId: string, v: VentureRow, input: Record<string,
         `- A CHECK MARKED "not scored" WAS NOT ANSWERED. It is not a pass and it is not a failure — say what would have to be connected for it to be answerable.`,
         `- APPLE DOES NOT INDEX THE DESCRIPTION and Play does. Never give the same description advice for both stores.`,
         `- A RATING OF 0 MEANS NOBODY HAS RATED IT, not that the app is rated zero.`,
+        `- AN APP MARKED "not released yet" IS IN APP STORE CONNECT'S REVIEW QUEUE AND ITS ID IS CORRECT. Never recommend checking or confirming its id or its release status, or contacting Apple, and file no card about it; an audit is queued automatically when it is released.`,
         ``,
         `THE AUDIT:`,
         ``,
