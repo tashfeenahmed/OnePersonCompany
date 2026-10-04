@@ -58,6 +58,7 @@ import { KINDS } from "./kinds.ts";
 import { competitorRoutes, geoRoutes, paperRoutes, runRoutes } from "./routes.ts";
 import { failInterrupted } from "./store.ts";
 import { DEFAULT_AUTHOR, PAPERS_PLUGIN } from "./typst.ts";
+import { GEO_PLUGIN } from "./geo.ts";
 
 /* ------------------------------------------------------------------ skills */
 
@@ -292,6 +293,27 @@ export const manifest: IntegrationManifest = {
   id: "runs",
 
   config: {
+    [GEO_PLUGIN]: {
+      keys: {
+        questions: {
+          label: "AI visibility questions, per venture",
+          hint:
+            "One venture per line, as `Venture name = question one | question two`. " +
+            "When a venture has a line here, AI visibility asks THESE as its " +
+            "generic (stranger) questions instead of generating them — use it when " +
+            "the generated ones miss the market. Write them the way a stranger " +
+            "with the problem would, without the product's name: a question that " +
+            "names it measures nothing and is dropped. Up to 8 per venture.",
+          ph: "Acme = best app for planning a trip | is there an AI that plans my week",
+          check(value) {
+            const lines = value.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+            const bad = lines.find((l) => l.indexOf("=") < 1 || !l.slice(l.indexOf("=") + 1).trim());
+            if (bad) return `This line is not \`Venture name = question | question\`: “${bad.slice(0, 60)}”.`;
+            return null;
+          },
+        },
+      },
+    },
     [PAPERS_PLUGIN]: {
       keys: {
         typst: {
