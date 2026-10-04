@@ -128,6 +128,7 @@ import * as searxng from "./providers/searxng.ts";
 import {
   demandOrderedTerms,
   demandQueries,
+  demandQueryOwed,
   deleteDemandRowsWhere,
   forgetDemandTerms,
   replaceSearxngEngines,
@@ -2824,7 +2825,7 @@ function lastAskedAt(source: string): string | null {
 function pendingTerms(source: string, terms: string[]): string[] {
   const answered = new Set(
     demandQueries(source)
-      .filter((q) => q.status !== "skipped")
+      .filter((q) => !demandQueryOwed(q))
       .map((q) => q.term),
   );
   return terms.filter((t) => !answered.has(t));

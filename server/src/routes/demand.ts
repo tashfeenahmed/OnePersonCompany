@@ -98,7 +98,10 @@ const shapeSignal = (r: DemandItemRow): Signal => ({
 /** The most recent moment a source was actually asked anything. Null means it
  *  never has been, which is not the same as answering nothing. */
 function askedAt(source: string): string | null {
-  const rows = demandQueries(source).map((q) => q.asked_at).sort();
+  const rows = demandQueries(source)
+    .filter((q) => q.status !== "skipped")
+    .map((q) => q.asked_at)
+    .sort();
   return rows.at(-1) ?? null;
 }
 
@@ -109,6 +112,12 @@ function askedAt(source: string): string | null {
  * and `ok · 0 items` together would be a card that cannot tell "nobody is
  * talking about this" from "nobody would let us look", which is the single
  * distinction this whole integration is built around.
+ *
+ * A DEFERRAL RIDES BESIDE THE ANSWER, NOT IN PLACE OF IT. `deferredAt` says a
+ * later collection ran out of budget before this phrase; `status`, `items` and
+ * `askedAt` are still the last real answer, so a phrase asked this morning and
+ * deferred this afternoon reads as measured this morning rather than as NOT
+ * MEASURED. Only a phrase with no answer at all carries status `skipped`.
  */
 function queries(source: string, terms: string[]) {
   const held = new Map(demandQueries(source).map((q) => [q.term, q] as const));
@@ -126,7 +135,8 @@ function queries(source: string, terms: string[]) {
         : null,
       items: row?.items ?? null,
       error: row?.error ?? null,
-      askedAt: row?.asked_at ?? null,
+      askedAt: row && row.status !== "skipped" ? row.asked_at : null,
+      deferredAt: row?.deferred_at ?? null,
     };
   });
 }

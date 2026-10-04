@@ -129,12 +129,16 @@ export const WINDOW_DAYS = 365;
  * How many phrases the list may hold.
  *
  * Each one costs a request per source per collection, and Reddit's is a
- * request that may take a minute of wall clock. Twenty is generous for a
- * portfolio of about twenty products asked one phrase each, and the cap is
- * refused at the point it is typed rather than silently trimming the tail —
- * bing's rule, for bing's reason.
+ * request that may take a minute of wall clock. The portfolio is about thirty
+ * products and each needs several phrases in its buyers' own words — twenty
+ * left most of them with none, which is how a demand run ended up measuring
+ * other ventures' markets. A hundred is the room for that; Reddit's budget
+ * walks the list stalest first across collections, so a long list costs
+ * freshness per phrase, not a longer run. The cap is refused at the point it
+ * is typed rather than silently trimming the tail — bing's rule, for bing's
+ * reason.
  */
-export const MAX_TERMS = 20;
+export const MAX_TERMS = 100;
 
 /**
  * The watch list, from one text field. Commas or newlines, because both are
@@ -297,10 +301,12 @@ export const REDDIT_GAP_TOKEN_MS = 6_000;
  * the list. Each collection asks the phrases whose answers are stalest, in
  * order, until the next request would not fit in this budget; the rest are
  * recorded `skipped` — asked for by name, with the reason, and first in line
- * next time. Anonymously that is one phrase every six hours; with the feed
- * token it is four a run, which is the whole list for any sane list.
+ * next time. Anonymously that is one phrase a run; with the feed token it is
+ * ten a run at six seconds a query. Twenty-four seconds (four a run) left
+ * sixteen of twenty phrases deferred on every collection, and sixty is still a
+ * minute, not a route that holds a browser open.
  */
-export const REDDIT_BUDGET_MS = 24_000;
+export const REDDIT_BUDGET_MS = 60_000;
 
 /** A Reddit thread URL, and the two things it carries: the subreddit and the
  *  thread's own id36. Matching it is what lets a row found by SearXNG collapse

@@ -2869,6 +2869,24 @@ export const MIGRATIONS: { name: string; sql: string }[] = [
       ALTER TABLE cloudflare_traffic ADD COLUMN countries TEXT;
     `,
   },
+  {
+    name: "531_demand_query_deferred",
+    sql: `
+      -- A DEFERRAL IS NOT AN ANSWER, SO IT MUST NOT REPLACE ONE. The table is
+      -- keyed on (source, term), and a Reddit run that ran out of budget wrote
+      -- 'skipped' over the phrase's last real answer — so a phrase asked and
+      -- answered at nine read as NOT MEASURED in every report after the next
+      -- collection deferred it, sixteen of twenty phrases at a time.
+      --
+      -- deferred_at is when a collection last chose not to ask. A row with a
+      -- real answer keeps its status, tier, items and asked_at and only gains
+      -- this; a phrase never answered is still status 'skipped'. Set means the
+      -- phrase is owed an answer (first in line, bypasses the clock), and a
+      -- real answer clears it.
+      ALTER TABLE demand_queries ADD COLUMN deferred_at TEXT;
+      UPDATE demand_queries SET deferred_at = asked_at WHERE status = 'skipped';
+    `,
+  },
 /* SORTED BY NAME, NOT BY POSITION IN THIS FILE. The prefix is the order, and
    it was not: this array ran 017 before 015, and the integration blocks
    concatenated after it ran one area's 3xx steps ahead of another's 1xx. The
@@ -6404,16 +6422,51 @@ export type DemandQueryRow = {
   items: number | null;
   error: string | null;
   asked_at: string;
+  /** When a collection last chose not to ask this phrase; null once a real
+   *  answer has come in since. See migration 531. */
+  deferred_at: string | null;
 };
 
+/** True when the phrase is owed an answer: never answered, or deferred by a
+ *  collection since its last answer. Such a phrase goes first in line and
+ *  bypasses the six-hour clock. */
+export function demandQueryOwed(q: Pick<DemandQueryRow, "status" | "deferred_at">): boolean {
+  return q.status === "skipped" || q.deferred_at !== null;
+}
+
+/**
+ * One phrase's outcome for one source.
+ *
+ * A DEFERRAL ('skipped') DOES NOT OVERWRITE AN ANSWER. Where the phrase has a
+ * real answer on record — ok, throttled or failed — that answer is kept whole
+ * and only `deferred_at` is stamped; the report goes on quoting the last
+ * measurement with its date instead of calling it NOT MEASURED. A phrase with
+ * no answer yet is written as 'skipped', as before. A real answer replaces
+ * everything and clears `deferred_at`.
+ */
 export function writeDemandQuery(
-  row: Omit<DemandQueryRow, "asked_at">,
+  row: Omit<DemandQueryRow, "asked_at" | "deferred_at">,
 ): void {
+  const at = now();
+  if (row.status === "skipped") {
+    const kept = db
+      .prepare(
+        "UPDATE demand_queries SET deferred_at = ? WHERE source = ? AND term = ? AND status <> 'skipped'",
+      )
+      .run(at, row.source, row.term);
+    if (Number(kept.changes) > 0) return;
+    db.prepare(
+      `INSERT OR REPLACE INTO demand_queries
+         (source, term, status, tier, items, error, asked_at, deferred_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
+    ).run(row.source, row.term, row.status, row.tier, row.items, row.error, at, at);
+    return;
+  }
   db.prepare(
     `INSERT OR REPLACE INTO demand_queries
-       (source, term, status, tier, items, error, asked_at)
-     VALUES (?,?,?,?,?,?,?)`,
-  ).run(row.source, row.term, row.status, row.tier, row.items, row.error, now());
+       (source, term, status, tier, items, error, asked_at, deferred_at)
+     VALUES (?,?,?,?,?,?,?,NULL)`,
+  ).run(row.source, row.term, row.status, row.tier, row.items, row.error, at);
 }
 
 export function demandQueries(source?: string): DemandQueryRow[] {
@@ -6435,17 +6488,18 @@ export function demandQueries(source?: string): DemandQueryRow[] {
  * newly typed phrase and the GitHub one keeps for a repo it has never seen,
  * and for the same reason: the point of typing a list in at nine is to see it.
  *
- * A 'skipped' ROW COUNTS AS NEVER ASKED, which is the whole reason the budget
- * is survivable. That status means this collector chose not to spend a request
- * on the phrase, so its `asked_at` records when we declined rather than when
- * Reddit answered — sorted by it, the phrase we just deferred would go to the
- * BACK of the queue and the same first phrase would be asked every run,
- * forever, while the tail was never asked at all.
+ * A DEFERRED PHRASE COUNTS AS NEVER ASKED, which is the whole reason the
+ * budget is survivable. A deferral means this collector chose not to spend a
+ * request on the phrase; if deferred phrases sorted by their last answer they
+ * could still lose to a phrase answered just before them, and the same head
+ * of the list would be asked every run while the tail waited. So anything
+ * owed an answer — never answered, or deferred since — goes first, in list
+ * order.
  */
 export function demandOrderedTerms(source: string, terms: string[]): string[] {
   const asked = new Map(
     demandQueries(source)
-      .filter((q) => q.status !== "skipped")
+      .filter((q) => !demandQueryOwed(q))
       .map((q) => [q.term, q.asked_at] as const),
   );
   return [...terms].sort((a, b) => {
