@@ -49,6 +49,7 @@ import {
   adSenseMonths,
   configValue,
   db,
+  stripeCurrencyOrder,
   stripeLedgerDays,
   stripeSubscriptions,
   ventureRows,
@@ -688,7 +689,7 @@ export type SettledCurrency = {
 
 export function stripeSettled(from: string, to: string): SettledCurrency[] {
   const rows = stripeLedgerDays(from).filter((r) => r.day <= to);
-  const codes = [...new Set(rows.map((r) => currencyCode(r.currency)))].sort();
+  const codes = stripeCurrencyOrder(rows.map((r) => currencyCode(r.currency)));
   return codes.map((currency) => {
     const mine = rows.filter((r) => currencyCode(r.currency) === currency);
     const sum = (f: (r: (typeof mine)[number]) => number) => money(mine.reduce((n, r) => n + f(r), 0));

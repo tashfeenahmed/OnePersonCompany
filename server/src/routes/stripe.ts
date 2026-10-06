@@ -32,6 +32,7 @@ import {
   getPlugin,
   stripeBalances,
   stripeChargeDays,
+  stripeCurrencyOrder,
   stripePayouts,
   stripeRecentCharges,
   stripeState,
@@ -112,7 +113,7 @@ const connected = (id: string) => getPlugin(id)?.connected === 1;
  */
 function mrrSection(subs: StripeSubscriptionRecord[]) {
   const billing = subs.filter((s) => isBilling(s.status));
-  const currencies = [...new Set(billing.map((s) => currencyCode(s.currency)))].sort();
+  const currencies = stripeCurrencyOrder(billing.map((s) => currencyCode(s.currency)));
 
   return currencies.map((currency) => {
     const mine = billing.filter((s) => currencyCode(s.currency) === currency);
@@ -188,7 +189,7 @@ const TRIAL_FAILING = new Set(["past_due", "unpaid", "incomplete"]);
  */
 function trialConversionSection(subs: StripeSubscriptionRecord[], nowMs: number) {
   const trialing = subs.filter((s) => s.trial_start && s.trial_end);
-  const currencies = [...new Set(trialing.map((s) => currencyCode(s.currency)))].sort();
+  const currencies = stripeCurrencyOrder(trialing.map((s) => currencyCode(s.currency)));
   const rows = [];
   for (const days of WINDOWS) {
     const from = nowMs - days * 86_400_000;
@@ -284,9 +285,9 @@ const INVOLUNTARY = new Set(["payment_failed", "payment_disputed"]);
  */
 function churnSection(subs: StripeSubscriptionRecord[], nowMs: number) {
   const billing = subs.filter((s) => isBilling(s.status));
-  const currencies = [
-    ...new Set([...billing, ...subs.filter((s) => s.ended_at)].map((s) => currencyCode(s.currency))),
-  ].sort();
+  const currencies = stripeCurrencyOrder(
+    [...billing, ...subs.filter((s) => s.ended_at)].map((s) => currencyCode(s.currency)),
+  );
 
   const rows = [];
   for (const days of WINDOWS) {
@@ -485,7 +486,7 @@ function revenueSection(days: number, nowMs: number) {
 function chargeSection(days: number, nowMs: number) {
   const from = utcDay(nowMs - (days - 1) * 86_400_000);
   const rows = stripeChargeDays(from);
-  const currencies = [...new Set(rows.map((r) => currencyCode(r.currency)))].sort();
+  const currencies = stripeCurrencyOrder(rows.map((r) => currencyCode(r.currency)));
 
   return currencies.map((currency) => {
     const mine = rows.filter((r) => currencyCode(r.currency) === currency);
@@ -750,7 +751,7 @@ stripeRoutes.get("/", (c) => {
     (s) => !s.cancel_at || Date.parse(s.cancel_at) <= nowMs + ENDING_SOON_DAYS * 86_400_000,
   );
   const perCurrency = (rows: StripeSubscriptionRecord[]) =>
-    [...new Set(rows.map((s) => currencyCode(s.currency)))].sort().map((currency) => ({
+    stripeCurrencyOrder(rows.map((s) => currencyCode(s.currency))).map((currency) => ({
       currency,
       amount: money(
         rows.filter((s) => currencyCode(s.currency) === currency).reduce((n, s) => n + s.monthly_usd, 0),
