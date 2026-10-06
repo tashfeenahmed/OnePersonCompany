@@ -47,7 +47,7 @@ import { bytesOf, findFfprobe, probeDuration } from "../video/tools.ts";
 import { gameplayBackgrounds } from "./gameplay-previews.ts";
 import type { GameplayBackground } from "../../../../shared/gameplay.ts";
 import { writeStewieScript, type PreparedReel } from "./stewie-script.ts";
-import { activeProvider, NoProviderError } from "../../models/provider.ts";
+import { acquire, activeProvider, NoProviderError } from "../../models/provider.ts";
 
 export const WORKDASH_PLUGIN = "workdash";
 const READER = "videoplus.stewie";
@@ -234,66 +234,84 @@ export async function stewieVideo(opts: {
     s.endStep(scriptStep, "failed");
     throw new StepError("script", error instanceof Error ? error.message : String(error));
   }
-  const startStep = s.startStep("start", `asking for a ${mode} reel`);
+  /* HOLD THE LOCAL MODEL'S SLOT UNTIL THE RENDER IS OVER. When the workspace
+     model is the local one it lives on the same P40 as the voice model: the
+     relay unloads it before rendering, and any other workspace call (an agent
+     turn through the relay door, a collector) reloads all 23 GB mid-render and
+     the voices die on a 16 MB allocation. Taken after the script, because the
+     script call needs this same slot; released however the run ends. */
+  const provider = activeProvider();
+  let releaseGpu: (() => void) | null = null;
+  if (provider?.id === "local") {
+    const holdStep = s.startStep("gpu", "waiting for the local model to be free");
+    const held = await acquire(provider);
+    releaseGpu = held.release;
+    s.endStep(holdStep, held.queuedMs > 1000 ? `held after ${Math.round(held.queuedMs / 1000)}s` : "held");
+  }
   let item: ReelItem;
   try {
-    const out = await ask<{ ok: boolean; error?: string; item?: ReelItem }>(a, "/agent/reel/start", {
-      method: "POST",
-      body: JSON.stringify({
-        prompt: input.prompt,
-        background: input.background || null,
-        mode,
-        urls: mode === "pages" ? urls : [],
-        script,
-      }),
-    });
-    if (!out.ok || !out.item) throw new Error(out.error ?? "the agent refused without a reason");
-    item = out.item;
-  } catch (err) {
-    s.endStep(startStep, "refused");
-    throw new StepError("start", err instanceof Error ? err.message : String(err));
-  }
-  s.endStep(startStep, item.id);
-
-  /* ------------------------------------------------------------- 3. wait */
-  const began = Date.now();
-  let lastStatus = "";
-  let step = s.startStep("reel", STATUS_LABEL[item.status] ?? item.status);
-  lastStatus = item.status;
-  while (item.status !== "done" && item.status !== "failed") {
-    if (signal?.aborted) {
-      s.endStep(step, "cancelled here — the relay's job keeps going");
-      throw new StepError("reel", "Cancelled. The render relay was not told; its reel finishes on its own and stays in the render relay.");
-    }
-    if (Date.now() - began > JOB_TIMEOUT_MS) {
-      s.endStep(step, "timed out");
-      throw new StepError("reel", `The relay's job ${item.id} was still “${item.status}” after ${Math.round(JOB_TIMEOUT_MS / 60_000)} minutes. It may yet finish in the render relay; this run stopped watching.`);
-    }
-    await new Promise((r) => setTimeout(r, POLL_MS));
-    let doc: ReelDoc;
+    const startStep = s.startStep("start", `asking for a ${mode} reel`);
     try {
-      doc = await ask<ReelDoc>(a, "/agent/reel");
-    } catch {
-      continue; /* one missed poll is a blip, not a failure */
+      const out = await ask<{ ok: boolean; error?: string; item?: ReelItem }>(a, "/agent/reel/start", {
+        method: "POST",
+        body: JSON.stringify({
+          prompt: input.prompt,
+          background: input.background || null,
+          mode,
+          urls: mode === "pages" ? urls : [],
+          script,
+        }),
+      });
+      if (!out.ok || !out.item) throw new Error(out.error ?? "the agent refused without a reason");
+      item = out.item;
+    } catch (err) {
+      s.endStep(startStep, "refused");
+      throw new StepError("start", err instanceof Error ? err.message : String(err));
     }
-    const found = doc.items.find((i) => i.id === item.id);
-    if (!found) {
-      s.endStep(step, "gone");
-      throw new StepError("reel", `The render relay no longer lists job ${item.id}. Its keep-cap may have dropped it, or it was deleted in the render relay.`);
+    s.endStep(startStep, item.id);
+
+    /* ------------------------------------------------------------- 3. wait */
+    const began = Date.now();
+    let lastStatus = "";
+    let step = s.startStep("reel", STATUS_LABEL[item.status] ?? item.status);
+    lastStatus = item.status;
+    while (item.status !== "done" && item.status !== "failed") {
+      if (signal?.aborted) {
+        s.endStep(step, "cancelled here — the relay's job keeps going");
+        throw new StepError("reel", "Cancelled. The render relay was not told; its reel finishes on its own and stays in the render relay.");
+      }
+      if (Date.now() - began > JOB_TIMEOUT_MS) {
+        s.endStep(step, "timed out");
+        throw new StepError("reel", `The relay's job ${item.id} was still “${item.status}” after ${Math.round(JOB_TIMEOUT_MS / 60_000)} minutes. It may yet finish in the render relay; this run stopped watching.`);
+      }
+      await new Promise((r) => setTimeout(r, POLL_MS));
+      let doc: ReelDoc;
+      try {
+        doc = await ask<ReelDoc>(a, "/agent/reel");
+      } catch {
+        continue; /* one missed poll is a blip, not a failure */
+      }
+      const found = doc.items.find((i) => i.id === item.id);
+      if (!found) {
+        s.endStep(step, "gone");
+        throw new StepError("reel", `The render relay no longer lists job ${item.id}. Its keep-cap may have dropped it, or it was deleted in the render relay.`);
+      }
+      item = found;
+      if (item.status !== lastStatus) {
+        s.endStep(step, `${Math.round((Date.now() - began) / 1000)}s`);
+        lastStatus = item.status;
+        if (item.status !== "done" && item.status !== "failed") step = s.startStep("reel", STATUS_LABEL[item.status] ?? item.status);
+      }
     }
-    item = found;
-    if (item.status !== lastStatus) {
-      s.endStep(step, `${Math.round((Date.now() - began) / 1000)}s`);
-      lastStatus = item.status;
-      if (item.status !== "done" && item.status !== "failed") step = s.startStep("reel", STATUS_LABEL[item.status] ?? item.status);
+    if (item.status === "failed") {
+      if (lastStatus !== "failed") s.endStep(step, "failed");
+      throw new StepError("reel", item.error ?? "The render relay reported the reel failed and gave no reason.");
     }
+    if (lastStatus !== "done") s.endStep(step, "done");
+    if (!item.video) throw new StepError("reel", "The render relay says the reel is done but names no file.");
+  } finally {
+    releaseGpu?.();
   }
-  if (item.status === "failed") {
-    if (lastStatus !== "failed") s.endStep(step, "failed");
-    throw new StepError("reel", item.error ?? "The render relay reported the reel failed and gave no reason.");
-  }
-  if (lastStatus !== "done") s.endStep(step, "done");
-  if (!item.video) throw new StepError("reel", "The render relay says the reel is done but names no file.");
 
   /* ------------------------------------------------------------ 4. fetch */
   const fetchStep = s.startStep("fetch", "copying the file from the render relay");
