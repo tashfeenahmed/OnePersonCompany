@@ -228,6 +228,9 @@ async function renderVideo(opts: {
         mode: urls ? "pages" : "images",
         urls,
         background: (opts.input.background ?? "").trim(),
+        /* Six lines was twelve seconds and stopped mid-thought; thirty is
+           the default, ten to ninety the range the relay accepts. */
+        seconds: clampNumber(opts.input.seconds, 30, 10, 90),
       },
       signal: opts.signal,
     });
