@@ -66,6 +66,8 @@ export type StewieInput = {
   urls: string;
   /** A gameplay clip name the worker knows, or blank for the worker's default. */
   background: string;
+  /** Target length. The relay turns it into a line count; 30 by default. */
+  seconds: number;
 };
 
 type Agent = { url: string; key: string; label: string };
@@ -224,7 +226,7 @@ export async function stewieVideo(opts: {
   let script: Awaited<ReturnType<typeof writeStewieScript>>;
   try {
     const prepared = await ask<PreparedReel>(a, "/agent/reel/prepare-script", {
-      method: "POST", body: JSON.stringify({ prompt: input.prompt, mode, urls }),
+      method: "POST", body: JSON.stringify({ prompt: input.prompt, mode, urls, seconds: input.seconds }),
     }, AbortSignal.any([AbortSignal.timeout(120_000), ...(signal ? [signal] : [])]));
     script = await writeStewieScript(prepared, signal, opts.venture?.id ?? null);
     s.endStep(scriptStep, `${script.provider}${script.model ? ` · ${script.model}` : ""}`);

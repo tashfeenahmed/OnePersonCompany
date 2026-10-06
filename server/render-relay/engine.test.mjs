@@ -25,3 +25,14 @@ test("only workspace-written scripts enter the isolated durable queue", async ()
   assert.equal(state.items[0].status, "pending");
   assert.equal(state.items[0].attempts, 0); // Enqueue does not wake or call the worker.
 });
+
+test("reel length in seconds becomes an even line count, thirty by default", async () => {
+  const { reelLineCount } = await import("./engine/reel.js");
+  assert.equal(reelLineCount(undefined), 14);
+  assert.equal(reelLineCount(30), 14);
+  assert.equal(reelLineCount(10), 6);
+  assert.equal(reelLineCount(60), 28);
+  assert.equal(reelLineCount(500), 42);
+  assert.equal(reelLineCount("nonsense"), 14);
+  for (const s of [10, 17, 45, 90]) assert.equal(reelLineCount(s) % 2, 0);
+});

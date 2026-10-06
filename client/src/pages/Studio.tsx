@@ -801,7 +801,7 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
         const input: Record<string, string> = { format: make, brief: brief.trim(), aspect };
         if (make === "faceless") Object.assign(input, { seconds, fit });
         if (make === "motion") Object.assign(input, { spec, aspect: spec && !aspectChanged ? "" : aspect, voiceover: voiceover ? "true" : "false" });
-        if (make === "stewie") Object.assign(input, { url: stewieMode === "pages" ? url.trim() : "", background });
+        if (make === "stewie") Object.assign(input, { url: stewieMode === "pages" ? url.trim() : "", background, seconds: seconds.trim() || "30" });
         const run = await runsApi.start({ kind: "video", ventureId: venture?.id ?? null, input });
         setSaid(run.status === "running" ? "Started. It shows in the rail while it works." : "Queued behind the runs ahead of it.");
         onRun(run.id);
@@ -923,8 +923,8 @@ function Composer({ make, ventures, venture, onVenture, readiness, onPost, onRun
             <Field label="Shape"><ShapePicker value={shape} onChange={setShape} options={SHAPES} /></Field>
             {assetsField}
           </> : make !== "stewie" && make !== "faceless" && shapeField}
-          {(make === "faceless" || make === "youtube") && <Field label={make === "youtube" ? "Maximum clip length" : "Target length (optional)"} hint={make === "faceless" ? "Empty lets AI plan the shots and their timing. Set 10–120 seconds to override." : "An upper limit, not an exact length. AI chooses where each thought starts and ends."}>
-            <div className="flex items-center gap-2"><Input aria-label={make === "youtube" ? "Maximum clip length" : "Target length"} type="number" min={make === "youtube" ? 15 : 10} max={make === "youtube" ? 90 : 120} value={seconds} onChange={(e) => setSeconds(e.target.value)} placeholder="Auto" className="w-28" /><span className="text-muted-foreground text-[12px]">seconds</span></div>
+          {(make === "faceless" || make === "youtube" || make === "stewie") && <Field label={make === "youtube" ? "Maximum clip length" : make === "stewie" ? "Length" : "Target length (optional)"} hint={make === "faceless" ? "Empty lets AI plan the shots and their timing. Set 10–120 seconds to override." : make === "stewie" ? "10–90 seconds. AI writes about one line of dialogue per two seconds." : "An upper limit, not an exact length. AI chooses where each thought starts and ends."}>
+            <div className="flex items-center gap-2"><Input aria-label={make === "youtube" ? "Maximum clip length" : "Target length"} type="number" min={make === "youtube" ? 15 : 10} max={make === "youtube" || make === "stewie" ? 90 : 120} value={seconds} onChange={(e) => setSeconds(e.target.value)} placeholder={make === "stewie" ? "30" : "Auto"} className="w-28" /><span className="text-muted-foreground text-[12px]">seconds</span></div>
           </Field>}
           {(make === "faceless" || make === "youtube") && <Field label="Framing">
             <Chips value={fit} onChange={setFit} options={[{ key: "cover", label: "Fill the frame" }, { key: "letterbox", label: "Keep the full picture" }]} />

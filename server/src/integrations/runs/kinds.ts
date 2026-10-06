@@ -285,7 +285,7 @@ export const KINDS: KindDef[] = [
         key: "seconds",
         label: "Length in seconds",
         hint:
-          "For faceless, leave empty for AI to choose the shots and their timing, or set a 10–120 second target. For shorts, the LONGEST a single clip may be — 15 to 90. For a reel, how long the whole thing is, which is what decides how many lines of dialogue there are. Motion takes its length from the scene list instead.",
+          "For faceless, leave empty for AI to choose the shots and their timing, or set a 10–120 second target. For shorts, the LONGEST a single clip may be — 15 to 90. For a reel or a stewie, how long the whole thing is, which is what decides how many lines of dialogue there are — stewie takes 10 to 90 and defaults to 30. Motion takes its length from the scene list instead.",
         kind: "number",
         required: false,
         default: "",
