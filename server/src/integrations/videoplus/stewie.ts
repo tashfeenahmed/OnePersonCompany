@@ -226,7 +226,12 @@ export async function stewieVideo(opts: {
   let script: Awaited<ReturnType<typeof writeStewieScript>>;
   try {
     const prepared = await ask<PreparedReel>(a, "/agent/reel/prepare-script", {
-      method: "POST", body: JSON.stringify({ prompt: input.prompt, mode, urls, seconds: input.seconds }),
+      method: "POST", body: JSON.stringify({
+        prompt: input.prompt, mode, urls, seconds: input.seconds,
+        /* A venture's run sells the venture: the relay writes a short story
+           that ends on a call to action instead of an explainer. */
+        product: opts.venture ? { name: opts.venture.name, description: opts.venture.description, website: opts.venture.website } : null,
+      }),
     }, AbortSignal.any([AbortSignal.timeout(120_000), ...(signal ? [signal] : [])]));
     script = await writeStewieScript(prepared, signal, opts.venture?.id ?? null);
     s.endStep(scriptStep, `${script.provider}${script.model ? ` · ${script.model}` : ""}`);

@@ -36,3 +36,16 @@ test("reel length in seconds becomes an even line count, thirty by default", asy
   assert.equal(reelLineCount("nonsense"), 14);
   for (const s of [10, 17, 45, 90]) assert.equal(reelLineCount(s) % 2, 0);
 });
+
+test("a reel with a product is written as a sales story ending on a call to action", async () => {
+  const engine = await import("./engine/reel.js");
+  const selling = await engine.prepareReelScript({ prompt: "Free tokens", mode: "images", seconds: 30,
+    product: { name: "FreeLLMAPI", description: "One key for free models.", website: "https://freellmapi.co/" } });
+  assert.match(selling.messages[0].content, /sell a product/);
+  assert.match(selling.messages[0].content, /Call to action/);
+  assert.match(selling.messages[1].content, /PRODUCT \(from its owner\)\nName: FreeLLMAPI/);
+  assert.match(selling.messages[1].content, /Angle: Free tokens/);
+  const plain = await engine.prepareReelScript({ prompt: "How DNS works", mode: "images" });
+  assert.match(plain.messages[0].content, /explainer scripts/);
+  assert.doesNotMatch(plain.messages[1].content, /PRODUCT/);
+});
