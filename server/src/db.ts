@@ -4195,6 +4195,27 @@ export function stripeChargeDays(sinceDay: string): StripeChargeDayRecord[] {
     .all(sinceDay) as unknown as StripeChargeDayRecord[];
 }
 
+/**
+ * Currency codes with the account's own currency FIRST, the rest by how much
+ * they have ever charged, then by name. Every card reads row 0 of a
+ * per-currency list as "the" figure, and an alphabetical list handed it a
+ * single €39 EUR day the day one euro charge landed beside five years of USD.
+ * Codes are compared upper-case, as `currencyCode` spells them.
+ */
+export function stripeCurrencyOrder(codes: Iterable<string>): string[] {
+  const weight = new Map(
+    (
+      db
+        .prepare("SELECT UPPER(currency) AS c, SUM(gross) AS g FROM stripe_charge_days GROUP BY 1")
+        .all() as { c: string; g: number }[]
+    ).map((r) => [r.c, r.g ?? 0]),
+  );
+  return [...new Set(codes)].sort(
+    (a, b) =>
+      (weight.get(b.toUpperCase()) ?? 0) - (weight.get(a.toUpperCase()) ?? 0) || a.localeCompare(b),
+  );
+}
+
 /* ---------------------------------------------------- individual charges */
 
 export type StripeChargeRecord = {
