@@ -1,13 +1,14 @@
 import { domains } from "../../routes/domains.ts";
+import { stripeRoutes } from "../../routes/stripe.ts";
 import { fleetRoutes } from "../ops/fleet-routes.ts";
 import { uptimeRoutes } from "../ops/uptime-routes.ts";
-import { currentDashboardAlerts, uniqueDashboardAlerts, type DashboardAlert, type DashboardAlertsDoc, type FleetAlertInput, type DomainAlertInput, type UptimeAlertInput } from "../../../../shared/dashboardAlerts.ts";
+import { currentDashboardAlerts, uniqueDashboardAlerts, type DashboardAlert, type DashboardAlertsDoc, type FleetAlertInput, type DomainAlertInput, type RevenueAlertInput, type UptimeAlertInput } from "../../../../shared/dashboardAlerts.ts";
 import { openRuleEvents, rules } from "./store.ts";
 import { eventContext } from "./event-context.ts";
 
 /** Read existing local reports; never trigger collectors or external requests. */
 export async function dashboardAlerts():Promise<DashboardAlertsDoc> {
-  const input:{fleet?:FleetAlertInput;domains?:DomainAlertInput;uptime?:UptimeAlertInput}={};
+  const input:{fleet?:FleetAlertInput;domains?:DomainAlertInput;uptime?:UptimeAlertInput;revenue?:RevenueAlertInput}={};
   const failures:DashboardAlert[]=[];
   const read=async(key:keyof typeof input,request:()=>Response|Promise<Response>)=>{
     try {
@@ -18,7 +19,17 @@ export async function dashboardAlerts():Promise<DashboardAlertsDoc> {
       failures.push({id:`source:${key}`,severity:"warning",title:`${key}: alert status unavailable`,detail:"The latest health report could not be read. Try refreshing.",sources:[key],href:"/ops"});
     }
   };
-  await Promise.all([read("fleet",()=>fleetRoutes.request("/?hours=1")),read("domains",()=>domains.request("/")),read("uptime",()=>uptimeRoutes.request("/?hours=1"))]);
+  await Promise.all([read("fleet",()=>fleetRoutes.request("/?hours=1")),read("domains",()=>domains.request("/")),read("uptime",()=>uptimeRoutes.request("/?hours=1")),]);
+try {
+    const response=await stripeRoutes.request("/?days=30");
+    if(!response.ok)throw new Error(`HTTP ${response.status}`);
+    const body=await response.json() as {connected:boolean;atRisk:{subscriptions:number;mrr:{currency:string;amount:number}[]};subscriptions:{pendingCancellation:{endingSoon:{count:number;mrr:{currency:string;amount:number}[]}}}};
+    // A Stripe account that was never connected has nothing in jeopardy:
+    // that is an empty book, not an alert condition.
+    if(body.connected)input.revenue={atRisk:{subscriptions:body.atRisk.subscriptions,mrr:body.atRisk.mrr},endingSoon:{count:body.subscriptions.pendingCancellation.endingSoon.count,mrr:body.subscriptions.pendingCancellation.endingSoon.mrr}};
+  } catch {
+    failures.push({id:'source:revenue',severity:'warning',title:'revenue: alert status unavailable',detail:'The latest billing report could not be read. Try refreshing.',sources:['stripe'],href:'/alerts'});
+  }
   const alerts=currentDashboardAlerts(input);
   const byRule=new Map(rules().map(r=>[r.id,r]));
   for(const event of openRuleEvents()) {

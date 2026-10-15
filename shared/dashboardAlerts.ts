@@ -32,7 +32,15 @@ export type UptimeAlertInput = {
   hosts:{host:string;current:{ok:boolean;error:string|null;status:number|null}|null;tls:{daysLeft:number|null}}[];
 };
 
-export function currentDashboardAlerts(input:{fleet?:FleetAlertInput;domains?:DomainAlertInput;uptime?:UptimeAlertInput},now=Date.now()):DashboardAlert[] {
+/** Money that is in jeopardy on the billing side, straight off the Stripe
+ *  document. Amounts stay per currency — a 100-unit number in two currencies
+ *  is not 200 of anything. */
+export type RevenueAlertInput = {
+  atRisk: { subscriptions: number; mrr: { currency: string; amount: number }[] };
+  endingSoon: { count: number; mrr: { currency: string; amount: number }[] };
+};
+
+export function currentDashboardAlerts(input:{fleet?:FleetAlertInput;domains?:DomainAlertInput;uptime?:UptimeAlertInput;revenue?:RevenueAlertInput},now=Date.now()):DashboardAlert[] {
   const alerts:DashboardAlert[]=[];
   const f=input.fleet;
   if(f) for(const box of f.boxes) {
@@ -67,6 +75,12 @@ export function currentDashboardAlerts(input:{fleet?:FleetAlertInput;domains?:Do
     if(host.current && !host.current.ok)alerts.push({id:`uptime:${entity.id}:down`,severity:"critical",title:`${host.host} is not answering`,detail:host.current.error ?? `HTTP ${host.current.status ?? "failure"}`,sources:["uptime"],entity});
     const days=host.tls.daysLeft;
     if(days!==null && days<=30)alerts.push({id:`uptime:${entity.id}:tls`,severity:days<=7?"critical":"warning",title:days<0?`${host.host}: TLS certificate expired`:`${host.host}: TLS certificate expires in ${days} days`,detail:"Renew the certificate before it interrupts secure connections.",sources:["uptime","domains"],entity});
+  }
+  const r=input.revenue;
+  if(r) {
+    const sum=(rows:{currency:string;amount:number}[])=>{const by=new Map<string,number>();for(const x of rows)by.set(x.currency,(by.get(x.currency)??0)+x.amount);return [...by.entries()].map(([currency,amount])=>`${currency} ${amount.toFixed(2)}`).join(', ');};
+    if(r.atRisk.subscriptions>0)alerts.push({id:'revenue:at-risk',severity:'warning',title:`${r.atRisk.subscriptions} subscription${r.atRisk.subscriptions===1?'':'s'} failing to pay`,detail:`At-risk MRR: ${sum(r.atRisk.mrr)||'not reported'}. Still contracted, currently declining to collect — Stripe retries on its own schedule; recovery outreach belongs to this group only.`,sources:['stripe'],href:'/alerts'});
+    if(r.endingSoon.count>0)alerts.push({id:'revenue:ending-soon',severity:'warning',title:`${r.endingSoon.count} subscription${r.endingSoon.count===1?'':'s'} end soon`,detail:`Switched off auto-renew and paid to the end of the period: ${sum(r.endingSoon.mrr)||'not reported'} of MRR stops without a save. Decided customers, not failed cards — an offer or a conversation is the only move.`,sources:['stripe'],href:'/alerts'});
   }
   return uniqueDashboardAlerts(alerts);
 }
