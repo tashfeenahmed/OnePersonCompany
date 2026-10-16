@@ -85,7 +85,7 @@ const BUILTIN: Record<
   string,
   PluginRegistryEntry> = {
   /*
-    GOOGLE SIGN-IN — the one Web application OAuth client every "Connect with
+    GOOGLE SIGN-IN — the one Desktop app OAuth client every "Connect with
     Google" button uses. Not a data source: nothing is collected from it. It
     is here because the vault seals secrets per account and the client secret
     has to live somewhere. See routes/google-oauth.ts.

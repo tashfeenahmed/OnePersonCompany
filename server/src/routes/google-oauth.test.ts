@@ -47,7 +47,7 @@ afterEach(() => {
 test("the client is checked against the loopback redirect", async () => {
   assert.equal(await verifyClient({ "client-id": "1.apps.googleusercontent.com", "client-secret": "s" }), null);
   assert.equal(tokenBodies[0]!.get("redirect_uri"), REDIRECT);
-  assert.match((await verifyClient({ "client-id": "nope", "client-secret": "s" }))!, /Web application/);
+  assert.match((await verifyClient({ "client-id": "nope", "client-secret": "s" }))!, /Desktop app/);
 });
 
 test("start refuses until some Google client is known", async () => {
