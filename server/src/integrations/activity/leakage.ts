@@ -42,6 +42,7 @@
 import { Hono } from "hono";
 import {
   stripeChargeDays,
+  stripeCurrencyOrder,
   stripeLedgerDays,
   stripeSubscriptions,
 } from "../../db.ts";
@@ -102,13 +103,14 @@ leakageRoutes.get("/", (c) => {
      ledger holding both "usd" and "USD" is one bucket there and was two here. */
   const disputeDebits = ledgerDisputes(fromDay);
 
-  const currencies = [
-    ...new Set([
-      ...charges.map((r) => r.currency),
-      ...ledger.map((r) => r.currency),
-      ...subs.filter((s) => s.status === "past_due" || s.status === "active").map((s) => s.currency),
-    ]),
-  ].sort();
+  /* Account's own currency FIRST, like the Stripe report (#70): the leakage
+     cards read row 0 as "the" figure, and an alphabetical list handed them a
+     single euro day the day one euro charge landed beside five years of USD. */
+  const currencies = stripeCurrencyOrder([
+    ...charges.map((r) => r.currency),
+    ...ledger.map((r) => r.currency),
+    ...subs.filter((s) => s.status === "past_due" || s.status === "active").map((s) => s.currency),
+  ]);
 
   const perCurrency = currencies.map((currency) => {
     const ch = charges.filter((r) => r.currency === currency);
