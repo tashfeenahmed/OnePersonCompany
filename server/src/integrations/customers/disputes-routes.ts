@@ -28,7 +28,7 @@
  * "23:59 UTC" and "00:59 tomorrow" are the same moment described two ways.
  */
 import { Hono } from "hono";
-import { ventureRows } from "../../db.ts";
+import { stripeCurrencyOrder, ventureRows } from "../../db.ts";
 import { NEEDS_RESPONSE_STATUSES, OPEN_DISPUTE_STATUSES } from "../../providers/stripe.ts";
 import { currencyCode, money } from "../../shared/money.ts";
 import {
@@ -97,7 +97,11 @@ disputeRoutes.get("/", (c) => {
   const inWindow = all.filter((d) => d.created_at >= fromIso);
   const openAll = all.filter((d) => d.outcome === null && OPEN_DISPUTE_STATUSES.has(d.status));
 
-  const currencies = [...new Set(all.map((d) => currencyCode(d.currency)))].sort();
+  /* The account's own currency FIRST — every card that reads this document
+     reads row 0 as "the" dispute figure, and an alphabetical list handed it a
+     single euro dispute the day one euro chargeback landed beside two years of
+     dollars. Same rule #70 set for the Stripe report. */
+  const currencies = stripeCurrencyOrder(all.map((d) => currencyCode(d.currency)));
   const ledger = ledgerDisputeMoney(fromDay);
 
   const perCurrency = currencies.map((currency) => {
