@@ -71,6 +71,24 @@ export function tokens(text: string): string[] {
  *  answered a different question. */
 export const RELEVANCE_FLOOR = 0.3;
 
+/**
+ * A search that came back with NO results at all, named after the search.
+ *
+ * An empty answer page cannot have "answered a different question" — there is
+ * no title and no snippet to have answered anything with. Counted the way the
+ * relevance check counts, zero results are ratio 0, which is `degraded`, and a
+ * degraded query is reported as a query the engine could not match. That
+ * blames the query list for what is the node's silence: every engine refused,
+ * nothing came back, and the run tells the owner their real Search Console
+ * queries are unsearchable. An empty search measures the node, not the query,
+ * so it is recorded as unmeasurable with the reason spelled out.
+ */
+export function unanswered(results: { title: string }[]): string | null {
+  return results.length
+    ? null
+    : "the search returned zero results, so there was no title and no snippet to match the query against — the engines were silent, which says nothing about whether anybody searches this query";
+}
+
 export type Relevance = {
   ratio: number | null;
   degraded: boolean;

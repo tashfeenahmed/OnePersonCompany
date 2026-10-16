@@ -57,6 +57,7 @@ test("the SERP teardown is one designed HTML document with the measured tables, 
       error: null,
     },
     { query: "will they let me build it", source: "description", gscPosition: null, gscImpressions: null, ourRank: null, ourUrl: null, ours: null, competitors: [], relevance: 0.1, degraded: true, unmeasurable: null, refused: [], gaps: [], error: null },
+    { query: "gemini cli free tier", source: "gsc", gscPosition: 10.1, gscImpressions: 40, ourRank: null, ourUrl: null, ours: null, competitors: [], relevance: null, degraded: false, unmeasurable: "the search returned zero results, so there was no title and no snippet to match the query against — the engines were silent, which says nothing about whether anybody searches this query", refused: [{ engine: "brave", reason: "Suspended: too many requests" }], gaps: [], error: null },
     { query: "x", source: "typed", gscPosition: null, gscImpressions: null, ourRank: null, ourUrl: null, ours: null, competitors: [], relevance: null, degraded: false, unmeasurable: null, refused: [], gaps: [], error: "the node was down" },
   ];
   const out = serpDocument(v, rows, ANALYSIS, "2026-09-21T10:00:00.000Z") + cardsFence(ANALYSIS.cards);
@@ -64,11 +65,13 @@ test("the SERP teardown is one designed HTML document with the measured tables, 
   assert.ok(looksLikeHtmlReport(doc), "the page is an HTML report the client frames");
   assert.match(doc, /<title>The pages above us all carry an FAQ block and ours does not<\/title>/, "the title is the finding");
   assert.match(doc, /<h1>The pages above us all carry an FAQ block/);
-  assert.match(doc, /SERP teardown · PlanFinder · 3 queries · 2026-09-21/, "the dateline");
+  assert.match(doc, /SERP teardown · PlanFinder · 4 queries · 2026-09-21/, "the dateline");
   assert.match(doc, /<p class="verdict">Every page that outranks planfinder\.example[^<]*<strong>none<\/strong>\./, "the verdict is under the header with bold honoured");
   assert.match(doc, /<td class="num">#3<\/td>/, "our rank is in the summary table");
   assert.match(doc, /<td class="num">7\.4<\/td>/, "Google's position is printed as measured");
   assert.match(doc, /degraded \(0\.1\)/, "a degraded query says so");
+  assert.match(doc, /<span class="pill">unmeasurable<\/span>/, "a query whose check could not run is labelled, not degraded");
+  assert.match(doc, /This query cannot be checked for relevance: the search returned zero results/, "an empty search names the node, not the query");
   assert.match(doc, /search failed/, "a failed search says so");
   assert.match(doc, /<tr class="ours"><td><a href="https:\/\/planfinder\.example\/search"[^>]*>planfinder\.example<\/a>/, "our page is the highlighted row, linked by host");
   assert.match(doc, /not read — 403 from a firewall/, "a blocked page is not counted as short");
@@ -77,7 +80,7 @@ test("the SERP teardown is one designed HTML document with the measured tables, 
   assert.match(doc, /<span class="badge badge-warn">description<\/span>/, "a derived query is flagged");
   assert.match(doc, /<h2>They answer the question on the page; we link to it<\/h2>/, "the analysis sections are the model's headings");
   assert.match(doc, /<ol class="recs">[\s\S]*Add an FAQ block to \/planning-permission/, "the recommendations are a ranked list");
-  assert.match(doc, /<footer>Written 2026-09-21 from 2 pages this server read and 2 searches/);
+  assert.match(doc, /<footer>Written 2026-09-21 from 2 pages this server read and 3 searches/);
   assert.doesNotMatch(doc, /<script/i);
   assert.match(tail, /```json cards/, "the cards fence sits after the document");
 
