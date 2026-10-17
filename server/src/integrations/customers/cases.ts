@@ -249,6 +249,11 @@ export function deriveCases(input: DeriveInput): DeriveResult {
         dueDate: inv.dueDate,
         issuedAt: inv.createdAt,
         subscription: inv.subscription,
+        /* Stripe's own hosted pay page for THIS invoice, walked onto this
+           box already (walkOpenInvoices). The composer may print a link
+           only when it is a fact on the case rather than something to
+           invent, and this is the one case whose document carries one. */
+        payUrl: inv.hostedInvoiceUrl,
         note: inv.nextPaymentAttempt
           ? "Stripe will try the card again on the deadline."
           : "Stripe has scheduled no further attempt. Dunning is over; nothing will retry on its own.",

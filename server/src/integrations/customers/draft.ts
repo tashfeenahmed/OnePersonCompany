@@ -12,10 +12,15 @@
  *
  * WHAT IT MAY SAY, exhaustively: the plan or product name Stripe recorded,
  * the amount and currency on the case, the dates on the case, the attempt
- * count on a failing invoice, and Stripe's own word for a cancellation
- * reason. Nothing else. In particular there is NO LINK: a billing-portal URL
- * is not on any document this box holds, and a link somebody has to invent is
- * the fastest way to send a customer to a 404 with the business's name on it.
+ * count on a failing invoice, Stripe's own word for a cancellation
+ * reason, and — for a payment case only — the hosted pay URL Stripe published
+ * for that exact invoice. Nothing else. In particular there is no invented
+ * link: a billing-portal URL is not on any document this box holds, and a link
+ * somebody has to invent is the fastest way to send a customer to a 404 with
+ * the business's name on it. The one URL the composer may print must have
+ * arrived as a fact on the case AND pass the Stripe-hosted allowlist in
+ * `compose`, and it is recorded in `usedFacts` so the owner sees the exact
+ * string before it sends.
  *
  * WHAT IT MUST NEVER SAY, and the skill carries the same rule so an agent
  * asked to "improve the wording" knows the boundary: that the customer WILL
@@ -183,9 +188,22 @@ export function compose(row: CaseRecord): Composed | null {
       const attempts = n(ctx, "attemptCount");
       const next = longDate(s(ctx, "nextPaymentAttempt") ?? row.deadline);
       const number = s(ctx, "invoiceNumber");
+      /* Stripe's hosted pay page for this exact invoice, carried onto the case
+         by the walk that read the invoice. THE ONE LINK THIS COMPOSER MAY
+         PRINT, and only for this kind: it is not invented, it is a URL Stripe
+         published for this invoice, it works after the card changes (the page
+         takes a new card), and it is on `usedFacts` so the owner approves the
+         exact string the customer will click. Every other link stays banned —
+         a billing-portal URL exists on no document this box holds. */
+      const rawPay = s(ctx, "payUrl");
+      const payUrl =
+        rawPay && /^https:\/\/(pay\.stripe\.com|invoice\.stripe\.com)\/[^"'\s<>]+$/.test(rawPay)
+          ? rawPay
+          : null;
       used.attemptCount = attempts;
       used.nextPaymentAttempt = s(ctx, "nextPaymentAttempt") ?? row.deadline;
       used.invoiceNumber = number;
+      used.payUrl = payUrl;
       /* Overrides the subscription rule's null: this figure is an invoice
          total, not a normalisation, so it is quoted and recorded as quoted. */
       used.priceQuoted = invoiceAmount;
@@ -202,12 +220,22 @@ export function compose(row: CaseRecord): Composed | null {
              the date off the invoice. Where there is none, the sentence says
              that nothing will retry — which is the fact, and the reason to
              reply. */
+          payUrl
+            ? /* Stripe's own page for this invoice, so the customer can settle
+                 it or fix the card without waiting for anyone. This replaces
+                 nothing the letter used to say: the retry sentence still
+                 follows. A customer who reads one sentence should still get
+                 the whole truth from the rest of the letter. */
+              `You can pay it now, or use a different card, on Stripe's secure payment page: ${payUrl}`
+            : null,
           next
             ? `Stripe will try the card again on ${next}. If the card has changed, replying here is the quickest way to get it sorted before then.`
             : "There is no further automatic attempt scheduled, so it will not retry on its own. Reply here and I will help you get it settled.",
           "",
           "If you meant to stop, tell me and I will close it out — no chasing.",
-        ].join("\n"),
+        ]
+          .filter((line) => line !== null)
+          .join("\n"),
         usedFacts: used,
       };
     }
