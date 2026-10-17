@@ -4345,6 +4345,17 @@ export const api = {
   boardArchiveCard: (id: number) =>
     call<BoardDoc>(`/board/cards/${id}/archive`, { method: "POST" }),
 
+  /** What is in the archive, newest first — the read behind the archived
+   *  count on the header. */
+  boardArchive: () =>
+    call<{ cards: { id: number; title: string; body: string | null; ventureId: string | null; archivedAt: string | null }[] }>(
+      "/board/archive",
+    ),
+
+  /** Back onto the board, in the column it left from. */
+  boardUnarchiveCard: (id: number) =>
+    call<BoardDoc>(`/board/cards/${id}/unarchive`, { method: "POST" }),
+
   /** Gone, with no undo — which is why archive exists beside it and why the
    *  dialog asks before it calls this. */
   boardDeleteCard: (id: number) =>
