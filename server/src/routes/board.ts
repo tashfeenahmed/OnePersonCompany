@@ -790,6 +790,46 @@ boardRoutes.post("/cards/:id/archive", (c) => {
   return c.json(boardDoc());
 });
 
+/**
+ * The archive, for the one surface that has ever needed it.
+ *
+ * The board document keeps archived cards OUT of every column and counts them
+ * in `totals.archived`, which is honest right up to the moment somebody
+ * wonders what they archived. Until this route existed, a person could see
+ * "3 archived" on the header and had no way at all to find out what the three
+ * were — an archive you cannot read is one step from a delete. Newest first:
+ * the card you are wondering about was almost just archived.
+ */
+boardRoutes.get("/archive", (c) => {
+  const rows = db
+    .prepare(
+      `SELECT * FROM board_cards
+        WHERE archived_at IS NOT NULL
+        ORDER BY archived_at DESC, id DESC`,
+    )
+    .all() as unknown as CardRow[];
+  return c.json({
+    cards: rows.map((r) => ({ ...shapeCard(r), archivedAt: r.archived_at })),
+  });
+});
+
+/** Back onto the board, in the column it left from. The card kept its column
+ *  and its position when it was archived — that is what "out of the way, not
+ *  gone" means — so restoring clears the mark and every read picks it up
+ *  where it left off. Restoring into a column since deleted cannot happen:
+ *  column deletion moves its cards to Backlog, archived ones included. */
+boardRoutes.post("/cards/:id/unarchive", (c) => {
+  const id = Number(c.req.param("id"));
+  const card = Number.isInteger(id) ? cardById(id) : undefined;
+  if (!card) return c.json({ error: "No card with that id." }, 404);
+  if (!card.archived_at) return c.json(boardDoc());
+
+  db.prepare(
+    "UPDATE board_cards SET archived_at = NULL, updated_at = ? WHERE id = ?",
+  ).run(now(), id);
+  return c.json(boardDoc());
+});
+
 /** Gone. The one route here with no undo, which is why archive exists beside
  *  it and why the page asks before it calls this. */
 boardRoutes.delete("/cards/:id", (c) => {

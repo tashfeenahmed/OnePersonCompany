@@ -147,6 +147,14 @@ export function Board() {
   const [newColumn, setNewColumn] = useState("");
   const [addingColumn, setAddingColumn] = useState(false);
   const [removingColumn, setRemovingColumn] = useState<BoardColumn | null>(null);
+  /* The archive list, opened from the header's count. Fetched on open rather
+     than carried on the board document, because the board repaints on every
+     write and an archive is read about as often as a drawer is opened. */
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archivedCards, setArchivedCards] = useState<
+    { id: number; title: string; archivedAt: string | null }[] | null
+  >(null);
+  const [restoring, setRestoring] = useState<number | null>(null);
   const { data, error, loading, reload, mutate: writeBoard } = useBoard(drag !== null || colDrag !== null || opened !== null);
 
   useEffect(() => {
@@ -291,6 +299,29 @@ export function Board() {
     await mutate(() => api.boardMoveColumn(id, before), { ...data, columns: rest });
   }
 
+  /* Opening the archive: the count on the header is the only hint the owner
+     ever got, and until the list was readable the count was a dead end. */
+  async function openArchive() {
+    setArchiveOpen(true);
+    setArchivedCards(null);
+    try {
+      const doc = await api.boardArchive();
+      setArchivedCards(doc.cards);
+    } catch {
+      setArchivedCards([]);
+    }
+  }
+
+  async function restore(id: number) {
+    setRestoring(id);
+    try {
+      await mutate(() => api.boardUnarchiveCard(id));
+      setArchivedCards((rows) => (rows ?? []).filter((r) => r.id !== id));
+    } finally {
+      setRestoring(null);
+    }
+  }
+
   /* ---- the three states this page actually has, before any board is drawn */
 
   if (error && !data)
@@ -333,9 +364,14 @@ export function Board() {
               {data.totals.archived > 0 && (
                 <>
                   {" · "}
-                  <span title="Archived cards are kept and left out of every column. There is no route that reads them back yet.">
+                  <button
+                    type="button"
+                    className="underline underline-offset-2 decoration-dotted hover:decoration-solid"
+                    title="Archived cards are kept and left out of every column. Open the list to read them or restore one."
+                    onClick={() => void openArchive()}
+                  >
                     {data.totals.archived} archived
-                  </span>
+                  </button>
                 </>
               )}
             </p>
@@ -482,6 +518,34 @@ export function Board() {
       <Dialog open={removingColumn !== null} onOpenChange={(open) => !open && setRemovingColumn(null)}>
         <DialogContent><DialogHeader><DialogTitle>Delete {removingColumn?.title}?</DialogTitle><DialogDescription>All cards in this column will move to Backlog, including archived cards. No cards will be deleted.</DialogDescription></DialogHeader>
           <DialogFooter><Button variant="outline" onClick={() => setRemovingColumn(null)}>Cancel</Button><Button onClick={() => { if (removingColumn) void mutate(async () => { const doc = await api.boardDeleteColumn(removingColumn.id); setRemovingColumn(null); return doc; }); }}>Delete column</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={archiveOpen} onOpenChange={(open) => !open && setArchiveOpen(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Archived cards</DialogTitle>
+            <DialogDescription>
+              Out of the way, not gone. Restoring puts a card back in the column it was archived from.
+            </DialogDescription>
+          </DialogHeader>
+          {archivedCards === null ? (
+            <p role="status" className="text-sm text-muted-foreground">Reading the archive…</p>
+          ) : archivedCards.length === 0 ? (
+            <p role="status" className="text-sm text-muted-foreground">Nothing archived.</p>
+          ) : (
+            <ul className="max-h-[45vh] space-y-2 overflow-y-auto">
+              {archivedCards.map((row) => (
+                <li key={row.id} className="flex items-center gap-3 rounded-lg border px-3 py-2">
+                  <span className="min-w-0 flex-1 truncate text-sm" title={row.title}>{row.title}</span>
+                  {row.archivedAt && <span className="shrink-0 text-xs text-muted-foreground">{day(row.archivedAt)}</span>}
+                  <Button variant="outline" size="sm" disabled={restoring === row.id} onClick={() => void restore(row.id)}>
+                    Restore
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
         </DialogContent>
       </Dialog>
 
