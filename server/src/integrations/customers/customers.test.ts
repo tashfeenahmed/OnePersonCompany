@@ -325,6 +325,41 @@ test("an open invoice with no attempt behind it is not a failure", () => {
   assert.equal(one.cases[0]!.deadline, "2026-09-09T00:00:00.000Z");
 });
 
+test("deriveCases carries the invoice's hosted pay URL onto the case", () => {
+  /* The dunning composer prints a link only when it is a fact on the case,
+     and this walk is where that fact arrives. Losing it here silently turns
+     every payment letter back into "reply here". */
+  const invoice = {
+    id: "in_pay",
+    customer: "cus_p",
+    customerEmail: null,
+    subscription: "sub_p",
+    amountDue: 42,
+    amountRemaining: 42,
+    currency: "usd",
+    attemptCount: 1,
+    nextPaymentAttempt: null,
+    dueDate: null,
+    createdAt: "2026-09-01T00:00:00.000Z",
+    hostedInvoiceUrl: "https://pay.stripe.com/invoice/acct_1/invst_p",
+    number: "A-9",
+  };
+  const { cases } = deriveCases({
+    accountId: 1,
+    accountLabel: "Account 1",
+    subscriptions: [],
+    openInvoices: [invoice],
+    disputes: [],
+    ventures: emptyVentures(),
+    nowMs: T0,
+    horizonDays: 60,
+    trialDays: 7,
+  });
+  assert.equal(cases.length, 1);
+  const ctx = cases[0]!.context as { payUrl?: string | null };
+  assert.equal(ctx.payUrl, "https://pay.stripe.com/invoice/acct_1/invst_p");
+});
+
 /* ------------------------------------------------------- case resolution */
 
 test("a churn case resolves when Stripe shows the subscription active again", () => {
@@ -664,6 +699,57 @@ test("a payment case with no further attempt says nothing will retry", () => {
   });
   const composed = compose(row);
   assert.match(composed!.body, /no further automatic attempt scheduled/);
+});
+
+test("a payment case WITH a hosted pay URL prints it and records it", () => {
+  /* The dunning letter's whole job is to get the money in; without a link it
+     asks the customer to "reply here" for a card fix Stripe already has a page
+     for. `payUrl` is Stripe's own `hosted_invoice_url` carried onto the case
+     by deriveCases, so it is a fact, not an invented link. */
+  const row = caseOf({
+    id: "payment_failed:in_3",
+    kind: "payment_failed",
+    subject_ref: "in_3",
+    amount: 49,
+    currency: "gbp",
+    context: JSON.stringify({
+      state: "invoice open after a failed attempt",
+      attemptCount: 2,
+      nextPaymentAttempt: "2026-10-20T00:00:00.000Z",
+      payUrl: "https://pay.stripe.com/invoice/acct_123/invst_aB1",
+    }),
+  });
+  const composed = compose(row);
+  assert.ok(composed);
+  assert.match(composed!.body, /Stripe's secure payment page: https:\/\/pay\.stripe\.com\/invoice\/acct_123\/invst_aB1/);
+  /* The retry schedule is still stated — the link replaces no sentence. */
+  assert.match(composed!.body, /try the card again on 20 October 2026/);
+  assert.equal(composed!.usedFacts.payUrl, "https://pay.stripe.com/invoice/acct_123/invst_aB1");
+});
+
+test("a pay URL is printed only for its Stripe hosts", () => {
+  /* The composer's rule is that it never prints a link it did not read off
+     the invoice — and a value that IS on the case is still checked against
+     Stripe's own hosts, so a corrupted or spoofed context string cannot put
+     an arbitrary URL in a customer-facing letter. */
+  for (const bad of [
+    "http://pay.stripe.com/invoice/x",
+    "https://pay.stripe.com.evil.test/invoice/x",
+    "https://evil.test/pay.stripe.com",
+    "javascript:alert(1)",
+  ]) {
+    const composed = compose(
+      caseOf({
+        id: "payment_failed:in_x",
+        kind: "payment_failed",
+        subject_ref: "in_x",
+        context: JSON.stringify({ state: "invoice open after a failed attempt", payUrl: bad }),
+      }),
+    );
+    assert.ok(composed);
+    assert.ok(!composed!.body.includes("http"), `${bad} must never reach the body`);
+    assert.equal(composed!.usedFacts.payUrl, null);
+  }
 });
 
 /** The local hour of an ISO instant, for the assertion above. */
