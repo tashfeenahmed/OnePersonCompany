@@ -52,6 +52,13 @@ function clamp(value: number, lo: number, hi: number) {
   return Math.min(hi, Math.max(lo, value));
 }
 
+/** A search word made safe for a `LIKE … ESCAPE '\'` pattern: the escape
+ *  character and the two wildcards each get a backslash in front, so they
+ *  match themselves. find.ts's `like()` is the same rule on the same box. */
+function likeEscape(word: string): string {
+  return word.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
 /** The UTC day, `days` ago, as the ISO instant a `created_at` compares
  *  against. String comparison on ISO-8601 is chronological, which is why every
  *  window below is a `>=` on text. */
@@ -654,8 +661,11 @@ userRoutes.get("/:product", (c) => {
   const where: string[] = ["account_id = ?"];
   const args: (string | number)[] = [account.id];
   if (q) {
-    where.push("(LOWER(user_id) LIKE ? OR LOWER(COALESCE(plan,'')) LIKE ? OR LOWER(COALESCE(country,'')) LIKE ? OR LOWER(COALESCE(email_domain,'')) LIKE ?)");
-    for (let i = 0; i < 4; i++) args.push(`%${q}%`);
+    where.push("(LOWER(user_id) LIKE ? ESCAPE '\\' OR LOWER(COALESCE(plan,'')) LIKE ? ESCAPE '\\' OR LOWER(COALESCE(country,'')) LIKE ? ESCAPE '\\' OR LOWER(COALESCE(email_domain,'')) LIKE ? ESCAPE '\\')");
+    /* `%` and `_` are characters to the person typing them, not wildcards —
+       the same rule find.ts's `like()` spells out, applied here so a search
+       for "100%" cannot match every row and "a_b" cannot match "axb". */
+    for (let i = 0; i < 4; i++) args.push(`%${likeEscape(q)}%`);
   }
   if (plan) {
     where.push("plan = ?");
