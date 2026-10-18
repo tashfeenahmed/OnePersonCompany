@@ -149,3 +149,34 @@ test("the recent list carries a mail domain and never an address", async () => {
   assert.equal("email" in row, false, "there is no address field on this document");
   assert.equal(JSON.stringify(got).includes("hash-u1"), false, "and the hash is not published either");
 });
+
+test("a search word's % and _ are characters, not wildcards", async () => {
+  const id = account("Wildcards");
+  doc(id, "users", 4);
+  user(id, "off-100%", { created: 1 * DAY, domain: null });
+  user(id, "off-50", { created: 1 * DAY, domain: null });
+  user(id, "a_b", { created: 1 * DAY, domain: null });
+  user(id, "axb", { created: 1 * DAY, domain: null });
+
+  /* "%": a search for the literal "100%" used to compile to `%100%%`, where
+     the trailing unescaped `%` matched everything after "100" — so "off-50"
+     stayed out but ANY id containing "100" followed by anything matched. The
+     sharper case is "_": searching for the id "a_b" used to return "axb" too. */
+  const underscore = await userRoutes.request(`/${id}?q=a_b`);
+  assert.equal(underscore.status, 200);
+  const us = await underscore.json() as { matching: number; users: { id: string }[] };
+  assert.equal(us.matching, 1, "a_b matches the underscore row only, not axb");
+  assert.equal(us.users[0]!.id, "a_b");
+
+  const percent = await userRoutes.request(`/${id}?q=off-100%25`);
+  assert.equal(percent.status, 200);
+  const pc = await percent.json() as { matching: number; users: { id: string }[] };
+  assert.equal(pc.matching, 1, "a search for 'off-100%' matches only that id");
+  assert.equal(pc.users[0]!.id, "off-100%");
+
+  /* A lone "%" is no longer a match-everything query: it matches only the one
+     id that literally carries a percent sign, not the whole table. */
+  const alone = await userRoutes.request(`/${id}?q=%25`);
+  const al = await alone.json() as { matching: number };
+  assert.equal(al.matching, 1, "a query of just '%' matches only the id carrying a literal %");
+});
