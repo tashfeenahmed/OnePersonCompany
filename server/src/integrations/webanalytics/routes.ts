@@ -35,6 +35,7 @@
  */
 import { Hono } from "hono";
 import { ventureRow, ventureRows } from "../../db.ts";
+import { isMonth } from "../../shared/money.ts";
 import { umamiWebsites } from "../analytics/store.ts";
 import * as umami from "../analytics/umami.ts";
 import * as meta from "../../providers/meta.ts";
@@ -320,6 +321,13 @@ webAnalyticsRoutes.get("/campaigns/:ventureKey", async (c) => {
   const days = clamp(Number(c.req.query("days") ?? 30) || 30, 1, 90);
   const join = joinFor(venture, days);
   const month = (c.req.query("month") ?? new Date().toISOString().slice(0, 7)).slice(0, 7);
+  /* `ventureRevenue`'s month is a `BETWEEN month||'-01' AND month||'-32'`
+     string range, so an unvalidated `?month=` silently matches zero charge
+     rows and this answers 200 with a zero revenue beside a real spend — the
+     confident wrong number. Every other month-shaped endpoint rejects it
+     (`isMonth`); this router never migrated. */
+  if (!isMonth(month))
+    return c.json({ error: 'month must be "YYYY-MM"' }, 400);
   const efficiency = await blended(venture, month, join.spend);
   return c.json({
     ...join,
