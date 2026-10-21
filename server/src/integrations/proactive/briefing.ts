@@ -40,6 +40,7 @@ import { workflowOwns } from "../pipeline/workflow-store.ts";
  */
 import { appendChatMessage, chatMessages, configValue, ventureRows } from "../../db.ts";
 import { dailySchedule, zoned } from "../../shared/time.ts";
+import { shiftDay } from "../../../../shared/workJournal.ts";
 import { complete, NoProviderError } from "../../models/provider.ts";
 import { plainRich, PRESENT_BRIEF } from "../../skills/present.ts";
 import { dayName, plainCause, plural } from "../../shared/phone.ts";
@@ -94,6 +95,19 @@ export type Settings = {
  * import them from here.
  */
 export { systemZone, validZone, zoned } from "../../shared/time.ts";
+
+/** How many days ahead the briefing's "due soon" window reaches. */
+export const DUE_SOON_DAYS = 3;
+
+/**
+ * The far bound of the due-soon window for a briefing built on `day` (the
+ * zoned ISO date the briefing itself uses). Date arithmetic only: shifting
+ * `day` by N days and comparing ISO strings is timezone-independent, which
+ * is exactly what the old `Date.now() + N*86_400_000` cut to UTC broke.
+ */
+export function dueSoonBound(day: string): string {
+  return shiftDay(day, DUE_SOON_DAYS);
+}
 
 const onOff = (v: string | null, fallback: boolean) => {
   const t = (v ?? "").trim().toLowerCase();
@@ -290,7 +304,14 @@ export async function assemble(
     if (!doc?.columns) facts.board.note = "The board document could not be read.";
     else {
       const today = day;
-      const soon = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
+      /* THREE DAYS FROM THE BRIEFING'S OWN DAY, counted in dates. It was
+         `Date.now() + 3 days` cut to an ISO date, which mixes UTC instants
+         with the zoned `day` it is compared against: at 00:30 in UTC+5:30 the
+         UTC date is still two behind and the window quietly reads two days;
+         at 22:00 in UTC-4 it reads four. A due date is a DATE, so the span
+         between two of them is date arithmetic, not clock arithmetic — the
+         same rule the journal's heatmap already follows with `shiftDay`. */
+      const soon = dueSoonBound(day);
       const overdue: NonNullable<Facts["board"]["overdue"]> = [];
       const dueSoon: NonNullable<Facts["board"]["dueSoon"]> = [];
       for (const col of doc.columns)
